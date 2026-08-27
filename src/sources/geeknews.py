@@ -35,6 +35,14 @@ _ID_RE = re.compile(r"[?&]id=(\d+)")
 _TITLE_SUFFIX_RE = re.compile(r"\s*\|\s*GeekNews\s*$")
 
 
+class Blocked(Exception):
+    """서버가 접근을 거부했다(403). 즉시 중단하고 다음 날 재개한다.
+
+    이전 구현은 403을 '실패한 항목'으로 보고 건너뛰며 계속 요청해서, 한 번의
+    실행에서 403을 199회 두드렸다. 거부 신호를 받으면 두드리기를 멈추는 게 맞다.
+    """
+
+
 def _topic_id(link: str) -> str | None:
     m = _ID_RE.search(link or "")
     return m.group(1) if m else None
@@ -94,11 +102,13 @@ class GeekNewsSource(Source):
                 resp = self.session.get(url, timeout=15)
                 if resp.status_code == 404:
                     return None          # 삭제되거나 비어있는 id — 정상 상황
-                if resp.status_code == 429:
-                    time.sleep(backoff * attempt * 2)
-                    continue
+                if resp.status_code in (403, 429):
+                    # 거부·속도제한 신호. 재시도하지 않고 이번 실행을 끝낸다.
+                    raise Blocked(f"HTTP {resp.status_code} at id={tid}")
                 resp.raise_for_status()
                 break
+            except Blocked:
+                raise
             except requests.RequestException as exc:
                 if attempt == retries:
                     print(f"    id={tid} 실패({exc}) — 건너뜀")
@@ -166,7 +176,13 @@ class GeekNewsSource(Source):
         for _ in range(50):
             if tid <= floor_id:
                 break
-            item = self._fetch_topic(tid)
+            try:
+                item = self._fetch_topic(tid)
+            except Blocked as exc:
+                # 서버가 거부했다. 지금까지 받은 건 저장하고 커서를 남긴 채 종료한다.
+                # cursor를 유지해야 다음 실행이 여기서 이어간다.
+                print(f"    ⛔ 접근 거부({exc}) — 이번 실행 중단. 다음 실행에서 재개")
+                return Batch(items=items, cursor=str(tid), note="서버 거부로 중단")
             tid -= 1
             time.sleep(interval)
             if item is None:
