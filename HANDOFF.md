@@ -4,6 +4,27 @@
 
 ---
 
+## 0. 새 컴퓨터에서 3분 만에 시작하기
+
+```bash
+git clone https://github.com/wjdgnsdl213/AI_tech_radar.git
+cd AI_tech_radar
+pip install -r requirements.txt
+
+# 아래 3개를 옛 PC에서 수동 복사 (git에 없음)
+#   .env
+#   data/radar.db
+#   data/raw/*.jsonl
+#   data/checkpoints/*.json
+
+python -m src.db --summary        # 이관 확인
+python -m src.collect             # 일일 수집 (RSS + GeekNews 과거분 150건)
+```
+
+**코드는 GitHub에 있다.** 데이터·비밀키만 따로 옮기면 된다.
+
+---
+
 ## 1. 무엇을 옮기고 무엇을 버리나
 
 | 대상 | 크기 | 옮기나 | 이유 |
@@ -122,12 +143,24 @@ score:
 
 ## 5. 주의사항
 
-### GeekNews 백필은 꺼져 있다 (건드리지 말 것)
-`config.yaml`의 `sources.geeknews.backfill: false`.
-1.5초 간격을 지켰는데도 276건 수집 후 **403 Forbidden 199회 연속**으로 차단당했다.
-컴퓨터를 바꿔도 상황은 같다 — 서버 쪽 판단이다.
-**RSS 전방 수집은 정상 유지**되며 이게 정당한 경로다.
-과거분이 꼭 필요하면 운영자에게 문의하는 게 맞는 순서.
+### GeekNews는 "하루 조금씩" 방식으로 수집한다
+`python -m src.collect`를 **하루 1회** 실행한다 (`run_daily.bat` + 작업 스케줄러).
+
+| 경로 | 양 | 성격 |
+|---|---|---|
+| RSS 전방 수집 | 매일 50건(피드 전체) | 배포용 공개 채널. 부담 없음 |
+| 과거분 보충 | 하루 **150건** (`daily_crawl_limit`) | 1.5초 간격, 약 4분 |
+
+**이력**: 2026-08-26에 연속 수집하다 약 290건 지점에서 403이 걸렸다.
+당시 코드가 403을 '실패한 항목'으로 보고 **199회를 더 두드린 게 진짜 문제**였다.
+지금은 403/429를 받으면 그 실행을 즉시 중단하고 커서를 남긴 뒤 다음 날 재개한다.
+150건/일로 실측한 결과 차단 없이 137건이 수집됐다.
+
+> ⚠️ **차단을 우회하지 않는다.** User-Agent 변경·프록시·간격 축소는 하지 않는다.
+> 403이 자주 뜨면 `daily_crawl_limit`을 **낮춘다**. 서버가 거부하면 멈추는 게 전제다.
+
+누적 예상: 150건/일 × 30일 ≈ 4,500건 ≈ GeekNews 4~5개월치.
+더 빨리 받아야 하면 운영자에게 문의하는 게 맞는 순서.
 
 ### `import_sobiz.py`는 외부 경로에 의존한다
 ```yaml
