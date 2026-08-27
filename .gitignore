@@ -1,0 +1,18 @@
+.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 데이터 산출물 (용량 큼, 재생성 가능)
+data/raw/*
+data/processed/*
+data/checkpoints/*
+!data/**/.gitkeep
+*.db
+*.parquet
+
+logs/
+logs_*.txt
+reports/*
+!reports/.gitkeep

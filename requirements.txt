@@ -1,0 +1,26 @@
+# ── 1주차: 수집·백필 ────────────────────────────────
+requests
+pyyaml
+python-dotenv
+pandas
+pyarrow
+feedparser          # GeekNews Atom 피드
+beautifulsoup4      # GeekNews 백필 시 og: 메타태그 파싱
+
+# DB — 엔진 비종속. 배포 시 DATABASE_URL만 바꾸면 교체된다.
+sqlalchemy>=2.0
+# 배포 대상이 정해지면 해당 드라이버만 추가로 설치한다:
+#   PostgreSQL  psycopg[binary]
+#   MySQL       pymysql
+#   Oracle      oracledb
+
+# ── 2주차: 필터 ─────────────────────────────────────
+# 한·영 혼재라 다국어 임베딩 모델(BAAI/bge-m3)을 쓴다. ko-sroberta는 한국어 전용이라 부적합.
+sentence-transformers
+torch
+
+# ── 3주차: AI 해설 + 웹 + 메일 ───────────────────────
+anthropic
+fastapi
+uvicorn
+jinja2              # 다이제스트 → HTML/메일 렌더 (한 번 생성, 두 형태)

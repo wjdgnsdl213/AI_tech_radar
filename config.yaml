@@ -1,0 +1,168 @@
+# ai-tech-radar 하이퍼파라미터
+# 모든 튜닝 가능한 값은 이 파일에서 관리한다 (코드 하드코딩 금지)
+
+db:
+  # 엔진 비종속(SQLAlchemy). 배포 시 .env의 DATABASE_URL이 이 값을 덮어쓴다.
+  #   개발     sqlite:///data/radar.db
+  #   배포     postgresql+psycopg://user:pw@host:5432/aitrend
+  #   사내 DB  oracle+oracledb://...  /  mysql+pymysql://...
+  url: sqlite:///data/radar.db
+
+# ── 3축 정의 ────────────────────────────────────────────────────────
+# 교차 점수(score.py)의 기준. 항목이 걸치는 축 수가 많을수록 상위 노출된다.
+# 여기 키워드는 ②키워드 prefilter에도 함께 쓰인다(무료 단계).
+axes:
+  ai:
+    label: AI
+    keywords:
+      - AI, 인공지능, LLM, 생성형
+      - 머신러닝, 딥러닝, 학습모델
+      - RAG, 임베딩, 벡터, 파인튜닝
+      - 챗봇, 에이전트, 프롬프트
+      - GPT, Claude, Gemini, Llama
+      - 이상탐지, 수요예측, 시계열
+  bigdata:
+    label: 빅데이터
+    keywords:
+      - 빅데이터, 데이터플랫폼, 데이터레이크, 웨어하우스
+      - 데이터파이프라인, ETL, ELT, 오케스트레이션
+      - Airflow, dbt, Spark, Kafka, DuckDB, Iceberg, Trino
+      - 공공데이터, 데이터개방, 데이터표준
+      - 개인정보, 가명정보, 익명처리, 재식별
+      - 데이터거버넌스, 마이데이터, 데이터결합
+  smallbiz:
+    label: 소상공인
+    keywords:
+      - 소상공인, 자영업, 소기업, 상권
+      - 전통시장, 골목상권, 프랜차이즈
+      - 중기부, 중소벤처기업부, 소진공, 소상공인시장진흥공단
+      - 상권분석, 매출데이터, 카드매출
+      - 폐업, 창업, 자금지원, 정책자금
+
+# 교차 점수 가중치 — 팀 성격(a 분석·c 인프라·d 기획)에 맞춰 조정한다.
+# 축 수가 많을수록 급격히 가중된다(교집합 우선 원칙).
+score:
+  axis_count_weight: {1: 1.0, 2: 3.0, 3: 6.0}
+  axis_weight: {ai: 1.0, bigdata: 1.2, smallbiz: 1.2}
+  min_axes: 1           # 0축(어느 축에도 안 걸림) 항목은 버린다
+
+# ── 소스별 설정 ─────────────────────────────────────────────────────
+sources:
+
+  # Hacker News — (c) 인프라·운영 사례. Algolia API, 무인증, 2007년부터 전체 아카이브.
+  hackernews:
+    enabled: true
+    api_url: https://hn.algolia.com/api/v1/search_by_date
+    hits_per_page: 100
+    request_interval: 0.3     # Algolia는 관대하지만 예의상 간격을 둔다
+    max_retries: 3
+    retry_backoff: 2.0
+    min_points: 30            # 이 점수 미만 스토리는 수집 단계에서 제외 (볼륨 대응)
+    backfill_years: 3
+    queries:                  # 쿼리별로 별도 백필(체크포인트도 쿼리 단위)
+      - data engineering
+      - data platform
+      - data pipeline
+      - analytics
+      - LLM production
+      - RAG
+      - vector database
+      - duckdb
+      - iceberg
+      - airflow
+      - dbt
+      - small business software
+
+  # GeekNews — (a)(c) 국내 실무 정보. Atom 피드는 최근 20~30건만 준다.
+  geeknews:
+    enabled: true
+    rss_url: https://news.hada.io/rss/news
+    topic_url: https://news.hada.io/topic?id={id}
+    # 백필: topic id가 순차라 최신 id에서 역방향으로 훑는다.
+    # ⚠️ 개인 운영 사이트다. 아래 제약을 반드시 지킨다 (PLAN.md §7 참조).
+    # ⚠️ 백필 중단(2026-08-26). 1.5초 간격을 지켰는데도 276건 수집 후 사이트가
+    #    403 Forbidden으로 199회 연속 차단했다. 이후 접근은 다시 정상(200)이지만,
+    #    이건 지속 크롤링에 대한 사이트의 명시적 거부 신호다.
+    #    User-Agent 변경·프록시·간격 조정으로 우회하지 않는다 — 차단을 회피하는 행위다.
+    #    RSS 전방 수집은 배포용으로 공개된 채널이므로 그대로 유지한다.
+    #    GeekNews 항목 상당수가 HN발이라 HN 백필(10,070건/3년)이 상당 부분 대체한다.
+    backfill: false
+    # 실측: id 31000=07-01, id 32898=08-26 → 하루 약 34건 (백필 재개 시 참고용)
+    backfill_max_items: 12000
+    request_interval: 1.5       # ★ 1.5초 미만으로 낮추지 말 것
+    max_retries: 2
+    retry_backoff: 3.0
+    # og: 메타태그(제목·요약)만 읽는다. 본문 DOM은 건드리지 않는다.
+    use_og_meta_only: true
+
+  # 네이버 뉴스 — 소상공인 축. API가 최근분만 주므로 과거는 import_sobiz로 채운다.
+  naver_news:
+    enabled: true
+    api_url: https://openapi.naver.com/v1/search/news.json
+    weeks: 4
+    max_per_query: 1000
+    sort: date
+    request_interval: 0.11     # 초당 10회 제한 준수
+    max_retries: 3
+    retry_backoff: 2.0
+    queries:
+      - 소상공인 데이터
+      - 소상공인 AI
+      - 상권분석
+      - 소상공인 디지털 전환
+      - 스마트상점
+      - 소상공인 정책자금
+      - 공공데이터 개방
+      - 가명정보 결합
+
+# ── sobiz 프로젝트 DB 임포트 ─────────────────────────────────────────
+# 네이버 뉴스 API는 백필이 안 되지만, sobiz가 주간 배치로 누적한 news_articles가 있다.
+# precision 92% 필터를 통과한 데이터라 품질도 보장된다.
+import_sobiz:
+  db_path: "../news_keyword/data/trends.db"
+  table: news_articles
+  since: "2025-01-01"        # 이 발행일 이후만 가져온다
+  axes_hint: [smallbiz]      # 임포트분의 기본 축 (score.py가 재계산하되 출처 표시용)
+
+# ── 백필 공통 ───────────────────────────────────────────────────────
+backfill:
+  checkpoint_dir: data/checkpoints
+  out_dir: data/raw
+  batch_flush: 500           # 이 건수마다 디스크에 flush + 체크포인트 갱신
+  user_agent: "ai-tech-radar/0.1 (internal research; contact: {contact})"
+
+# ── 2단계 필터 (2주차) ───────────────────────────────────────────────
+prefilter:
+  # 축 키워드 중 하나도 안 걸리면 임베딩 단계로 안 넘긴다 (비용 방어)
+  min_axis_hits: 1
+
+filter:
+  model: BAAI/bge-m3          # 한·영 혼재라 다국어 모델. ko-sroberta는 쓰지 않는다
+  seed_path: seeds/seed_sentences.txt
+  threshold: 0.50             # 시드 centroid 코사인 컷 — 라벨링 후 재튜닝 필요
+  dedup_threshold: 0.92       # 소스 간 중복(같은 뉴스가 HN·GeekNews에 동시 등장) 제거
+  batch_size: 64
+
+# ── AI 해설 (3주차) ─────────────────────────────────────────────────
+insight:
+  enabled: true
+  l1_model: claude-haiku-4-5-20251001   # 항목 해설 (주 200~300건)
+  l2_model: claude-sonnet-5             # 주간 요약
+  l3_model: claude-sonnet-5             # 월간 데이터 해석 (2차)
+  l1_max_items: 300           # 비용 상한 — 교차 점수 상위부터 이 개수만 해설
+  l1_max_tokens: 200
+  team_profile_path: seeds/team_profile.md   # "우리 팀이 누구인지" — 해설 프롬프트에 주입
+  # LLM 장애 시에도 다이제스트는 나가야 한다
+  fail_open: true
+
+# ── 다이제스트 (3주차) ───────────────────────────────────────────────
+digest:
+  top_per_axis: 5
+  top_crossing: 5             # 교집합 섹션 노출 수
+  mail_crossing: 3            # 메일에는 짧게 — 전문은 웹으로 유도
+  week_start: monday
+
+web:
+  host: 0.0.0.0
+  port: 8000
+  page_size: 50
