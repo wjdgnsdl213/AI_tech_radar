@@ -11,6 +11,7 @@
 실행:
   python -m src.backfill --source hn
   python -m src.backfill --source geeknews --years 1
+  python -m src.backfill --source gn_wayback --years 7   # 아카이브 경유 과거분
   python -m src.backfill --source all
   python -m src.backfill --source hn --reset      # 체크포인트 지우고 처음부터
 """
@@ -30,6 +31,7 @@ from dotenv import load_dotenv
 from src.db import get_engine, init_db, load_config, upsert_items
 from src.sources.base import Source
 from src.sources.geeknews import GeekNewsSource
+from src.sources.geeknews_wayback import GeekNewsWaybackSource
 from src.sources.hackernews import HackerNewsSource
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지.
@@ -41,6 +43,8 @@ sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 REGISTRY: dict[str, tuple[type[Source], str]] = {
     "hn": (HackerNewsSource, "hackernews"),
     "geeknews": (GeekNewsSource, "geeknews"),
+    # 같은 GeekNews를 아카이브 경유로 받는다. source_id가 같아 중복은 자동 제거된다.
+    "gn_wayback": (GeekNewsWaybackSource, "geeknews_wayback"),
 }
 
 

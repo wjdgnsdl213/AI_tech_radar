@@ -62,6 +62,37 @@ def _published_at(soup) -> str:
     return ""
 
 
+def parse_topic_html(html: str, url: str, tid: int, via: str) -> Item | None:
+    """topic 페이지 HTML → Item. 라이브 수집과 Wayback 백필이 공유한다.
+
+    og: 메타태그만 읽는다. 사이트가 배포용으로 내놓는 값이라 본문 DOM을 파싱하는 것보다
+    "제목+요약만 저장" 원칙에 맞고 레이아웃 변경에도 강하다.
+
+    두 어댑터가 같은 함수를 쓰는 이유: 파싱이 갈라지면 같은 글이 경로에 따라 다른
+    제목·발행일로 들어와 중복 제거와 트렌드 집계가 동시에 틀어진다.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    def og(prop: str) -> str:
+        tag = soup.find("meta", property=f"og:{prop}")
+        return clean_text(tag.get("content")) if tag and tag.get("content") else ""
+
+    title = _TITLE_SUFFIX_RE.sub(
+        "", og("title") or clean_text(soup.title.string if soup.title else ""))
+    if not title:
+        return None
+
+    return Item(
+        source="geeknews",
+        source_id=str(tid),
+        title=title,
+        summary=og("description"),
+        url=url,
+        published_at=_published_at(soup),
+        meta={"via": via},
+    )
+
+
 class Blocked(Exception):
     """서버가 접근을 거부했다(403). 즉시 중단하고 다음 날 재개한다.
 
@@ -116,11 +147,7 @@ class GeekNewsSource(Source):
 
     # ── 백필 (topic id 역주행) ───────────────────────────────────────
     def _fetch_topic(self, tid: int) -> Item | None:
-        """topic 페이지의 og: 메타태그만 읽는다.
-
-        og:title / og:description은 사이트가 배포용으로 내놓는 요약이라
-        본문 DOM을 파싱하는 것보다 원칙에도 맞고 구조 변경에도 강하다.
-        """
+        """topic 페이지를 직접 받아 파싱한다. 파싱은 parse_topic_html()이 담당."""
         url = self.cfg["topic_url"].format(id=tid)
         retries = int(self.cfg.get("max_retries", 2))
         backoff = float(self.cfg.get("retry_backoff", 3.0))
@@ -147,27 +174,7 @@ class GeekNewsSource(Source):
         # 서버가 Content-Type에 ISO-8859-1을 실어 보내지만 실제 본문은 UTF-8이다.
         # requests의 자동 추론에 맡기면 한글이 깨진다(예: id=31000 → 'ì¸ì').
         resp.encoding = "utf-8"
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        def og(prop: str) -> str:
-            tag = soup.find("meta", property=f"og:{prop}")
-            return clean_text(tag.get("content")) if tag and tag.get("content") else ""
-
-        title = _TITLE_SUFFIX_RE.sub("", og("title") or clean_text(soup.title.string if soup.title else ""))
-        if not title:
-            return None
-
-        published = _published_at(soup)
-
-        return Item(
-            source=self.name,
-            source_id=str(tid),
-            title=title,
-            summary=og("description"),
-            url=url,
-            published_at=published,
-            meta={"via": "backfill"},
-        )
+        return parse_topic_html(resp.text, url, tid, via="backfill")
 
     def fetch(self, since: datetime, until: datetime, cursor: str | None) -> Batch:
         """커서 = 다음에 읽을 topic id. 최신 id에서 시작해 1씩 내려간다."""

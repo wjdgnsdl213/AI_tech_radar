@@ -41,8 +41,10 @@ axes:
 
 # 교차 점수 가중치 — 팀 성격(a 분석·c 인프라·d 기획)에 맞춰 조정한다.
 # 축 수가 많을수록 급격히 가중된다(교집합 우선 원칙).
+# 값 근거: 600건 표본 시드 진단(seed_check.py). 1축 항목이 통과분의 대부분을
+# 차지하면서 팀과 무관한 노이즈였다 → 1축을 억제하고 3축을 더 끌어올린다.
 score:
-  axis_count_weight: {1: 1.0, 2: 3.0, 3: 6.0}
+  axis_count_weight: {1: 0.5, 2: 3.0, 3: 8.0}
   axis_weight: {ai: 1.0, bigdata: 1.2, smallbiz: 1.2}
   min_axes: 1           # 0축(어느 축에도 안 걸림) 항목은 버린다
 
@@ -100,6 +102,25 @@ sources:
     # og: 메타태그(제목·요약)만 읽는다. 본문 DOM은 건드리지 않는다.
     use_og_meta_only: true
 
+  # GeekNews 과거분 — Internet Archive 경유. 원 서버(news.hada.io) 요청 0건.
+  # 라이브 어댑터가 하루 150건 제한이라 전체 3만여 건에 7개월이 걸리는 문제의 해법.
+  # 실측: 아카이브에 28,526건(전체의 약 87%), 2019~2026년 스냅샷.
+  geeknews_wayback:
+    enabled: true
+    cdx_url: "https://web.archive.org/cdx/search/cdx?url=news.hada.io/topic*&output=json&fl=original,timestamp&filter=statuscode:200&collapse=urlkey"
+    # id_ 접미사 = Wayback 툴바·링크재작성이 주입되지 않은 원본 스냅샷
+    snapshot_url: "https://web.archive.org/web/{timestamp}id_/{url}"
+    topic_url: https://news.hada.io/topic?id={id}
+    index_cache: data/checkpoints/geeknews_wayback_index.json
+    index_ttl_days: 7          # 이 기간이 지나면 인덱스를 다시 받는다
+    index_timeout: 180         # 인덱스는 2MB라 느리다
+    skip_existing: true        # DB에 이미 있는 topic id는 요청하지 않는다
+    request_interval: 1.0      # 실측 응답이 1.5~2초라 실제 간격은 그보다 길다
+    batch_size: 50             # 체크포인트 갱신 주기
+    timeout: 60
+    max_retries: 2
+    retry_backoff: 5.0
+
   # 네이버 뉴스 — 소상공인 축. API가 최근분만 주므로 과거는 import_sobiz로 채운다.
   naver_news:
     enabled: true
@@ -144,7 +165,12 @@ prefilter:
 filter:
   model: BAAI/bge-m3          # 한·영 혼재라 다국어 모델. ko-sroberta는 쓰지 않는다
   seed_path: seeds/seed_sentences.txt
-  threshold: 0.50             # 시드 centroid 코사인 컷 — 라벨링 후 재튜닝 필요
+  # 시드 centroid 코사인 컷. 600건 표본 진단 결과:
+  #   0.50 → 37.7% 통과 (경계선 대역이 전부 무관 항목이라 과다)
+  #   0.55 → 11.3% 통과 ← 채택
+  #   0.60 →  3.8% 통과 (너무 빡빡)
+  # 수동 라벨 50건으로 precision 측정한 뒤 재튜닝한다(목표 ≥ 0.85).
+  threshold: 0.55
   dedup_threshold: 0.92       # 소스 간 중복(같은 뉴스가 HN·GeekNews에 동시 등장) 제거
   batch_size: 64
 
