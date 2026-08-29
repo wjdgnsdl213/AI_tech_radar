@@ -35,6 +35,33 @@ _ID_RE = re.compile(r"[?&]id=(\d+)")
 _TITLE_SUFFIX_RE = re.compile(r"\s*\|\s*GeekNews\s*$")
 
 
+_JSONLD_DATE_RE = re.compile(r'"datePublished"\s*:\s*"([^"]+)"')
+
+
+def _published_at(soup) -> str:
+    """발행일을 여러 경로로 시도한다.
+
+    이 프로젝트는 트렌드 분석이 목적이라 published_at이 비면 그 항목은 사실상 쓸 수 없다.
+    그런데 GeekNews는 시기별로 레이아웃이 달라서 한 곳만 보면 놓친다:
+      · article:published_time — 구·신 레이아웃 모두 존재. 가장 신뢰할 수 있다
+      · JSON-LD datePublished  — 위와 동일 값을 담고 있어 이중 안전장치
+      · <time datetime>        — 현재 레이아웃에만 있다 (2024년 스냅샷엔 없음)
+    """
+    tag = soup.find("meta", property="article:published_time")
+    if tag and tag.get("content"):
+        return tag["content"].strip()
+
+    m = _JSONLD_DATE_RE.search(str(soup))
+    if m:
+        return m.group(1).strip()
+
+    t = soup.find("time")
+    if t and t.get("datetime"):
+        return t["datetime"].strip()
+
+    return ""
+
+
 class Blocked(Exception):
     """서버가 접근을 거부했다(403). 즉시 중단하고 다음 날 재개한다.
 
@@ -130,11 +157,7 @@ class GeekNewsSource(Source):
         if not title:
             return None
 
-        # 발행일은 <time datetime="...">에서 읽는다 (og 메타에는 없다)
-        published = ""
-        t = soup.find("time")
-        if t and t.get("datetime"):
-            published = t["datetime"]
+        published = _published_at(soup)
 
         return Item(
             source=self.name,
