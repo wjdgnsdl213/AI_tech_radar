@@ -207,6 +207,9 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
 
     stats = {"ok": 0, "skip": 0, "fail": 0, "in": 0, "out": 0, "cached": 0}
 
+    class Fatal(Exception):
+        """설정·인증 문제. 재시도해도 같은 결과라 배치를 즉시 접는다."""
+
     def annotate(job: tuple[int, str]) -> tuple[int, str | None]:
         item_id, user_text = job
         try:
@@ -226,8 +229,15 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
             # SDK가 이미 재시도했는데도 남은 경우 — 이 항목만 포기한다
             stats["fail"] += 1
             return item_id, None
+        except anthropic.BadRequestError as exc:
+            # 400은 요청 자체가 잘못된 것이다(키가 workspace를 요구한다든지).
+            # 300건을 다 두드려도 전부 같은 400이 난다 — 이 프로젝트가 GeekNews
+            # 403에서 이미 겪은 실수다("403을 받고 199회를 더 두드린 게 문제였다").
+            # 거부 신호를 받으면 두드리기를 멈춘다.
+            msg = getattr(exc, "message", None) or str(exc)
+            raise Fatal(f"{type(exc).__name__}: {msg[:240]}") from exc
         except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
-            # 타입만 찍으면 원인을 못 찾는다. 400은 메시지에 이유가 들어 있다.
+            # 일시적 오류는 그 항목만 포기하고 계속 간다.
             msg = getattr(exc, "message", None) or str(exc)
             if stats["fail"] == 0:          # 같은 오류가 300줄 쏟아지는 걸 막는다
                 print(f"    ⚠ 실패: {type(exc).__name__}: {msg[:220]}")
@@ -259,7 +269,9 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
                 results.append(res)
                 if n % 50 == 0:
                     print(f"    {n}/{len(prompts)}건 ({time.time() - t0:.0f}초)")
-    except (anthropic.AuthenticationError, anthropic.NotFoundError):
+    except (anthropic.AuthenticationError, anthropic.NotFoundError, Fatal) as exc:
+        print(f"\n  ⛔ 중단: {exc}")
+        print("     같은 오류가 모든 항목에서 나므로 나머지는 시도하지 않습니다.")
         if not fail_open:
             raise
         print("  ⏭ 해설 없이 진행합니다 (fail_open)")
