@@ -94,6 +94,18 @@ a:hover{text-decoration:underline}
   color:#fff;font-weight:600;letter-spacing:-.1px}
 .tag.ai{background:var(--ax-ai)} .tag.bigdata{background:var(--ax-bigdata)}
 .tag.smallbiz{background:var(--ax-smallbiz)}
+.src-link{font-size:11.5px;color:var(--mut);margin-left:8px;white-space:nowrap;font-weight:500}
+.src-link:hover{color:var(--blue)}
+.has-ai{font-size:11px;color:var(--blue);background:var(--blue-soft);
+  padding:1px 7px;border-radius:4px}
+
+/* 스파크라인 — 0도 보여야 한다. 막대만 그리면 0인 주가 빈칸이 되어
+   "데이터가 없다"로 읽힌다. 회색 트랙을 깔아 자리를 남긴다. */
+.spark{display:inline-flex;align-items:flex-end;gap:2px;height:24px;
+  padding:2px 3px;background:var(--line-soft);border-radius:3px;vertical-align:middle}
+.spark i{display:block;width:7px;background:var(--mut-2);border-radius:1px}
+.spark i.now{background:var(--blue)}
+.spark-n{font-size:11px;color:var(--mut-2);margin-left:6px}
 
 /* ── 사이드 목록 ── */
 .mini{display:flex;align-items:baseline;gap:8px;padding:8px 0;

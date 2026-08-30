@@ -38,12 +38,18 @@ function showTab(name) {
 $$('.tab-btn').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
 /* ── 항목 카드 ── */
+/* 제목을 누르면 상세가 열리고, 원문은 그 안에서 또는 옆의 링크로 간다.
+   목록에서는 AI 해설을 접어둔다 — 20건이 늘어서면 해설이 목록을 밀어내
+   무엇이 있는지 훑는 일 자체가 어려워진다. */
 function itemHTML(p) {
   return `<div class="item">
-    <div class="item-t"><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></div>
+    <div class="item-t">
+      <a href="#" data-item="${p.id}">${esc(p.title)}</a>
+      <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
+         title="원문으로 이동">원문 ↗</a>
+    </div>
     <div class="item-m">${tags(p.axes)} ${esc(p.source)} · ${esc(p.published)}
-      · <a href="#" data-item="${p.id}">자세히</a></div>
-    ${p.insight ? `<div class="item-i">💡 ${esc(p.insight)}</div>` : ''}
+      ${p.insight ? '<span class="has-ai">💡 해설</span>' : ''}</div>
   </div>`;
 }
 
@@ -131,9 +137,10 @@ async function runSearch(page = 1) {
     ? `<div class="tblwrap"><table><tr><th>날짜</th><th>제목</th><th>주제</th><th>출처</th></tr>` +
       r.items.map(p => `<tr>
         <td class="n">${esc(p.published)}</td>
-        <td><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
-          <a href="#" data-item="${p.id}" class="mut"> ·자세히</a>
-          ${p.insight ? `<div class="item-i">💡 ${esc(p.insight)}</div>` : ''}</td>
+        <td><a href="#" data-item="${p.id}">${esc(p.title)}</a>
+          <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
+             title="원문으로 이동">원문 ↗</a>
+          ${p.insight ? '<span class="has-ai">💡</span>' : ''}</td>
         <td>${tags(p.axes)}</td>
         <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
     : '<div class="empty">결과가 없습니다.</div>';
@@ -180,8 +187,6 @@ async function loadSuggest() {
   const s = await api('/api/suggest', { limit: 40 });
   $('#ego-list').innerHTML = s.items.map(i => `<option value="${esc(i.keyword)}">`).join('');
   // 자주 쓸 만한 출발점 몇 개는 버튼으로 — 빈 화면에서 뭘 쳐야 할지 모르는 걸 막는다
-  $('#ego-presets').innerHTML = s.items.slice(0, 8).map(i =>
-    `<button type="button" class="preset" data-ego="${esc(i.keyword)}">${esc(i.keyword)}</button>`).join('');
 }
 
 let EGO = null, egoSel = null;
@@ -274,10 +279,6 @@ $('#graph-svg').addEventListener('dblclick', e => {
   if (g) loadEgo(g.dataset.node);
 });
 $('#ego-form').onsubmit = e => { e.preventDefault(); loadEgo($('#ego-q').value.trim()); };
-$('#ego-presets').onclick = e => {
-  const b = e.target.closest('[data-ego]');
-  if (b) loadEgo(b.dataset.ego);
-};
 // 검색 뒤에도 범위를 늘렸다 줄였다 할 수 있어야 한다 — 몇 홉이 맞는지는
 // 그려보기 전에는 모른다.
 $('#ego-hops').oninput = e => { $('#hop-label').textContent = e.target.value + '홉'; };
@@ -289,8 +290,6 @@ $('#ego-hops').onchange = e => {
 async function loadSuggest() {
   const s = await api('/api/suggest', { limit: 40 });
   $('#ego-list').innerHTML = s.items.map(i => `<option value="${esc(i.keyword)}">`).join('');
-  $('#ego-presets').innerHTML = s.items.slice(0, 8).map(i =>
-    `<button type="button" class="preset" data-ego="${esc(i.keyword)}">${esc(i.keyword)}</button>`).join('');
 }
 async function loadGraph() { await loadSuggest(); }
 
@@ -340,9 +339,11 @@ async function loadTrend() {
         <td class="n">${r.count}건</td>
         <td class="n">${r.score.toFixed(1)}배
           <div class="bar" style="width:${Math.round(r.score / max * 90)}px"></div></td>
-        <td class="n">${sp.length ? sp.map(n =>
-          `<span style="display:inline-block;width:8px;height:${Math.max(2, Math.round(n / sm * 20))}px;
-            background:var(--green-accent);margin-right:2px;vertical-align:bottom"></span>`).join('') : '–'}</td>
+        <td class="n">${sp.length ? `<span class="spark" title="${
+            (r.series || []).map(s => `${s.week} ${s.n}건`).join(' / ')}">${
+            sp.map((n, i) => `<i style="height:${Math.max(1, Math.round(n / sm * 22))}px"
+              class="${i === sp.length - 1 ? 'now' : ''}"></i>`).join('')
+          }</span> <span class="spark-n">${sp.join('·')}</span>` : '–'}</td>
       </tr>`;
     }).join('') + '</table></div>';
 }
