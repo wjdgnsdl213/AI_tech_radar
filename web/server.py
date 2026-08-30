@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import html as html_mod
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from src.db import digests, get_engine, item_axes, items, load_config
 from src.digest import build, render_html
@@ -75,6 +76,14 @@ def page(title: str, body: str) -> HTMLResponse:
         f"<title>{E(title)}</title><style>{CSS}</style><body><div class=wrap>"
         f"<nav><b>📡 트렌드 레이더</b><a href='/'>최신</a><a href='/search'>검색</a>"
         f"<a href='/weeks'>회차</a></nav>{body}</div></body></html>")
+
+
+def _parse_date(s: str) -> datetime | None:
+    """'YYYY-MM-DD'를 timezone-aware UTC로. 형식이 틀리면 조건을 아예 걸지 않는다."""
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
 
 
 def _axes_map(conn, ids: list[int]) -> dict[int, list[str]]:
@@ -155,10 +164,18 @@ def search(q: str = Query("", description="제목·요약 검색어"),
         conds.append(or_(items.c.title.contains(q), items.c.summary.contains(q)))
     if kept_only:
         conds.append(items.c.kept.is_(True))
+    # 날짜는 문자열 캐스팅으로 비교하지 않는다. published_at은 DateTime 타입이고
+    # 엔진마다 문자열 표현이 달라(SQLite 'YYYY-MM-DD HH:MM:SS' / Postgres 타임존 포함)
+    # 캐스팅 비교는 배포 엔진을 바꾸는 순간 조용히 틀린 결과를 낸다.
     if since:
-        conds.append(cast(items.c.published_at, String) >= since)
+        d = _parse_date(since)
+        if d:
+            conds.append(items.c.published_at >= d)
     if until:
-        conds.append(cast(items.c.published_at, String) <= until + "T23:59:59")
+        d = _parse_date(until)
+        if d:
+            conds.append(items.c.published_at
+                         <= d.replace(hour=23, minute=59, second=59))
     if axis in CFG["axes"]:
         conds.append(items.c.id.in_(
             select(item_axes.c.item_id).where(item_axes.c.axis == axis)))

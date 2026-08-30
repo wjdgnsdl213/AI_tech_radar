@@ -1,6 +1,6 @@
 # 다른 컴퓨터로 옮기기
 
-> 2026-08-27 기준. 옮긴 뒤 이 문서대로 하면 하던 데서 그대로 이어진다.
+> 2026-08-30 기준. 옮긴 뒤 이 문서대로 하면 하던 데서 그대로 이어진다.
 
 ---
 
@@ -81,11 +81,13 @@ python -m src.db --summary
 ```
 아래처럼 나오면 정상 이관이다:
 ```
-전체 항목  49,543 건
+전체 항목  64,433 건
   sobiz_news    39,197   2025-09-16 ~ 2026-08-25
-  hackernews    10,070   2023-08-27 ~ 2026-08-26
-  geeknews         276   2026-08-18 ~ 2026-08-26
+  hackernews    10,264   2023-08-27 ~ 2026-08-30
+  geeknews       9,623   2025-02-12 ~ 2026-08-30
+  naver_news     5,349   2026-08-27 ~ 2026-08-30
 ```
+(날짜가 지났으면 그만큼 더 쌓여 있는 게 정상이다)
 
 ---
 
@@ -102,9 +104,10 @@ GPU가 있으면 **CUDA 빌드 torch를 따로 설치**해야 한다. 그냥 `pi
 
 ```bash
 pip uninstall -y torch
-pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install torch --index-url https://download.pytorch.org/whl/cu126
 ```
-(CUDA 버전은 `nvidia-smi`로 확인 후 맞춰서. cu121/cu124 등)
+(CUDA 버전은 `nvidia-smi`로 확인 후 맞춰서. 이 PC는 드라이버 CUDA 13.1 / RTX 3070 →
+ cu126으로 설치했고 `torch 2.13.0+cu126`이 GPU를 정상 인식했다. 실측 임베딩 1,000건/2초)
 
 확인:
 ```bash
@@ -117,34 +120,84 @@ python -c "import torch; print('GPU:', torch.cuda.is_available(), torch.cuda.get
 
 ## 4. 하던 작업 이어가기
 
-### 방금까지 한 것 (2026-08-30 갱신)
-- 1주차 완료: 소스 어댑터 / 백필(체크포인트) / DB(SQLAlchemy) / 원본 재적재
-- 시드 진단 완료 → **결론을 `config.yaml`에 반영 완료**
-  (`filter.threshold` 0.50→**0.55**, `score.axis_count_weight` {1:0.5, 2:3.0, 3:8.0})
-- **일일 수집 엔진 완성** — `src/collect.py`를 소스 순회 구조로 재작성
-  - `src/sources/naver_news.py` 신규 (sobiz 수집기 이식). 소상공인·AI·빅데이터·규제 20쿼리
-  - 소스별 실패 격리 + `interval_days` + 실행 요약 + 실패 시 exit 1
-  - 규제 알림(F7)은 **소스 기반 판정**으로 확정 — `sources.<name>.regulatory: true`
-- **HN 어댑터 버그 수정** — Algolia가 `removeWordsIfNoResults`로 쿼리를 버리고
-  무관한 결과를 반환하고 있었다(RAG 검색 → 224건 중 대부분 무관).
-  수집 전략도 쿼리 방식 → **points 컷만**으로 변경 (연 3만건, 뒤의 2단 필터가 거른다)
+### 진행 상황 (2026-08-30 기준)
 
-### ⚠️ 이 PC에서 아직 안 된 것 (2026-08-30 현재)
-- **`.env`가 없다.** git에는 올라가지 않으므로(의도적) 수동으로 옮겨야 한다.
-  없으면 네이버 수집이 통째로 실패하고, **네이버는 백필이 불가능해 그날치가 영구 유실된다.**
-- `pip install -r requirements.txt` 미완 — torch·sentence-transformers·anthropic 없음.
-  GPU(RTX 3070)가 있으니 torch는 **CUDA 빌드로 따로** 설치해야 한다(§3 참조).
-- 데이터(`radar.db` 59,084건 · raw · checkpoints)는 git에서 받아졌다. 이 부분은 끝.
+**MVP 파이프라인이 끝에서 끝까지 이어졌다.**
 
-### 다음 작업
-1. **`.env` 이관 → `python -m src.collect` 매일 실행 시작** (작업 스케줄러 + `run_daily.bat`)
-2. HN 백필 재수집 여부 결정 — 기존 10,070건은 쿼리 버그 시기 수집분이라 오염됨
-3. `src/prefilter.py` — 축 키워드 매칭(무료). **임베딩 전에 볼륨을 줄이는 게 필수**
-4. `src/filter.py` — 시드 centroid 임베딩 필터
-5. `src/score.py` — 교차 점수 + `item_axes` 태깅
-6. **임베딩 결과 DB 캐싱** — 세션이 끊겨도 재계산 안 하게
-7. 수동 라벨 50건으로 precision 측정 → 목표 ≥ 85%
-8. 규제 1차 출처 어댑터(`pipc.py`·`assembly.py`) — config에 자리만 잡아뒀다
+```
+수집 → prefilter → filter → score → insight → digest → mailer + web
+ ✅      ✅         ✅       ✅       ✅*       ✅        ✅
+                                      * ANTHROPIC_API_KEY가 없어 dry-run까지만 검증
+```
+
+| 단계 | 파일 | 상태 |
+|---|---|---|
+| 수집 | `collect.py` + `sources/{hackernews,geeknews,geeknews_wayback,naver_news}.py` | ✅ 소스 순회 + 실패 격리 |
+| 축 태깅 | `prefilter.py` | ✅ 64,433건 5초 |
+| 임베딩 필터 | `filter.py` | ✅ 부정 시드 대비 점수 + 캐시 + 군집 중복제거 |
+| 교차 점수 | `score.py` | ✅ |
+| AI 해설 | `insight.py` | 🟡 코드 완성, 키 없어 미실행 |
+| 다이제스트 | `digest.py` | ✅ 한 번 생성 → 메일/웹 공통 |
+| 메일 | `mailer.py` | 🟡 코드 완성, SMTP 미설정 |
+| 웹 | `web/server.py` | ✅ /, /digest/{week}, /search, /item/{id}, /weeks |
+| 배치 | `run_pipeline.py`, `run_daily.bat`, `run_weekly.bat` | ✅ |
+
+**데이터**: 64,433건 (sobiz 39,197 / HN 10,264 / GeekNews 9,623 / 네이버 5,349)
+필터 통과 3,046건. 3축 교집합 101건.
+
+### 필터 품질 — 목표 미달 상태다
+
+| 시점 | precision | 비고 |
+|---|---|---|
+| 초기 | **0.240** | 오통과 19건 중 17건이 `ai` 축 단독 일반 AI 뉴스 |
+| 부정 시드 도입 후 | **0.600** | 목표 0.85에는 아직 못 미침 |
+
+⚠️ **이 수치는 AI가 채운 잠정 라벨 기준이다**(`data/labels/labels_ai.csv`).
+필터를 만든 쪽이 그 필터를 채점한 것이라 낙관적으로 편향돼 있다.
+`data/labels/labels.csv`(사람용, 비어 있음)를 채워 재측정해야 한다.
+
+```bash
+# labels.csv 의 label 열에 1(관련)/0(무관)을 채운 뒤
+python -m src.evaluate                 # 사람 라벨 기준
+python -m src.evaluate --ai            # AI 잠정 라벨 기준 (참고용)
+python -m src.evaluate --refresh       # 필터를 바꾼 뒤 판정만 다시 읽기
+```
+
+### 다음 레버는 시드다
+`seeds/seed_sentences.txt`와 `seeds/team_profile.md`가 아직 TODO 초안이다.
+PLAN §13-1이 "가장 중요한 미결정 사항"으로 꼽은 항목이고, 실제로 precision을
+가장 크게 움직일 입력이다. 팀 과제 목록·사용 기술·최근 보고서 제목만 있어도 된다.
+
+### 사람이 해야 하는 것 (막혀 있음)
+
+| # | 항목 | 없으면 |
+|---|---|---|
+| 1 | `.env`에 `ANTHROPIC_API_KEY` | AI 해설(L1/L2) 전체 불가 |
+| 2 | `.env`에 `CONTACT_EMAIL` | GeekNews 크롤링 UA에 `contact: unknown`으로 나감 (원칙 위반) |
+| 3 | `.env`에 SMTP 4종 | 메일 push 불가 |
+| 4 | `labels.csv` 50건 라벨링 | precision 실측 불가 |
+| 5 | 시드·팀 프로파일 실제 내용 | 필터 품질이 초안 수준에 머묾 |
+| 6 | `DATA_GO_KR_KEY` | 규제 1차 출처 어댑터 (아래) |
+
+### ⚠️ F7 규제 알림은 소스가 0개다 (MVP인데 미해결)
+판정 방식은 **소스 기반**으로 확정했고 배선(`sources.<name>.regulatory: true` →
+`collect.py:_stamp_regulatory`)도 끝났다. 그런데 붙일 소스가 없다. 조사 결과:
+
+| 후보 | 상태 |
+|---|---|
+| 개인정보위 | RSS 없음. `robots.txt`가 `/bbs/`(고시·보도자료 위치)를 크롤러에 금지. **크롤링하지 않는다** |
+| 국회 의안정보 OPEN API | API 키 필요 (미보유) |
+| 공공데이터포털 | `DATA_GO_KR_KEY` 필요 (미보유) |
+
+→ **공공데이터포털에서 키를 발급받는 게 유일한 정공법이다.** 무료·즉시 발급.
+   키가 생기면 `sources/pipc.py`·`sources/assembly.py`를 붙인다(config에 자리 있음).
+
+### 미결정
+- **HN 백필 10,070건 재수집** — Algolia 쿼리 버그 시기 수집분이라 오염돼 있고
+  무엇을 놓쳤는지도 모른다. 지금 설정(`queries: []`)으로 3년치를 다시 받으면
+  약 9만 건. 기존 항목은 삭제되지 않으므로(upsert DO NOTHING) 추가만 된다.
+- 넓은 네이버 쿼리 5개가 3일치로 1,000건 상한에 도달 — 연 65만 건 규모.
+  볼륨이 부담되면 이 쿼리부터 좁힌다.
 
 ---
 
@@ -177,9 +230,12 @@ import_sobiz:
 **이미 임포트를 마쳤으므로(39,197건) 새 PC에 `news_keyword` 폴더가 없어도 된다.**
 나중에 소상공인 축을 갱신하려면 그때 sobiz 프로젝트도 같이 옮기거나 경로를 맞춘다.
 
-### 백그라운드 실행은 세션과 함께 죽는다
-긴 작업(임베딩·백필)은 터미널을 닫으면 끊긴다. 체크포인트가 있는 백필은 재개되지만,
-임베딩은 아직 캐싱이 없어 처음부터다. → 2주차 4번 항목이 그래서 필요하다.
+### 백그라운드 실행은 세션과 함께 죽는다 — 다만 이제 재개된다
+긴 작업(임베딩·백필)은 터미널을 닫으면 끊긴다. 하지만 양쪽 다 재개 경로가 있다:
+  · 백필   `data/checkpoints/*.json` 커서 → 같은 명령으로 이어서
+  · 임베딩 `data/processed/embeddings_*.npz` → 배치마다 저장, 다음 실행은 신규분만
+임베딩 캐시는 gitignore 대상이다(재생성 가능하고 4만 건에 약 90MB라 커밋하면
+radar.db와 함께 레포가 급격히 무거워진다).
 
 ### DB 엔진은 아직 미정
 지금은 SQLite. 배포 시 `.env`의 `DATABASE_URL` 한 줄로 PostgreSQL 등으로 교체 가능하게

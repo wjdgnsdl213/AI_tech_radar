@@ -156,9 +156,13 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
         stmt = stmt.where((items.c.insight.is_(None)) | (items.c.insight_model != model))
     with engine.connect() as conn:
         rows = conn.execute(stmt).all()
+        # 대상 항목 것만 읽는다 — 조건 없이 읽으면 4만 7천 행 전수 스캔이다
         axes_map: dict[int, list[str]] = {}
-        for item_id, axis in conn.execute(select(item_axes.c.item_id, item_axes.c.axis)):
-            axes_map.setdefault(item_id, []).append(axis)
+        if rows:
+            for item_id, axis in conn.execute(
+                    select(item_axes.c.item_id, item_axes.c.axis)
+                    .where(item_axes.c.item_id.in_([r.id for r in rows]))):
+                axes_map.setdefault(item_id, []).append(axis)
     if not rows:
         print("  해설할 항목이 없습니다 (이미 전부 붙었거나 kept가 비어 있음)")
         return 0
@@ -297,8 +301,11 @@ def run_l2(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
             .limit(top_n)
         ).all()
         axes_map: dict[int, list[str]] = {}
-        for item_id, axis in conn.execute(select(item_axes.c.item_id, item_axes.c.axis)):
-            axes_map.setdefault(item_id, []).append(axis)
+        if rows:
+            for item_id, axis in conn.execute(
+                    select(item_axes.c.item_id, item_axes.c.axis)
+                    .where(item_axes.c.item_id.in_([r.id for r in rows]))):
+                axes_map.setdefault(item_id, []).append(axis)
 
     if not rows:
         print(f"  {week} 주차에 통과 항목이 없습니다")

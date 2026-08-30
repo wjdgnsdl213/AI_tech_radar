@@ -103,9 +103,15 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
             .where(items.c.kept.is_(True), items.c.published_week == week)
             .order_by(items.c.cross_score.desc(), items.c.relevance.desc())
         ).all()
+        # 축은 이 주차 항목 것만 읽는다. 조건 없이 읽으면 4만 7천 행 전수 스캔이고,
+        # 웹은 페이지를 열 때마다 build()를 부르므로 요청마다 그 비용을 낸다.
+        ids = [r.id for r in rows]
         axes_map: dict[int, list[str]] = {}
-        for item_id, axis in conn.execute(select(item_axes.c.item_id, item_axes.c.axis)):
-            axes_map.setdefault(item_id, []).append(axis)
+        if ids:
+            for item_id, axis in conn.execute(
+                    select(item_axes.c.item_id, item_axes.c.axis)
+                    .where(item_axes.c.item_id.in_(ids))):
+                axes_map.setdefault(item_id, []).append(axis)
         lead = conn.execute(
             select(digests.c.lead).where(digests.c.week == week)
         ).scalar_one_or_none()
