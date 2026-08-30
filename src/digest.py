@@ -40,6 +40,9 @@ from src.db import digests, get_engine, init_db, item_axes, items, load_config
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
+# 서비스 이름. 메일 제목·다이제스트 머리글·웹이 모두 여기를 본다.
+SERVICE_NAME = "AI 빅데이터 트렌드"
+
 
 def _bigrams(text: str) -> set[str]:
     """제목의 글자 2-gram 집합. 조사·띄어쓰기 차이에 둔감하다."""
@@ -255,7 +258,7 @@ def render_markdown(d: dict[str, Any], mail: bool = False,
     전문을 메일로 밀면 안 읽힌다. 짧은 메일이 웹으로 유입시키는 구조다.
     """
     L = d["labels"]
-    out: list[str] = [f"# 📡 AI·빅데이터 트렌드 레이더 | {_week_title(d['week'])}", ""]
+    out: list[str] = [f"# 📡 {SERVICE_NAME} | {_week_title(d['week'])}", ""]
 
     if d.get("lead"):
         out += ["## 이번 주 흐름", "", d["lead"], ""]
@@ -318,7 +321,7 @@ def render_html(d: dict[str, Any], mail: bool = False,
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\','
         "'Malgun Gothic',sans-serif;max-width:720px;margin:0 auto;padding:24px;"
         'color:#111;background:#f9fafb">',
-        f'<h1 style="font-size:20px;margin:0 0 4px">📡 AI·빅데이터 트렌드 레이더</h1>',
+        f'<h1 style="font-size:20px;margin:0 0 4px">📡 AI 빅데이터 트렌드</h1>',
         f'<div style="color:#6b7280;font-size:13px;margin-bottom:20px">'
         f'{e(_week_title(d["week"]))} · 통과 {d["total_kept"]}건</div>',
     ]

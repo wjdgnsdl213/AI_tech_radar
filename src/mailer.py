@@ -27,7 +27,8 @@ from email.utils import formataddr, formatdate
 from dotenv import load_dotenv
 
 from src.db import get_engine, init_db, load_config
-from src.digest import build, latest_week, render_html, render_markdown, week_label
+from src.digest import (SERVICE_NAME, build, latest_week, render_html,
+                        render_markdown, week_label)
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -67,7 +68,7 @@ def main() -> None:
     web_url = f"{base.rstrip('/')}/?week={week}#digest"
 
     # 제목도 사람이 읽는 표기로. 받은편지함에서 '2026-W35'는 아무 뜻이 없다.
-    subject = f"[트렌드 레이더] {week_label(week)} — 교집합 {len(d['crossing'])}건"
+    subject = f"[AI 빅데이터 트렌드] {week_label(week)} — 교집합 {len(d['crossing'])}건"
     text = render_markdown(d, mail=True, web_url=web_url)
     html = render_html(d, mail=True, web_url=web_url)
 
@@ -88,7 +89,7 @@ def main() -> None:
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = formataddr(("AI·빅데이터 트렌드 레이더",
+    msg["From"] = formataddr((SERVICE_NAME,
                               os.getenv("MAIL_FROM") or os.getenv("SMTP_USER", "")))
     msg["To"] = ", ".join(to)
     msg["Date"] = formatdate(localtime=True)

@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI·빅데이터 트렌드 레이더</title>
+<title>AI 빅데이터 트렌드</title>
 <link rel="stylesheet" href="/static/style.css?v={{V}}">
 </head>
 <body>
 
 <!-- 메뉴를 상단 바에 함께 둔다 -->
 <nav class="topnav">
-  <div class="brand">📡 <b>AI·빅데이터 트렌드 레이더</b></div>
+  <div class="brand">📡 <b>AI 빅데이터 트렌드</b></div>
   <div class="menu" role="tablist">
     <button class="tab-btn active" data-tab="digest" role="tab">이번 주</button>
     <button class="tab-btn" data-tab="search" role="tab">검색</button>
@@ -59,8 +59,8 @@
       <form class="searchbar" id="search-form">
         <input name="q" id="f-q" placeholder="키워드로 찾기" autocomplete="off">
         <select name="axis" id="f-axis"><option value="">전체 주제</option></select>
-        <input name="since" id="f-since" placeholder="시작일" size="10">
-        <input name="until" id="f-until" placeholder="종료일" size="10">
+        <input type="date" name="since" id="f-since" aria-label="시작일">
+        <input type="date" name="until" id="f-until" aria-label="종료일">
         <button type="submit">검색</button>
         <a class="btn-ghost" id="f-csv" href="#">⬇ 엑셀로 내려받기</a>
       </form>
@@ -73,14 +73,13 @@
 
   <!-- ③ 연관어 네트워크 (검색형) -->
   <section class="panel" id="panel-graph">
-    <div class="page-head"><h1>연관어 네트워크</h1>
-      <span class="mut">키워드를 검색하면 함께 언급되는 말들을 그려줍니다</span></div>
+    <div class="page-head"><h1>연관어 네트워크</h1></div>
 
     <form class="searchbar" id="ego-form">
-      <input id="ego-q" list="ego-list" placeholder="예: 상권분석, 공공데이터, 마이데이터"
+      <input id="ego-q" list="ego-list" placeholder="키워드 검색"
              autocomplete="off">
       <datalist id="ego-list"></datalist>
-      <button type="submit">그리기</button>
+      <button type="submit">검색</button>
     </form>
     <div class="preset-row" id="ego-presets"></div>
 
