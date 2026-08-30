@@ -79,7 +79,22 @@ class HackerNewsSource(Source):
             "hitsPerPage": int(self.cfg.get("hits_per_page", 100)),
         }
         if self.query:
-            params["query"] = self.query
+            # ⚠️ Algolia 기본 설정으로 query를 넘기면 필터 역할을 못 한다.
+            #   실측(2026-08-30, 최근 30일·points>=30):
+            #     query=RAG 기본값                  → 224건 (GrapheneOS·치킨 리콜… 전부 무관)
+            #     + restrictSearchableAttributes    → 131건 (여전히 무관)
+            #     + typoTolerance=false             →   3건 (정상)
+            #   원인은 removeWordsIfNoResults다 — 매칭이 적으면 Algolia가 쿼리를
+            #   통째로 버리고 날짜순 전체를 돌려준다. 그래서 셋을 함께 못박는다:
+            #     · removeWordsIfNoResults=none   쿼리를 버리지 않는다 (핵심)
+            #     · restrictSearchableAttributes  제목에서만 찾는다 (url·author 오탐 차단)
+            #     · typoTolerance=false           'rag'가 'rage'를 잡는 걸 막는다
+            params.update({
+                "query": self.query,
+                "removeWordsIfNoResults": "none",
+                "restrictSearchableAttributes": "title",
+                "typoTolerance": "false",
+            })
 
         data = self._get(params)
         hits = data.get("hits", [])

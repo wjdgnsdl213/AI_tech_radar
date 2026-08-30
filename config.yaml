@@ -54,6 +54,8 @@ sources:
   # Hacker News — (c) 인프라·운영 사례. Algolia API, 무인증, 2007년부터 전체 아카이브.
   hackernews:
     enabled: true
+    interval_days: 1          # 매일 전방 수집 (백필은 backfill.py가 따로 담당)
+    max_pages: 5              # 일일 전방 수집의 쿼리당 페이지 상한
     api_url: https://hn.algolia.com/api/v1/search_by_date
     hits_per_page: 100
     request_interval: 0.3     # Algolia는 관대하지만 예의상 간격을 둔다
@@ -61,23 +63,36 @@ sources:
     retry_backoff: 2.0
     min_points: 30            # 이 점수 미만 스토리는 수집 단계에서 제외 (볼륨 대응)
     backfill_years: 3
-    queries:                  # 쿼리별로 별도 백필(체크포인트도 쿼리 단위)
-      - data engineering
-      - data platform
-      - data pipeline
-      - analytics
-      - LLM production
-      - RAG
-      - vector database
-      - duckdb
-      - iceberg
-      - airflow
-      - dbt
-      - small business software
+    # ── 수집 전략: 쿼리를 쓰지 않고 points 컷만 건다 ──
+    #
+    # 원래는 아래 queries로 좁혔는데, 실측 결과 이 방식이 동작하지 않았다(2026-08-30):
+    #   · 짧은 단어(RAG)           → Algolia가 쿼리를 버리고 224건 반환. 대부분 무관
+    #   · 다단어(data engineering) → 제목 완전일치라 30일간 0건
+    # 어댑터에 removeWordsIfNoResults=none 등을 못박아 쿼리 자체는 고쳤지만
+    # (src/sources/hackernews.py 참조), 쿼리 방식은 **무엇을 놓쳤는지 알 수 없다**는
+    # 문제가 남는다. 반면 볼륨은 points 컷만으로 충분히 잡힌다:
+    #   points>=20  연 37,000건 / >=30  연 31,000건 / >=50  연 24,000건
+    # PLAN §8이 이미 ②키워드 prefilter → ③임베딩 필터의 2단 방어를 설계해뒀으므로,
+    # 수집 단계에서는 넓게 받고 뒤에서 거르는 쪽이 커버리지 구멍이 없다.
+    #
+    # ⚠️ 기존 백필분 10,070건은 이 버그가 있던 시기 수집분이라 오염돼 있다.
+    #    재수집 여부는 미결정 (HANDOFF.md 참조).
+    #
+    # 쿼리 방식으로 되돌리려면 아래 목록의 주석을 풀면 된다(어댑터는 양쪽 다 지원).
+    queries: []
+    # queries:
+    #   - data engineering
+    #   - analytics
+    #   - RAG
+    #   - duckdb
+    #   - iceberg
+    #   - airflow
+    #   - dbt
 
   # GeekNews — (a)(c) 국내 실무 정보. Atom 피드는 최근 20~30건만 준다.
   geeknews:
     enabled: true
+    interval_days: 1          # RSS 전방 수집 + 과거분 예산 소진이 매일 이뤄져야 한다
     rss_url: https://news.hada.io/rss/news
     topic_url: https://news.hada.io/topic?id={id}
     # 백필: topic id가 순차라 최신 id에서 역방향으로 훑는다.
@@ -121,25 +136,75 @@ sources:
     max_retries: 2
     retry_backoff: 5.0
 
-  # 네이버 뉴스 — 소상공인 축. API가 최근분만 주므로 과거는 import_sobiz로 채운다.
+  # 네이버 뉴스 — 소상공인·AI·빅데이터·규제를 한 소스로 훑는다.
+  #
+  # ★ 이 소스는 백필이 불가능하다 → 매일 돌리는 게 전제다.
+  #   API에 기간 파라미터가 없고 start ≤ 1000까지만 페이징된다. 즉 최신순 앞에서부터
+  #   쿼리당 1,000건이 한계다. **오늘 안 받으면 오늘 기사는 영영 못 받는다.**
+  #   과거분은 import_sobiz로 한 번 채워뒀다(2026-08-25까지).
+  #
+  # 쿼리가 곧 수집 주제 범위다. 쿼리를 늘리면 커버리지가 늘고 대신 노이즈도 는다
+  # (노이즈는 뒤의 prefilter·filter가 걷어낸다 — 여기서 좁힐 필요는 없다).
   naver_news:
     enabled: true
+    interval_days: 1           # 매일. 뉴스는 하루만 걸러도 구멍이 난다
     api_url: https://openapi.naver.com/v1/search/news.json
-    weeks: 4
-    max_per_query: 1000
-    sort: date
+    sort: date                 # 최신순 — since보다 오래된 기사가 나오면 그 쿼리를 끊는다
+    max_pages: 10              # 쿼리당 상한(= start 1000 / display 100)
     request_interval: 0.11     # 초당 10회 제한 준수
     max_retries: 3
     retry_backoff: 2.0
+    # regulatory 플래그는 붙이지 않는다. 규제 알림(F7)의 판정은 **소스 기반**이라
+    # 개인정보위 같은 1차 출처에서 온 항목만 규제로 본다. 아래 규제 쿼리는
+    # "규제 관련 뉴스를 축적"하는 용도이지 알림 판정 대상이 아니다.
+    regulatory: false
     queries:
+      # ── 소상공인 축 (우리가 푸는 문제) ──
       - 소상공인 데이터
       - 소상공인 AI
       - 상권분석
       - 소상공인 디지털 전환
       - 스마트상점
       - 소상공인 정책자금
+      - 전통시장 활성화
+      # ── AI 축 (우리가 쓰는 기술) ──
+      - 공공기관 AI 도입
+      - 생성형 AI 활용
+      - 인공지능 정책
+      - AI 활용 사례
+      # ── 빅데이터 축 (우리가 다루는 기반) ──
       - 공공데이터 개방
+      - 데이터 플랫폼 구축
+      - 빅데이터 활용
+      - 마이데이터
+      - 데이터 분석 사업
+      # ── 규제·제도 (뉴스 경로. 1차 출처는 별도 어댑터로 붙일 예정) ──
       - 가명정보 결합
+      - 개인정보보호법 개정
+      - 개인정보위 가이드라인
+      - AI 기본법
+
+  # ── 규제 1차 출처 (F7 규제 알림) — 어댑터 미구현. 붙일 때 enabled를 켠다 ──
+  # 규제 판정은 **소스 기반**이다: 여기 소스에서 온 항목은 제목과 무관하게 전부
+  # 규제로 표시된다(collect.py의 _stamp_regulatory). 키워드 판정은 "규제 샌드박스
+  # 선정 기업" 같은 오탐이 많아 쓰지 않는다.
+  #
+  # pipc:                     # 개인정보보호위원회 — 고시·가이드라인·행정예고
+  #   enabled: false
+  #   regulatory: true        # ★ 이 한 줄이 규제 알림 대상 여부를 결정한다
+  #   interval_days: 1
+  # assembly:                 # 국회 의안정보 — 법안 발의·통과
+  #   enabled: false
+  #   regulatory: true
+  #   interval_days: 3        # 매일 볼 만큼 자주 안 바뀐다
+
+# ── 일일 수집 엔진 (collect.py) ──────────────────────────────────────
+# 소스를 순회하며 매일 1회 실행한다. 소스별로 try/except가 감싸져 있어
+# 하나가 죽어도 나머지는 계속 돌고, 실패가 있으면 종료 코드 1로 알린다.
+collect:
+  # 전방 수집 기간(일). 하루 걸러도 구멍이 안 나게 여유를 둔다.
+  # 소스별로 sources.<name>.days 로 덮어쓸 수 있다.
+  days: 3
 
 # ── sobiz 프로젝트 DB 임포트 ─────────────────────────────────────────
 # 네이버 뉴스 API는 백필이 안 되지만, sobiz가 주간 배치로 누적한 news_articles가 있다.

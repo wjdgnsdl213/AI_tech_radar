@@ -11,17 +11,20 @@ git clone https://github.com/wjdgnsdl213/AI_tech_radar.git
 cd AI_tech_radar
 pip install -r requirements.txt
 
-# 아래 3개를 옛 PC에서 수동 복사 (git에 없음)
-#   .env
-#   data/radar.db
-#   data/raw/*.jsonl
-#   data/checkpoints/*.json
+# 수동으로 옮길 건 .env 하나뿐이다 (git에 없음 — 의도적)
+#   USB·비밀번호 관리자·사내 메일 등으로 직접 옮긴다
 
 python -m src.db --summary        # 이관 확인
-python -m src.collect             # 일일 수집 (RSS + GeekNews 과거분 150건)
+python -m src.collect             # 일일 수집 (소스 순회)
 ```
 
-**코드는 GitHub에 있다.** 데이터·비밀키만 따로 옮기면 된다.
+**코드도 데이터도 GitHub에 있다** — 레포가 비공개라 `data/`(radar.db·raw·checkpoints)를
+함께 버전 관리한다(.gitignore 참조). **따로 옮길 건 `.env` 하나뿐이다.**
+
+> ⚠️ `.env`는 절대 커밋하지 않는다. API 키·SMTP 비밀번호가 들어 있고,
+> 한 번 커밋하면 나중에 지워도 git 이력에 영구히 남는다.
+> 레포를 공개로 바꾸려면 `.gitignore`의 `!data/...` 예외부터 지워야 한다
+> (수집분은 GeekNews·HN 요약문이라 공개 저장소에 두면 재배포에 해당한다).
 
 ---
 
@@ -30,16 +33,19 @@ python -m src.collect             # 일일 수집 (RSS + GeekNews 과거분 150�
 | 대상 | 크기 | 옮기나 | 이유 |
 |---|---|---|---|
 | `src/`, `config.yaml`, `seeds/`, `*.md` | 작음 | ✅ **git** | 코드·설정 |
-| **`.env`** | 699B | ✅ **수동 복사** | API 키. git에 안 올라감(의도적) |
-| **`data/radar.db`** | 36MB | ✅ **수동 복사** | 수집 데이터 49,543건 |
-| **`data/raw/*.jsonl`** | 6.6MB | ✅ **수동 복사** | 원본. 스키마 바뀌면 여기서 재적재 |
-| **`data/checkpoints/`** | 9KB | ✅ **수동 복사** | 백필 재개 지점 |
-| `data/trends.db` | 36MB | ❌ **불필요** | 구 스키마. `radar.db`로 이미 이관 완료 |
+| **`data/radar.db`** | 45MB | ✅ **git** | 수집 데이터. 레포가 비공개라 함께 관리 |
+| **`data/raw/*.jsonl`** | 14MB | ✅ **git** | 원본. 스키마 바뀌면 여기서 재적재 |
+| **`data/checkpoints/`** | 760KB | ✅ **git** | 백필 재개 지점 + Wayback CDX 인덱스 |
+| **`.env`** | 699B | ⚠️ **수동 복사** | API 키·SMTP 비밀번호. **커밋 금지** |
+| `data/trends.db` | 36MB | ❌ 불필요 | 구 스키마. `radar.db`로 이미 이관 완료 |
 | `logs_*.txt` | 작음 | ❌ 불필요 | 작업 로그 |
 | HuggingFace 모델 캐시 | **4.7GB** | ❌ 불필요 | 새 PC에서 자동 재다운로드(bge-m3 약 2.2GB) |
 
-**결론: 폴더 통째로 복사해도 되고(78MB), `data/trends.db`만 빼면 42MB다.**
-가장 간단한 방법은 `ai_tech_radar` 폴더 전체를 USB나 클라우드로 복사하는 것.
+**결론: `git clone` + `.env` 수동 복사면 끝이다.**
+
+> ⚠️ `radar.db`는 45MB 바이너리다. 커밋할 때마다 이력에 45MB가 새로 쌓이므로
+> **매일 커밋하지 않는다.** 다른 PC로 넘어갈 때만 커밋하는 게 맞다.
+> 일상적으로는 `data/raw/*.jsonl`만 커밋하고 새 PC에서 `ingest_raw`로 재생성해도 된다.
 
 ---
 
@@ -111,33 +117,34 @@ python -c "import torch; print('GPU:', torch.cuda.is_available(), torch.cuda.get
 
 ## 4. 하던 작업 이어가기
 
-### 방금까지 한 것
+### 방금까지 한 것 (2026-08-30 갱신)
 - 1주차 완료: 소스 어댑터 / 백필(체크포인트) / DB(SQLAlchemy) / 원본 재적재
-- **시드 진단 완료** — 아래 결론이 나왔다
+- 시드 진단 완료 → **결론을 `config.yaml`에 반영 완료**
+  (`filter.threshold` 0.50→**0.55**, `score.axis_count_weight` {1:0.5, 2:3.0, 3:8.0})
+- **일일 수집 엔진 완성** — `src/collect.py`를 소스 순회 구조로 재작성
+  - `src/sources/naver_news.py` 신규 (sobiz 수집기 이식). 소상공인·AI·빅데이터·규제 20쿼리
+  - 소스별 실패 격리 + `interval_days` + 실행 요약 + 실패 시 exit 1
+  - 규제 알림(F7)은 **소스 기반 판정**으로 확정 — `sources.<name>.regulatory: true`
+- **HN 어댑터 버그 수정** — Algolia가 `removeWordsIfNoResults`로 쿼리를 버리고
+  무관한 결과를 반환하고 있었다(RAG 검색 → 224건 중 대부분 무관).
+  수집 전략도 쿼리 방식 → **points 컷만**으로 변경 (연 3만건, 뒤의 2단 필터가 거른다)
 
-### 바로 적용해야 할 진단 결과
-`config.yaml`에 아직 반영 안 된 값:
-```yaml
-filter:
-  threshold: 0.55        # 현재 0.50 → 너무 낮음(37.7% 통과, 경계선이 전부 무관한 항목)
+### ⚠️ 이 PC에서 아직 안 된 것 (2026-08-30 현재)
+- **`.env`가 없다.** git에는 올라가지 않으므로(의도적) 수동으로 옮겨야 한다.
+  없으면 네이버 수집이 통째로 실패하고, **네이버는 백필이 불가능해 그날치가 영구 유실된다.**
+- `pip install -r requirements.txt` 미완 — torch·sentence-transformers·anthropic 없음.
+  GPU(RTX 3070)가 있으니 torch는 **CUDA 빌드로 따로** 설치해야 한다(§3 참조).
+- 데이터(`radar.db` 59,084건 · raw · checkpoints)는 git에서 받아졌다. 이 부분은 끝.
 
-score:
-  axis_count_weight: {1: 0.5, 2: 3.0, 3: 8.0}   # 1축 항목을 더 억제
-```
-
-근거(600건 표본):
-| 임계값 | 통과율 |
-|---|---|
-| 0.50 | 37.7% ← 현재. 노이즈 과다 |
-| **0.55** | **11.3% ← 권장** |
-| 0.60 | 3.8% (너무 빡빡) |
-
-### 다음 작업 (2주차)
-1. `src/prefilter.py` — 축 키워드 매칭(무료). **임베딩 전에 볼륨을 줄이는 게 필수**
-2. `src/filter.py` — 시드 centroid 임베딩 필터
-3. `src/score.py` — 교차 점수 + `item_axes` 태깅
-4. **임베딩 결과 DB 캐싱** — 세션이 끊겨도 재계산 안 하게 (CPU에서 특히 중요)
-5. 수동 라벨 50건으로 precision 측정 → 목표 ≥ 85%
+### 다음 작업
+1. **`.env` 이관 → `python -m src.collect` 매일 실행 시작** (작업 스케줄러 + `run_daily.bat`)
+2. HN 백필 재수집 여부 결정 — 기존 10,070건은 쿼리 버그 시기 수집분이라 오염됨
+3. `src/prefilter.py` — 축 키워드 매칭(무료). **임베딩 전에 볼륨을 줄이는 게 필수**
+4. `src/filter.py` — 시드 centroid 임베딩 필터
+5. `src/score.py` — 교차 점수 + `item_axes` 태깅
+6. **임베딩 결과 DB 캐싱** — 세션이 끊겨도 재계산 안 하게
+7. 수동 라벨 50건으로 precision 측정 → 목표 ≥ 85%
+8. 규제 1차 출처 어댑터(`pipc.py`·`assembly.py`) — config에 자리만 잡아뒀다
 
 ---
 
