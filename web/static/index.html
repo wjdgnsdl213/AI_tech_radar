@@ -76,14 +76,8 @@
     <div class="page-head"><h1>연관어 네트워크</h1></div>
 
     <form class="searchbar" id="ego-form">
-      <input id="ego-q" list="ego-list" placeholder="키워드 검색"
-             autocomplete="off">
+      <input id="ego-q" list="ego-list" placeholder="키워드 검색" autocomplete="off">
       <datalist id="ego-list"></datalist>
-      <select id="ego-hops" aria-label="홉 수">
-        <option value="1">1홉</option>
-        <option value="2">2홉</option>
-        <option value="3">3홉</option>
-      </select>
       <button type="submit">검색</button>
     </form>
     <div class="preset-row" id="ego-presets"></div>
@@ -91,12 +85,23 @@
     <div class="board board-graph">
       <div class="col-main">
         <div class="card graph-card">
+          <div class="graph-tools" id="graph-tools" hidden>
+            <label class="hopctl">범위
+              <input type="range" id="ego-hops" min="1" max="3" step="1" value="1">
+              <b id="hop-label">1홉</b>
+            </label>
+            <span class="mut" id="graph-stat"></span>
+            <span class="mut hint">클릭 = 기사 보기 · 더블클릭 = 그 키워드로 다시 그리기</span>
+          </div>
           <div id="graph-svg"><div class="empty">키워드를 검색해 보세요.</div></div>
         </div>
       </div>
       <aside class="col-side">
         <div class="card" id="kw-card" hidden>
-          <div class="panel-head"><h2 id="kw-title">—</h2><span class="mut" id="kw-count"></span></div>
+          <div class="panel-head">
+            <h2 id="kw-title">—</h2><span class="mut" id="kw-count"></span>
+          </div>
+          <div class="chip-row" id="kw-related"></div>
           <div id="kw-body"></div>
         </div>
       </aside>

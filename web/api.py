@@ -423,18 +423,27 @@ def keyword(kw: str, limit: int = Query(20)) -> dict[str, Any]:
             select(item_keywords.c.item_id).where(item_keywords.c.keyword == kw))]
     if not ids:
         return {"keyword": kw, "total": 0, "items": []}
+    # ★ kept로 거르지 않는다.
+    #   키워드는 전체 코퍼스에서 뽑는데 기사만 통과분으로 좁히면 "48건인데 기사 없음"이
+    #   된다(실측: Ollama 48건 중 통과 4건, Kubernetes 65건 중 4건).
+    #   대신 통과분을 위로 올리고 각 항목에 표시를 단다.
     with get_engine().connect() as c:
-        rows = c.execute(
-            select(items.c.id, items.c.title, items.c.url, items.c.source,
-                   items.c.published_at, items.c.cross_score, items.c.insight)
-            .where(items.c.id.in_(ids), items.c.kept.is_(True))
-            .order_by(items.c.cross_score.desc(), items.c.published_at.desc())
-            .limit(limit)).all()
+        rows = []
+        for part in (ids[i:i + 400] for i in range(0, len(ids), 400)):
+            rows += list(c.execute(
+                select(items.c.id, items.c.title, items.c.url, items.c.source,
+                       items.c.published_at, items.c.cross_score, items.c.insight,
+                       items.c.kept)
+                .where(items.c.id.in_(part))))
+        rows.sort(key=lambda r: (not bool(r.kept), -(r.cross_score or 0),
+                                 str(r.published_at or "")), reverse=False)
+        rows = rows[:limit]
         ax = _axes_of(c, [r.id for r in rows])
     return {
         "keyword": kw, "total": len(ids),
+        "kept": sum(1 for r in rows if r.kept),
         "items": [{"id": r.id, "title": r.title or "", "url": r.url or "",
-                   "source": r.source,
+                   "source": r.source, "kept": bool(r.kept),
                    "published": str(r.published_at)[:10] if r.published_at else "",
                    "cross_score": r.cross_score, "insight": r.insight or None,
                    "axes": sorted(ax.get(r.id, []))} for r in rows],

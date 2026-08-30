@@ -138,6 +138,13 @@ td.n{white-space:nowrap;color:var(--mut);font-size:12.5px;font-variant-numeric:t
 .bar{height:5px;background:var(--blue);border-radius:3px;min-width:2px;margin-top:4px;opacity:.75}
 
 /* ── 그래프 ── */
+.graph-tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:6px 10px 10px;border-bottom:1px solid var(--line-soft);margin-bottom:6px}
+.hopctl{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut)}
+.hopctl b{color:var(--blue);min-width:32px}
+.hopctl input[type=range]{width:110px;padding:0;accent-color:var(--blue)}
+.graph-tools .hint{margin-left:auto;font-size:12px;color:var(--mut-2)}
+.gnode.sel circle{stroke:var(--blue);stroke-width:3}
 .graph-card{padding:8px;background:var(--card)}
 #graph-svg svg{width:100%;height:auto;display:block}
 .gnode{cursor:pointer}

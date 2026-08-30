@@ -184,50 +184,63 @@ async function loadSuggest() {
     `<button type="button" class="preset" data-ego="${esc(i.keyword)}">${esc(i.keyword)}</button>`).join('');
 }
 
-async function loadEgo(kw) {
+let EGO = null, egoSel = null;
+
+async function loadEgo(kw, hops) {
   if (!kw) return;
   $('#ego-q').value = kw;
-  const hops = +($('#ego-hops')?.value || 1);
+  hops = hops || +($('#ego-hops')?.value || 1);
   $('#graph-svg').innerHTML = '<div class="empty">그리는 중…</div>';
   const g = await api('/api/ego', { kw, hops, per_hop: hops > 1 ? 8 : 14 });
   if (g.empty) {
+    $('#graph-tools').hidden = true;
     $('#graph-svg').innerHTML =
       `<div class="empty">'${esc(kw)}' — ${esc(g.reason || '결과가 없습니다.')}</div>`;
     return;
   }
+  EGO = g;
+  $('#graph-tools').hidden = false;
+  $('#ego-hops').value = hops;
+  $('#hop-label').textContent = hops + '홉';
+  $('#graph-stat').textContent = `${g.nodes.length}개 키워드 · ${g.edges.length}개 연결`;
+  drawEgo(g);
+  selectNode(g.center);
+}
+
+/* 배치는 물리 시뮬레이션이 아니라 홉별 동심원이다.
+   중심에서 멀수록 관계가 먼 말이라는 게 거리로 보이고, 결정적이라 다시 그려도 같다. */
+function drawEgo(g) {
   const W = 900, H = 660, cx = W / 2, cy = H / 2;
   const maxHop = Math.max(...g.nodes.map(n => n.hop));
-  // 홉마다 동심원. 중심에서 멀수록 관계가 먼 말이라는 게 거리로 보인다.
-  const radius = h => 150 + (h - 1) * (maxHop > 1 ? 190 / maxHop : 0) + (h - 1) * 40;
-  const pos = {}, byHop = {};
+  const pos = { [g.center]: [cx, cy] }, byHop = {};
   g.nodes.forEach(n => (byHop[n.hop] = byHop[n.hop] || []).push(n));
-  pos[g.center] = [cx, cy];
   Object.keys(byHop).filter(h => +h > 0).forEach(hs => {
-    const h = +hs, arr = byHop[hs], r = radius(h);
+    const h = +hs, arr = byHop[hs];
+    const r = 140 + (h - 1) * (maxHop > 1 ? 200 / maxHop : 0) + (h - 1) * 55;
     arr.forEach((n, i) => {
-      // 홉마다 시작 각도를 조금 틀어 안쪽 노드와 겹치지 않게 한다
       const t = -Math.PI / 2 + (i + (h % 2) * .5) * 2 * Math.PI / arr.length;
       pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .78];
     });
   });
-
   const maxDf = Math.max(...g.nodes.map(n => n.df || 1));
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
   (g.edges || []).forEach(e2 => {
-    const a2 = pos[e2.source], b2 = pos[e2.target];
-    if (!a2 || !b2) return;
+    const a = pos[e2.source], b = pos[e2.target];
+    if (!a || !b) return;
     const mid = e2.source === g.center || e2.target === g.center;
-    out.push(`<line x1="${a2[0].toFixed(1)}" y1="${a2[1].toFixed(1)}"
-      x2="${b2[0].toFixed(1)}" y2="${b2[1].toFixed(1)}" stroke="#94a3b8"
+    out.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}"
+      x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="#94a3b8"
       stroke-opacity="${(e2.npmi * (mid ? .55 : .22)).toFixed(3)}"
       stroke-width="${mid ? 1.5 : 1}"/>`);
   });
   g.nodes.forEach(n => {
     const [x, y] = pos[n.keyword];
-    const r = n.center ? 26 : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
+    const r = n.center ? 26
+      : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
     const fade = n.center ? 1 : Math.max(.38, 1 - (n.hop - 1) * .3);
-    out.push(`<g class="gnode" data-kw="${esc(n.keyword)}">
-      <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · ${n.hop}홉`}${n.via ? ` (${esc(n.via)} 경유)` : ''}</title>
+    out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}"
+      data-node="${esc(n.keyword)}">
+      <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · ${n.hop}홉`}</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
         fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${fade.toFixed(2)}"/>
       <text x="${x.toFixed(1)}" y="${(y + r + 14).toFixed(1)}" text-anchor="middle"
@@ -239,32 +252,77 @@ async function loadEgo(kw) {
   });
   out.push('</svg>');
   $('#graph-svg').innerHTML = out.join('');
-  showKeyword(g.center);
 }
 
+/* 클릭 = 이 키워드의 기사를 옆에 띄운다 (망은 그대로).
+   더블클릭 = 그 키워드를 중심으로 다시 그린다.
+   망을 유지한 채 여러 노드를 훑어보는 게 기본 동작이어야 한다 — 클릭할 때마다
+   그림이 갈아엎히면 어디를 보고 있었는지 잃는다. */
+function selectNode(kw) {
+  egoSel = kw;
+  $$('#graph-svg .gnode').forEach(g =>
+    g.classList.toggle('sel', g.dataset.node === kw));
+  showKeyword(kw);
+}
+
+$('#graph-svg').addEventListener('click', e => {
+  const g = e.target.closest('[data-node]');
+  if (g) selectNode(g.dataset.node);
+});
+$('#graph-svg').addEventListener('dblclick', e => {
+  const g = e.target.closest('[data-node]');
+  if (g) loadEgo(g.dataset.node);
+});
 $('#ego-form').onsubmit = e => { e.preventDefault(); loadEgo($('#ego-q').value.trim()); };
-$('#ego-hops').onchange = () => { const v = $('#ego-q').value.trim(); if (v) loadEgo(v); };
 $('#ego-presets').onclick = e => {
   const b = e.target.closest('[data-ego]');
   if (b) loadEgo(b.dataset.ego);
 };
+// 검색 뒤에도 범위를 늘렸다 줄였다 할 수 있어야 한다 — 몇 홉이 맞는지는
+// 그려보기 전에는 모른다.
+$('#ego-hops').oninput = e => { $('#hop-label').textContent = e.target.value + '홉'; };
+$('#ego-hops').onchange = e => {
+  const v = $('#ego-q').value.trim();
+  if (v) loadEgo(v, +e.target.value);
+};
 
+async function loadSuggest() {
+  const s = await api('/api/suggest', { limit: 40 });
+  $('#ego-list').innerHTML = s.items.map(i => `<option value="${esc(i.keyword)}">`).join('');
+  $('#ego-presets').innerHTML = s.items.slice(0, 8).map(i =>
+    `<button type="button" class="preset" data-ego="${esc(i.keyword)}">${esc(i.keyword)}</button>`).join('');
+}
 async function loadGraph() { await loadSuggest(); }
 
-/* 노드·키워드 클릭 → 그 키워드가 나온 기사.
-   그래프에서 발견한 걸 기사로 확인할 수 없으면 과제 후보로 못 쓴다. */
+/* 오른쪽 패널 = 선택한 키워드의 **기사(소스)** + 그 키워드와 가까운 말들.
+   그래프에서 뭔가를 발견해도 기사로 확인할 수 없으면 과제 후보로 못 쓴다. */
 async function showKeyword(kw) {
   $('#kw-card').hidden = false;
   $('#kw-title').textContent = kw;
   $('#kw-count').textContent = '';
   $('#kw-body').innerHTML = '<div class="empty">불러오는 중…</div>';
+
+  // 지금 그려진 망에서 이 노드와 이어진 말들을 칩으로 — 옆으로 옮겨 다니기 쉽게
+  const near = (EGO?.edges || [])
+    .filter(e => e.source === kw || e.target === kw)
+    .sort((a, b) => b.npmi - a.npmi).slice(0, 8)
+    .map(e => (e.source === kw ? e.target : e.source));
+  $('#kw-related').innerHTML = near.length
+    ? near.map(k => `<button class="chip" data-node="${esc(k)}">${esc(k)}</button>`).join('')
+    : '';
+
   const r = await api('/api/keyword/' + encodeURIComponent(kw), { limit: 15 });
-  $('#kw-count').textContent = `${num(r.total)}건`;
+  $('#kw-count').textContent = r.total
+    ? `기사 ${num(r.total)}건` + (r.kept ? ` · 다이제스트 ${r.kept}건` : '') : '';
   $('#kw-body').innerHTML = r.items.length
-    ? `<div class="items" style="padding:0;box-shadow:none;margin:0">
+    ? `<div class="items" style="padding:0;border:0;margin:0">
         ${r.items.map(itemHTML).join('')}</div>`
     : '<div class="empty">기사가 없습니다.</div>';
 }
+$('#kw-related').addEventListener('click', e => {
+  const b = e.target.closest('[data-node]');
+  if (b) selectNode(b.dataset.node);
+});
 
 /* ── ④ 급상승 ── */
 async function loadTrend() {
