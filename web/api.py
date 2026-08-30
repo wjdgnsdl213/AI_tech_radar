@@ -175,10 +175,32 @@ def trend(week: str = Query(""), top: int = Query(20)) -> dict[str, Any]:
     rows = rising(week, back, int(tcfg.get("min_weekly_freq", 5)))[:top]
     axis_weeks = list(reversed(prev_weeks(week, back))) + [week]
     for r in rows[:8]:
-        r["series"] = [{"week": w, "n": n} for w, n in series(r["keyword"], axis_weeks)]
+        # 차트 축에 그대로 쓰이므로 사람이 읽는 표기를 함께 싣는다.
+        # 'W31'은 몇 월인지 알 수 없다.
+        r["series"] = [{"week": w, "label": week_label(w), "n": n}
+                       for w, n in series(r["keyword"], axis_weeks)]
     return {"week": week, "week_label": week_label(week),
             "weeks": [{"week": w, "label": week_label(w)} for w in axis_weeks],
             "rows": rows}
+
+
+@router.get("/series")
+def keyword_series(kw: str = Query(...), weeks: int = Query(8)) -> dict[str, Any]:
+    """키워드 하나의 주차별 언급 추이. 급상승 팝업의 꺾은선이 쓴다.
+
+    /api/trend는 상위 8개에만 series를 붙인다. 팝업은 아무 키워드나 열 수 있으므로
+    따로 뽑는다. 주차 표기는 사람이 읽는 형태로 함께 낸다.
+    """
+    from src.trend import prev_weeks, series
+    with get_engine().connect() as c:
+        cur = c.execute(select(func.max(items.c.published_week))
+                        .where(items.c.kept.is_(True))).scalar_one_or_none()
+    if not cur:
+        return {"keyword": kw, "series": []}
+    axis = list(reversed(prev_weeks(cur, max(1, weeks - 1)))) + [cur]
+    return {"keyword": kw, "series": [
+        {"week": w, "label": week_label(w), "short": week_label(w).split("년 ")[-1], "n": n}
+        for w, n in series(kw, axis)]}
 
 
 @router.get("/graph")

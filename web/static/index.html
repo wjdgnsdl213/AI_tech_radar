@@ -89,9 +89,15 @@
               <b id="hop-label">1홉</b>
             </label>
             <span class="mut" id="graph-stat"></span>
-            <span class="mut hint">클릭 = 기사 보기 · 더블클릭 = 그 키워드로 다시 그리기</span>
+            <span class="zoomctl">
+              <button class="preset" data-zoom="-1" title="축소">−</button>
+              <b id="zoom-label">100%</b>
+              <button class="preset" data-zoom="1" title="확대">+</button>
+              <button class="preset" data-zoom="0">전체</button>
+            </span>
+            <span class="mut hint">휠 = 확대 · 끌기 = 이동 · 클릭 = 기사 · 더블클릭 = 다시 그리기</span>
           </div>
-          <div id="graph-svg"><div class="empty">키워드를 검색해 보세요.</div></div>
+          <div id="graph-svg" class="graph-map"><div class="empty">키워드를 검색해 보세요.</div></div>
         </div>
       </div>
       <aside class="col-side">
@@ -100,7 +106,7 @@
             <h2 id="kw-title">—</h2><span class="mut" id="kw-count"></span>
           </div>
           <div class="chip-row" id="kw-related"></div>
-          <div id="kw-body"></div>
+          <div class="scroll-list" id="kw-body"></div>
         </div>
       </aside>
     </div>
@@ -123,12 +129,19 @@
     <button class="drawer-x" data-mclose>✕</button>
     <div class="panel-head"><h2 id="m-title">—</h2><span class="mut" id="m-sub"></span></div>
     <div class="modal-grid">
-      <div><div class="mut" style="margin-bottom:6px">주차별 언급 추이</div>
-        <div id="m-chart"></div></div>
-      <div><div class="mut" style="margin-bottom:6px">함께 나온 키워드</div>
+      <div>
+        <div class="sub-head"><span class="mut">주차별 언급 추이</span>
+          <span id="m-demo"></span></div>
+        <div id="m-chart"></div>
+      </div>
+      <div><div class="sub-head"><span class="mut">함께 나온 키워드</span></div>
         <div id="m-net"></div></div>
     </div>
-    <div id="m-foot"></div>
+    <div class="sub-head" style="margin-top:16px">
+      <span class="mut">기사 목록</span><span class="mut" id="m-count"></span></div>
+    <!-- 스크롤 컨테이너: 팝업 전체가 길어지면 차트가 화면 밖으로 밀려나
+         "추이를 보려고 연 팝업인데 추이가 안 보이는" 상태가 된다. 목록만 구른다. -->
+    <div class="scroll-list" id="m-foot"></div>
   </div>
 </div>
 

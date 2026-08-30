@@ -198,7 +198,10 @@ td.n{white-space:nowrap;color:var(--mut);font-size:12.5px;font-variant-numeric:t
 #m-foot{margin-top:16px;border-top:1px solid var(--line-soft);padding-top:12px}
 
 /* ── 서랍 ── */
-.drawer{position:fixed;inset:0;z-index:60}
+/* ★ 서랍은 팝업(.modal, z-index 70)보다 위여야 한다.
+   급상승 팝업에서 기사 제목을 누르면 서랍이 뜨는데, 60이면 팝업 뒤에 깔려서
+   팝업을 닫기 전에는 못 본다 (실측). 서랍은 항상 마지막에 열리는 층이다. */
+.drawer{position:fixed;inset:0;z-index:90}
 .drawer-bg{position:absolute;inset:0;background:rgba(15,23,42,.4)}
 .drawer-panel{position:absolute;right:0;top:0;bottom:0;width:min(600px,94vw);
   background:var(--card);padding:26px;overflow-y:auto;box-shadow:-6px 0 24px rgba(15,23,42,.12)}
@@ -213,3 +216,32 @@ td.n{white-space:nowrap;color:var(--mut);font-size:12.5px;font-variant-numeric:t
   .wrap{padding:18px 12px 60px}
   .weekpick{margin-left:0;width:100%}
 }
+
+/* ── 기사 목록 스크롤 컨테이너 ─────────────────────────────────────
+   목록이 길어지면 바깥(팝업·사이드카드)이 통째로 늘어나, 같이 보라고 붙여둔
+   차트나 망이 화면 밖으로 밀려난다. 목록만 따로 구르게 한다. */
+.scroll-list{max-height:min(46vh,420px);overflow-y:auto;overscroll-behavior:contain;
+  padding-right:4px;margin-top:4px}
+.scroll-list::-webkit-scrollbar{width:8px}
+.scroll-list::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px}
+.scroll-list::-webkit-scrollbar-track{background:transparent}
+.col-side .scroll-list{max-height:calc(100vh - 300px)}
+
+.sub-head{display:flex;align-items:baseline;justify-content:space-between;
+  gap:10px;margin-bottom:6px;min-height:20px}
+
+/* ── 연관어 지도: 확대·이동 ────────────────────────────────────────
+   라벨 겹침은 간격을 벌려도 노드가 늘면 다시 생긴다. 전체를 한 화면에
+   욱여넣는 대신 지도처럼 만들고, 읽고 싶은 곳으로 파고들게 한다. */
+.graph-map{cursor:grab;touch-action:none;user-select:none;overflow:hidden}
+.graph-map.grabbing{cursor:grabbing}
+.graph-map svg{display:block;width:100%;height:auto}
+.zoomctl{display:inline-flex;align-items:center;gap:5px}
+.zoomctl .preset{padding:3px 9px;line-height:1.3}
+.zoomctl b{font-size:12px;color:var(--mut);min-width:40px;text-align:center;
+  font-variant-numeric:tabular-nums}
+
+/* 예시 데이터 배지 — 실측이 아니라는 걸 차트 옆에서 못 놓치게 한다 */
+.demo-badge{background:#fef3c7;color:#92400e;border:1px solid #fde68a;
+  border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600}
+.demo-toggle{font-size:11.5px;padding:2px 8px}
