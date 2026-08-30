@@ -22,13 +22,15 @@
 
 from __future__ import annotations
 
+import csv
 import html as html_mod
+import io
 import sys
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy import and_, func, or_, select
 
 from src.db import digests, get_engine, item_axes, items, load_config
@@ -154,11 +156,8 @@ def weeks():
     return page("회차", "".join(body) + "</table></div>")
 
 
-@app.get("/search", response_class=HTMLResponse)
-def search(q: str = Query("", description="제목·요약 검색어"),
-           axis: str = Query("", description="축"),
-           since: str = Query(""), until: str = Query(""),
-           kept_only: int = Query(1), page_no: int = Query(1, alias="p")):
+def _search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
+    """검색 조건. 화면과 CSV가 이 함수를 공유해야 둘이 갈라지지 않는다."""
     conds = []
     if q:
         conds.append(or_(items.c.title.contains(q), items.c.summary.contains(q)))
@@ -180,7 +179,15 @@ def search(q: str = Query("", description="제목·요약 검색어"),
         conds.append(items.c.id.in_(
             select(item_axes.c.item_id).where(item_axes.c.axis == axis)))
 
-    where = and_(*conds) if conds else None
+    return and_(*conds) if conds else None
+
+
+@app.get("/search", response_class=HTMLResponse)
+def search(q: str = Query("", description="제목·요약 검색어"),
+           axis: str = Query("", description="축"),
+           since: str = Query(""), until: str = Query(""),
+           kept_only: int = Query(1), page_no: int = Query(1, alias="p")):
+    where = _search_conds(q, axis, since, until, kept_only)
     stmt = select(items.c.id, items.c.title, items.c.url, items.c.source,
                   items.c.published_at, items.c.cross_score, items.c.insight)
     cnt = select(func.count()).select_from(items)
@@ -205,6 +212,8 @@ def search(q: str = Query("", description="제목·요약 검색어"),
             f"<label class=mut><input type=checkbox name=kept_only value=1"
             f"{' checked' if kept_only else ''}> 통과분만</label>"
             f"<button>검색</button></form>")
+    qs = (f"q={E(q)}&axis={E(axis)}&since={E(since)}&until={E(until)}"
+          f"&kept_only={kept_only}")
 
     nav = []
     if page_no > 1:
@@ -215,10 +224,58 @@ def search(q: str = Query("", description="제목·요약 검색어"),
                    f"&kept_only={kept_only}&p={page_no + 1}'>다음 →</a>")
 
     body = (f"<h2>검색</h2>{form}"
-            f"<p class=mut>{total:,}건 중 {offset + 1}~{offset + len(rows)}</p>"
+            f"<p class=mut>{total:,}건 중 {offset + 1}~{offset + len(rows)}"
+            f" · <a href='/search.csv?{qs}'>CSV 내려받기</a>"
+            f" <span style='font-size:12px'>(보고서 인용 목록용, 최대 2,000행)</span></p>"
             f"{rows_table(rows, axes)}"
             f"<p style='margin-top:16px;display:flex;gap:16px'>{''.join(nav)}</p>")
     return page("검색", body)
+
+
+@app.get("/search.csv")
+def search_csv(q: str = Query(""), axis: str = Query(""),
+               since: str = Query(""), until: str = Query(""),
+               kept_only: int = Query(1), limit: int = Query(2000)):
+    """검색 결과를 CSV로. **이게 S4(기안·보고서 근거)의 마지막 한 걸음이다.**
+
+    화면에서 눈으로 읽는 것과 보고서에 붙이는 건 다른 일이다. 표를 드래그해서
+    옮기면 서식이 깨지고 링크가 날아간다. 인용 목록은 파일로 나가야 쓸 수 있다.
+
+    화면과 같은 _search_conds를 쓴다 — 필터가 갈라지면 "화면에 보이는 것과
+    받은 파일이 다르다"가 되고, 그러면 아무도 이 기능을 안 믿는다.
+    """
+    where = _search_conds(q, axis, since, until, kept_only)
+    stmt = select(items.c.id, items.c.title, items.c.url, items.c.source,
+                  items.c.published_at, items.c.cross_score, items.c.relevance,
+                  items.c.insight)
+    if where is not None:
+        stmt = stmt.where(where)
+    stmt = stmt.order_by(items.c.cross_score.desc(),
+                         items.c.published_at.desc()).limit(max(1, min(limit, 5000)))
+    with get_engine().connect() as conn:
+        rows = conn.execute(stmt).all()
+        axes = _axes_map(conn, [r.id for r in rows])
+
+    buf = io.StringIO()
+    # utf-8-sig: BOM이 없으면 엑셀이 한글을 깨뜨린다
+    buf.write("﻿")
+    w = csv.writer(buf)
+    w.writerow(["발행일", "제목", "출처", "축", "교차점수", "관련도", "AI해설", "링크"])
+    for r in rows:
+        w.writerow([
+            str(r.published_at)[:10] if r.published_at else "",
+            r.title or "", r.source,
+            " ".join(LABELS.get(a, a) for a in sorted(axes.get(r.id, []))),
+            f"{r.cross_score:.1f}" if r.cross_score is not None else "",
+            f"{r.relevance:.4f}" if r.relevance is not None else "",
+            r.insight or "", r.url or "",
+        ])
+    buf.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d")
+    name = f"trend_radar_{stamp}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.get("/item/{item_id}", response_class=HTMLResponse)

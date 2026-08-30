@@ -49,10 +49,13 @@ python -c "import torch; print(torch.cuda.is_available())"
 | 축 태깅 | `python -m src.prefilter` | 축 키워드 매칭 → `item_axes` |
 | 필터 | `python -m src.filter` | 시드 대비 점수 + 신디케이션 제거 |
 | 점수 | `python -m src.score` | 교차 점수 → `items.cross_score` |
+| 키워드 | `python -m src.extract` | 명사 n-gram → `item_keywords` |
+| 급상승 | `python -m src.trend --out reports/` | 주간 급상승 키워드 + CSV |
 | 해설 | `python -m src.insight` | L1 항목 해설 / L2 주간 흐름 |
 | 다이제스트 | `python -m src.digest` | 구성 결정 → `digests` |
 | 메일 | `python -m src.mailer --dry-run` | 짧게 발송 |
-| 웹 | `uvicorn web.server:app` | 아카이브 + 검색 |
+| 웹 | `uvicorn web.server:app` | 아카이브 + 검색 + CSV 내보내기 |
+| 테스트 | `pytest tests/ -q` | 핵심 판정 로직 22개 |
 | 배치 | `python -m src.run_pipeline --daily` / `--weekly` | 위를 순서대로 |
 
 **단계는 전부 독립 실행된다.** 중간부터 다시 돌려도 되고, 각 단계는 멱등이다.
@@ -95,6 +98,7 @@ Windows 작업 스케줄러에 등록한다. 등록 명령은 각 `.bat` 파일 
 | `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 수집 | 네이버 소스만 실패(나머지는 계속) |
 | `CONTACT_EMAIL` | 수집 | 크롤링 UA에 `contact: unknown`으로 나감 |
 | `ANTHROPIC_API_KEY` | 해설 | 해설 없이 다이제스트만 나감 (fail-open) |
+| `ANTHROPIC_WORKSPACE_ID` | 해설 | 조직 계정 키라면 **필수**. 없으면 전 요청 400 |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `MAIL_FROM` / `MAIL_TO` | 메일 | 발송 불가 (`--dry-run`은 됨) |
 | `DATA_GO_KR_KEY` | 규제 소스 | 규제 알림 소스 미구현 |
 | `DATABASE_URL` | 배포 | 비우면 `sqlite:///data/radar.db` |
@@ -120,6 +124,16 @@ python -m src.evaluate --refresh       # 필터를 고친 뒤 판정만 다시 �
 `data/labels/labels_ai.csv`는 **AI가 채운 잠정 라벨**이다(`--ai`로 측정).
 필터를 만든 쪽이 그 필터를 채점한 것이라 낙관적으로 편향돼 있으니 참고용으로만 쓴다.
 
+## 테스트
+
+```bash
+pytest tests/ -q
+```
+
+임계값을 실측으로 정한 함수들(축 키워드 3종 매칭 규칙, 신디케이션 포함도, 교차 점수,
+ISO 주차 연산, n-gram 조각 판정)을 덮는다. 값이 흔들려도 파이프라인은 정상 종료하므로
+회귀가 조용히 지나간다 — 그래서 근거가 된 실제 사례를 그대로 테스트로 박아뒀다.
+
 ---
 
 ## DB
@@ -137,6 +151,7 @@ SQLAlchemy Core만 쓴다. 드라이버 직접 호출·방언 전용 SQL을 쓰�
 |---|---|
 | `items` | 수집 항목. 처리 단계가 컬럼을 채워 나간다 |
 | `item_axes` | 항목 × 축 (다대다) |
+| `item_keywords` | 항목 × 키워드 × 주차 — 급상승 계산·재활용용 (PLAN §3-B) |
 | `digests` | 주간 다이제스트 (`lead`=L2, `body`=구성) |
 
 `published_at`(발행일)과 `collected_at`(수집일)은 반드시 분리한다 — 백필 데이터는

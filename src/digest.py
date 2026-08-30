@@ -13,6 +13,7 @@
     ② 🔥 교집합         3축 전부 → 2축. **교차 점수가 정렬 1순위**
     ③ 축별 TOP N        AI / 빅데이터 / 소상공인
     ④ ⚠️ 규제 알림      소스 기반 판정(meta.regulatory)
+    ⑤ 📈 급상승 키워드   trend.py (F8)
     교집합을 맨 위에 두는 게 "팀이 필터링에 쓰는 시간을 없앤다"의 실현이다.
 
 실행:
@@ -169,6 +170,17 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
                 picked.append(p)
         by_axis[ax] = picked
 
+    # ⑤ 급상승 키워드 — item_keywords가 없으면(extract 미실행) 조용히 건너뛴다.
+    # 다이제스트가 이것 때문에 안 나가면 안 된다.
+    trending: list[dict[str, Any]] = []
+    try:
+        from src.trend import rising
+        tcfg = cfg.get("trend", {})
+        trending = rising(week, int(tcfg.get("compare_weeks", 4)),
+                          int(tcfg.get("min_weekly_freq", 5)))[:int(tcfg.get("top_n", 15))]
+    except Exception as exc:
+        print(f"  ⚠ 급상승 키워드 생략: {type(exc).__name__}: {str(exc)[:80]}")
+
     return {
         "week": week,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -178,6 +190,7 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
         "crossing": crossing,
         "by_axis": by_axis,
         "regulatory": regulatory[:per_axis],
+        "trending": trending,
     }
 
 
@@ -188,6 +201,7 @@ def save(d: dict[str, Any]) -> None:
         "crossing": [p["id"] for p in d["crossing"]],
         "by_axis": {ax: [p["id"] for p in ps] for ax, ps in d["by_axis"].items()},
         "regulatory": [p["id"] for p in d["regulatory"]],
+        "trending": [t["keyword"] for t in d.get("trending", [])],
         "total_kept": d["total_kept"],
     }
     with engine.begin() as conn:
@@ -250,6 +264,16 @@ def render_markdown(d: dict[str, Any], mail: bool = False,
             for p in ps:
                 out += block(p)
 
+    # 📈 급상승은 메일에도 넣는다 — 한 줄이라 짧고, '이번 주에 뭐가 떴나'를
+    # 링크를 안 눌러도 알 수 있게 해준다
+    if d.get("trending"):
+        top = d["trending"][:8] if mail else d["trending"]
+        out += ["## 📈 급상승 키워드", ""]
+        out.append(" · ".join(
+            f"**{t['keyword']}**({t['count']}건{'·신규' if t['is_new'] else ''})"
+            for t in top))
+        out.append("")
+
     if mail:
         out += ["---", ""]
         out.append(f"이번 주 통과 항목 {d['total_kept']}건."
@@ -306,6 +330,17 @@ def render_html(d: dict[str, Any], mail: bool = False,
     if not mail:
         for ax, ps in d["by_axis"].items():
             section(L.get(ax, ax), ps)
+    if d.get("trending"):
+        top = d["trending"][:8] if mail else d["trending"]
+        chips = "".join(
+            f'<span style="display:inline-block;margin:0 6px 6px 0;padding:4px 10px;'
+            f'border:1px solid #d1d5db;border-radius:99px;font-size:13px">'
+            f'{e(t["keyword"])} <span style="color:#6b7280">{t["count"]}</span>'
+            + ('<span style="color:#dc2626"> 신규</span>' if t["is_new"] else "")
+            + "</span>" for t in top)
+        parts.append('<h2 style="font-size:15px;margin:24px 0 10px">📈 급상승 키워드</h2>'
+                     f'<div>{chips}</div>')
+
     if mail and web_url:
         parts.append(f'<div style="margin-top:24px;text-align:center">'
                      f'<a href="{e(web_url)}" style="display:inline-block;padding:10px 20px;'

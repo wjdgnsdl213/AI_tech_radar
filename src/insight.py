@@ -106,8 +106,18 @@ def build_client():
     if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
         print("  ⚠ ANTHROPIC_API_KEY가 없습니다 (.env에 추가하세요)")
         return None
+
+    # 조직 계정에서 발급한 identity-linked 키는 workspace id를 함께 보내야 한다.
+    # 안 보내면 모든 요청이 400으로 떨어진다:
+    #   "anthropic-workspace-id is required when authenticating with an
+    #    identity-linked API key"
+    # 개인 키에는 이 헤더가 필요 없고, 넣어도 무해하지 않으므로 있을 때만 붙인다.
+    headers = {}
+    ws = os.getenv("ANTHROPIC_WORKSPACE_ID")
+    if ws:
+        headers["anthropic-workspace-id"] = ws
     try:
-        return anthropic.Anthropic()
+        return anthropic.Anthropic(default_headers=headers or None)
     except Exception as exc:
         print(f"  ⚠ Anthropic 클라이언트를 만들 수 없습니다: {exc}")
         return None
@@ -217,7 +227,10 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
             stats["fail"] += 1
             return item_id, None
         except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
-            print(f"    ⚠ 항목 {item_id} 실패: {type(exc).__name__}")
+            # 타입만 찍으면 원인을 못 찾는다. 400은 메시지에 이유가 들어 있다.
+            msg = getattr(exc, "message", None) or str(exc)
+            if stats["fail"] == 0:          # 같은 오류가 300줄 쏟아지는 걸 막는다
+                print(f"    ⚠ 실패: {type(exc).__name__}: {msg[:220]}")
             stats["fail"] += 1
             return item_id, None
         except Exception as exc:

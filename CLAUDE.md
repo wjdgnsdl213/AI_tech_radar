@@ -29,7 +29,10 @@ AI 서비스 개발(모델 학습·서빙)이 주력이 아니다 — 소스 선
 5. ✅ **AI 해설**: `src/insight.py` — L1 항목 해설 / L2 주간 요약 (ANTHROPIC_API_KEY 없어 dry-run까지만 검증)
 6. ✅ **다이제스트 + 배포**: `digest`(한 번 생성) → `mailer`(짧게) + 웹(전문) · `run_pipeline` 오케스트레이터
 7. ✅ **웹 아카이브·검색**: `web/server.py` — /, /digest/{week}, /search, /item/{id}, /weeks
-8. ⬜ (2차) 키워드 트렌드 → 연관어 그래프(브릿지 노드) → L3 월간 인사이트
+8. 🟡 (2차) 키워드 트렌드 → 연관어 그래프(브릿지 노드) → L3 월간 인사이트
+   - ✅ `extract` 키워드 추출(kiwipiepy + 연속명사 n-gram) → `item_keywords`
+   - ✅ `trend` 급상승 키워드 — **빈도가 아니라 비중**으로 비교(수집량 변화 상쇄)
+   - ⬜ 연관어 그래프 · L3 월간 인사이트
 
 ## 원칙
 - 모든 하이퍼파라미터는 `config.yaml`에서 관리, 코드 하드코딩 금지

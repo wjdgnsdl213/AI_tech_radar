@@ -41,8 +41,14 @@ DAILY = [
     ("prefilter", "축 키워드 prefilter",   [], True),
     ("filter",    "임베딩 필터",           [], True),
     ("score",     "교차 점수",             ["--top", "0"], True),
+    # 키워드 추출은 통과 항목이 바뀔 때마다 다시 해야 한다(5초). 실패해도
+    # 다이제스트는 📈 섹션만 빠진 채 나가므로 막지 않는다.
+    ("extract",   "키워드 추출",           ["--top", "0"], False),
 ]
 WEEKLY = [
+    # 급상승 CSV는 빅데이터팀이 자기 분석에 재활용하는 산출물이다(PLAN §3-B).
+    # 다이제스트는 자체적으로 trend를 계산하므로 이 단계가 실패해도 상관없다.
+    ("trend",   "급상승 키워드 CSV", ["--out", "reports/"], False),
     ("insight", "AI 해설 (L1/L2)", [], False),   # LLM 장애여도 다이제스트는 나간다
     ("digest",  "다이제스트 생성",  ["--out", "reports/"], True),
     ("mailer",  "메일 발송",        [], False),
