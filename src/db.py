@@ -238,13 +238,40 @@ def upsert_items(records: Iterable[dict[str, Any]], engine: Engine | None = None
 
 
 def set_axes(item_id: int, axes: Iterable[str], engine: Engine | None = None) -> None:
-    """항목의 축 태그를 교체한다. score.py가 쓴다."""
+    """항목의 축 태그를 교체한다."""
     engine = engine or get_engine()
     with engine.begin() as conn:
         conn.execute(item_axes.delete().where(item_axes.c.item_id == item_id))
         rows = [{"item_id": item_id, "axis": a} for a in axes]
         if rows:
             conn.execute(item_axes.insert(), rows)
+
+
+def replace_axes_bulk(tagged: dict[int, Iterable[str]], engine: Engine | None = None) -> int:
+    """여러 항목의 축 태그를 한 트랜잭션에서 교체한다. prefilter.py가 쓴다.
+
+    set_axes를 항목마다 부르면 5만 건에 트랜잭션이 5만 개 열린다(SQLite에서 수 분).
+    여기서는 delete를 IN 절로 묶고 insert를 executemany로 한 번에 보낸다.
+
+    0축 항목도 키를 넘기면 기존 태그가 지워진다 — 키워드를 고쳐 다시 돌렸을 때
+    예전 태그가 남아 있으면 안 되기 때문이다.
+    """
+    if not tagged:
+        return 0
+    ids = list(tagged)
+    rows = [{"item_id": i, "axis": a} for i, axes in tagged.items() for a in axes]
+    with engine_or(engine).begin() as conn:
+        # 파라미터 상한(SQLite 기본 999)에 걸리지 않게 나눠서 지운다
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            conn.execute(item_axes.delete().where(item_axes.c.item_id.in_(chunk)))
+        if rows:
+            conn.execute(item_axes.insert(), rows)
+    return len(rows)
+
+
+def engine_or(engine: Engine | None) -> Engine:
+    return engine or get_engine()
 
 
 # ── 현황 ────────────────────────────────────────────────────────────

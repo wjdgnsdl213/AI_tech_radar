@@ -11,33 +11,66 @@ db:
 # ── 3축 정의 ────────────────────────────────────────────────────────
 # 교차 점수(score.py)의 기준. 항목이 걸치는 축 수가 많을수록 상위 노출된다.
 # 여기 키워드는 ②키워드 prefilter에도 함께 쓰인다(무료 단계).
+# ⚠️ 한글·영문을 반드시 함께 넣는다.
+#   초판은 한글 위주(영문 AI 7 / 빅데이터 9 / 소상공인 0개)라 영어 소스가 거의 안 걸렸다.
+#   실측(59,084건): 빅데이터 축 0.9%, 3축 교집합 53건(0.1%) — 교차 점수가 무의미해진다.
+#   HN이 전부 영어이므로 영문 키워드가 없으면 그 소스는 통째로 0축이 된다.
+#
+# 매칭 규칙 (src/prefilter.py):
+#   · 영문 키워드 — 앞뒤가 영숫자가 아닐 때만 매칭. 'AI'가 'SAID'에 안 걸리고
+#     'AI가'처럼 조사가 붙어도 잡힌다. 대소문자 무시
+#   · 4글자 이상 한글 — 양쪽 공백을 지우고 비교. '데이터플랫폼'으로 적어두면
+#     기사의 '데이터 플랫폼'도 잡힌다(sobiz 기사에 '인공 지능'처럼 벌어진 표기가 많다)
+#   · 4글자 미만 한글 — 원문 그대로만. 공백을 지우면 단어 경계를 넘어 오탐이 난다
+#     (실측: '관점 포함'→점포, '더 이상 권장'→상권)
+#
+# 동음이의어에 주의한다. 짧은 영문 약어일수록 위험하다 — SMB(소상공인/파일공유
+# 프로토콜)는 이 이유로 뺐다. 새 키워드를 넣은 뒤에는 반드시 재측정한다:
+#   python -m src.prefilter --dry-run
 axes:
   ai:
     label: AI
     keywords:
-      - AI, 인공지능, LLM, 생성형
-      - 머신러닝, 딥러닝, 학습모델
+      - AI, 인공지능, LLM, 생성형, 초거대
+      - 머신러닝, 딥러닝, 학습모델, 학습데이터, 추론
       - RAG, 임베딩, 벡터, 파인튜닝
       - 챗봇, 에이전트, 프롬프트
-      - GPT, Claude, Gemini, Llama
-      - 이상탐지, 수요예측, 시계열
+      - GPT, Claude, Gemini, Llama, OpenAI, Anthropic, Mistral, Copilot
+      - 이상탐지, 수요예측, 시계열, 추천시스템
+      # ── 영문 ──
+      - machine learning, deep learning, neural network, transformer
+      - foundation model, generative AI, fine-tuning, inference
+      - MLOps, AI agent, prompt engineering, chatbot
+      - computer vision, anomaly detection, forecasting, recommendation system
   bigdata:
     label: 빅데이터
     keywords:
-      - 빅데이터, 데이터플랫폼, 데이터레이크, 웨어하우스
-      - 데이터파이프라인, ETL, ELT, 오케스트레이션
+      - 빅데이터, 데이터플랫폼, 데이터레이크, 웨어하우스, 데이터베이스
+      - 데이터파이프라인, ETL, ELT, 오케스트레이션, 데이터인프라
       - Airflow, dbt, Spark, Kafka, DuckDB, Iceberg, Trino
-      - 공공데이터, 데이터개방, 데이터표준
+      - 공공데이터, 데이터개방, 데이터표준, 정보공개, 데이터산업
       - 개인정보, 가명정보, 익명처리, 재식별
-      - 데이터거버넌스, 마이데이터, 데이터결합
+      - 데이터거버넌스, 마이데이터, 데이터결합, 데이터품질, 데이터활용
+      # ── 영문 ──
+      - data engineering, data platform, data pipeline, data infrastructure
+      - data warehouse, data lake, lakehouse, database, analytics
+      - SQL, BigQuery, Snowflake, Redshift, Postgres, PostgreSQL
+      - Hadoop, Flink, Presto, Parquet, OLAP, ClickHouse, Elasticsearch
+      - data governance, data quality, data catalog, open data
+      - privacy, anonymization, GDPR
   smallbiz:
     label: 소상공인
     keywords:
-      - 소상공인, 자영업, 소기업, 상권
-      - 전통시장, 골목상권, 프랜차이즈
+      - 소상공인, 자영업, 소기업, 상권, 점포, 소매업
+      - 전통시장, 골목상권, 프랜차이즈, 상인회, 소상공인연합회
       - 중기부, 중소벤처기업부, 소진공, 소상공인시장진흥공단
       - 상권분석, 매출데이터, 카드매출
       - 폐업, 창업, 자금지원, 정책자금
+      # ── 영문 ──
+      # SMB는 뺐다 — Server Message Block(파일 공유 프로토콜)과 동음이의어라
+      # 기술 소스에서 오탐이 난다 (예: 'Apple이 Time Machine을 다시 망가뜨림')
+      - small business, small merchant, local business
+      - storefront, franchise, point of sale, merchant
 
 # 교차 점수 가중치 — 팀 성격(a 분석·c 인프라·d 기획)에 맞춰 조정한다.
 # 축 수가 많을수록 급격히 가중된다(교집합 우선 원칙).
