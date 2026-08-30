@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -89,16 +90,25 @@ def load_team_profile(path: str) -> str:
 
 
 def build_client():
-    """Anthropic 클라이언트. 키가 없으면 None을 돌려주고 호출부가 fail-open 처리한다."""
+    """Anthropic 클라이언트. 키가 없으면 None을 돌려주고 호출부가 fail-open 처리한다.
+
+    ⚠️ SDK는 **키가 없어도 생성자가 성공한다.** 인증 확인은 첫 요청 시점에 일어나고,
+       그때 APIError가 아니라 TypeError가 난다("Could not resolve authentication
+       method"). 그래서 생성자만 try로 감싸면 못 잡고, 워커 스레드에서 터져
+       배치 전체가 죽는다(실측). 여기서 자격증명 유무를 미리 확인한다.
+    """
     load_dotenv()
     try:
         import anthropic
     except ImportError:
         print("  ⚠ anthropic 패키지가 없습니다 (pip install anthropic)")
         return None
+    if not (os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")):
+        print("  ⚠ ANTHROPIC_API_KEY가 없습니다 (.env에 추가하세요)")
+        return None
     try:
         return anthropic.Anthropic()
-    except Exception as exc:            # 키 누락 등
+    except Exception as exc:
         print(f"  ⚠ Anthropic 클라이언트를 만들 수 없습니다: {exc}")
         return None
 
@@ -204,6 +214,12 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
             return item_id, None
         except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
             print(f"    ⚠ 항목 {item_id} 실패: {type(exc).__name__}")
+            stats["fail"] += 1
+            return item_id, None
+        except Exception as exc:
+            # 예상 못 한 예외(SDK 인증 TypeError 등)가 워커에서 터지면 배치 전체가
+            # 죽는다. 해설은 부가 정보이므로 그 항목만 포기하고 계속 간다.
+            print(f"    ⚠ 항목 {item_id} 실패: {type(exc).__name__}: {str(exc)[:80]}")
             stats["fail"] += 1
             return item_id, None
 
@@ -316,8 +332,8 @@ def run_l2(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
             system=_system_blocks(L2_RULES, profile),
             messages=[{"role": "user", "content": user_text}],
         )
-    except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
-        print(f"  ⚠ 주간 요약 실패: {type(exc).__name__}: {exc}")
+    except Exception as exc:
+        print(f"  ⚠ 주간 요약 실패: {type(exc).__name__}: {str(exc)[:120]}")
         if icfg.get("fail_open", True):
             return None
         raise
