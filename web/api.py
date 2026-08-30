@@ -201,6 +201,142 @@ def graph(top: int = Query(24)) -> dict[str, Any]:
     }
 
 
+@router.get("/suggest")
+def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
+    """키워드 자동완성. 검색형 네트워크의 입구다.
+
+    빈도순으로 그냥 내면 '상공인', '전통' 같은 n-gram 조각이 상위를 먹는다.
+    사용자가 처음 보는 목록이라 여기가 지저분하면 기능 전체가 못 미더워 보인다.
+    → 더 긴 키워드에 포함되면서 빈도가 비슷한 것은 조각으로 보고 뺀다.
+    """
+    from src.extract import STOPWORDS, item_keywords
+    with get_engine().connect() as c:
+        stmt = (select(item_keywords.c.keyword, func.count().label("n"))
+                .group_by(item_keywords.c.keyword)
+                .order_by(func.count().desc()).limit(limit * 8))
+        if q:
+            stmt = stmt.where(item_keywords.c.keyword.contains(q))
+        rows = [(k, n) for k, n in c.execute(stmt) if k not in STOPWORDS]
+
+    out: list[dict[str, Any]] = []
+    for k, n in rows:
+        if any(k != o and k in o and m >= n * 0.5 for o, m in rows):
+            continue                                   # 더 긴 말의 조각
+        if any(o in k and n >= m * 0.5 for o, m in
+               ((x["keyword"], x["n"]) for x in out)):
+            continue                                   # 이미 뽑은 것의 확장형
+        out.append({"keyword": k, "n": n})
+        if len(out) >= limit:
+            break
+    return {"items": out}
+
+
+@router.get("/ego")
+def ego(kw: str = Query(...), limit: int = Query(24)) -> dict[str, Any]:
+    """키워드 하나를 중심으로 한 연관어 망(ego network).
+
+    ★ 전체 그래프를 미리 그려두지 않고 검색할 때마다 만든다.
+      전체 코퍼스를 400 노드로 압축하면 어느 주제에도 안 맞는 지도가 되고,
+      일반어가 상위를 먹는다. "지금 보는 주제 주변이 어떻게 생겼나"가 실제 질문이다.
+      계산도 훨씬 싸다 — 전체 그래프는 40만 쌍을 훑지만 여기는 이웃만 본다.
+
+    NPMI는 graph.py와 같은 식이다. 화면마다 다른 지표를 쓰면 값이 갈린다.
+    """
+    import math
+    from collections import Counter, defaultdict
+
+    from src.extract import STOPWORDS, item_keywords
+
+    with get_engine().connect() as c:
+        kept = {i for (i,) in c.execute(
+            select(items.c.id).where(items.c.kept.is_(True)))}
+        docs: dict[int, set[str]] = defaultdict(set)
+        for i, k in c.execute(select(item_keywords.c.item_id, item_keywords.c.keyword)):
+            if i in kept:
+                docs[i].add(k)
+        axis_of: dict[int, set[str]] = defaultdict(set)
+        for i, a in c.execute(select(item_axes.c.item_id, item_axes.c.axis)):
+            if i in docs:
+                axis_of[i].add(a)
+
+    n_docs = len(docs) or 1
+    df = Counter(k for ks in docs.values() for k in ks)
+    if kw not in df:
+        return {"center": kw, "empty": True, "nodes": [], "edges": []}
+
+    host_docs = [i for i, ks in docs.items() if kw in ks]
+
+    def npmi(a: str, b: str, cooc: int) -> float:
+        pa, pb, pab = df[a] / n_docs, df[b] / n_docs, cooc / n_docs
+        d = -math.log(pab)
+        return math.log(pab / (pa * pb)) / d if d > 0 else 0.0
+
+    # 중심 키워드와 함께 나온 것들.
+    # 동시등장이 2건이면 NPMI가 크게 흔들려 지역명·조각이 상위에 낀다(실측:
+    # 상권분석 이웃에 '안산', '사이', '예비'가 들어왔다). 중심 기사 수에 비례해
+    # 하한을 올리되, 기사가 많은 키워드에서 너무 빡빡해지지 않게 상한을 둔다.
+    min_cooc = max(3, min(len(host_docs) // 15, 6))
+    co = Counter()
+    for i in host_docs:
+        co.update(docs[i] - {kw})
+    cand = [(k, n) for k, n in co.items()
+            if n >= min_cooc and k not in STOPWORDS and df[k] >= 5
+            and kw not in k and k not in kw]          # 조각·상위어 제외
+    # n-gram 조각을 걷어낸다. 안 하면 좁은 ego 지면이 같은 말의 조각으로 덮인다.
+    # 실측: 공공데이터 이웃이 관계부처 / 관계부처협의 / 즉시실무 / 즉시실무협의체로,
+    #       마이데이터 이웃이 초본 / 등록초본 / 주민등록초본으로 채워졌다.
+    # 규칙은 graph.drop_fragments와 같다 — 더 긴 말이 있고 동시등장이 비슷하면 조각이다.
+    ranked = sorted(((npmi(kw, k, n), k, n) for k, n in cand), reverse=True)
+    scored: list[tuple[float, str, int]] = []
+    for s, k, n in ranked:
+        # 비율 0.5: n-gram에서 더 긴 말에 포함되는 짧은 말은 거의 항상 조각이다.
+        # 0.8로 조였더니 '관계부처'(9건)가 '관계부처협의'(7건)의 조각으로 안 잡혔다.
+        # 여러 복합어에 두루 쓰이는 말('개방' 20건)은 자기 빈도가 훨씬 커서 살아남는다.
+        if any(k != o and k in o and m >= n * 0.5 for _, o, m in ranked):
+            continue                       # 더 긴 말의 조각
+        if any(o in k and n >= m * 0.5 for _, o, m in scored):
+            continue                       # 이미 뽑은 것의 확장형(같은 말)
+        scored.append((s, k, n))
+        if len(scored) >= limit:
+            break
+    names = [kw] + [k for _, k, _ in scored]
+    nameset = set(names)
+
+    # 이웃끼리의 간선도 그린다 — 이게 있어야 '망'으로 보인다
+    pair = Counter()
+    for ks in docs.values():
+        sel = sorted(ks & nameset)
+        for x in range(len(sel)):
+            for y in range(x + 1, len(sel)):
+                pair[(sel[x], sel[y])] += 1
+    edges = []
+    for (a, b), n in pair.items():
+        if n < 2:
+            continue
+        v = npmi(a, b, n)
+        if v >= 0.15:
+            edges.append({"source": a, "target": b, "npmi": round(v, 4), "cooc": n})
+
+    axis_hits: dict[str, Counter] = defaultdict(Counter)
+    for i, ks in docs.items():
+        for k in ks & nameset:
+            for a in axis_of.get(i, ()):
+                axis_hits[k][a] += 1
+    nodes = []
+    for k in names:
+        h = axis_hits[k]
+        tot = sum(h.values())
+        nodes.append({
+            "keyword": k, "df": df[k], "center": k == kw,
+            "axis": max(h, key=h.get) if h else None,
+            "axis_share": {a: round(v / tot, 3) for a, v in h.items()} if tot else {},
+            "npmi": next((round(s, 3) for s, kk, _ in scored if kk == k), 1.0),
+            "cooc": next((n for _, kk, n in scored if kk == k), df[k]),
+        })
+    return {"center": kw, "empty": False, "nodes": nodes, "edges": edges,
+            "docs": len(host_docs)}
+
+
 @router.get("/keyword/{kw}")
 def keyword(kw: str, limit: int = Query(20)) -> dict[str, Any]:
     """키워드가 나온 기사들. 연관어 그래프에서 노드를 클릭하면 이걸 부른다.

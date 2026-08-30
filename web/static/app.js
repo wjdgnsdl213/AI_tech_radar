@@ -168,69 +168,77 @@ function initSearch() {
   runSearch(1);
 }
 
-/* ── ③ 연관어 네트워크 ──
- * 배치는 물리 시뮬레이션이 아니라 **주제 삼각형의 무게중심**이다.
- * 노드 좌표 = 주제별 등장 비중으로 세 꼭짓점을 가중평균한 점.
- * 한 주제에만 나오면 그 꼭짓점으로, 여러 주제에 걸치면 가운데로 모인다.
- * 결정적이라 새로고침해도 같은 그림이고 드래그·충돌 처리가 필요 없다. */
-async function loadGraph() {
-  const g = await api('/api/graph', { top: 20 });
-  if (g.empty || !g.nodes?.length) {
-    $('#graph-svg').innerHTML = '<div class="empty">키워드 데이터가 없습니다.</div>'; return;
+/* ── ③ 연관어 네트워크 (검색형) ──
+ * 전체 코퍼스로 그린 고정 지도가 아니라, 검색한 키워드 주변만 그린다.
+ * 전체를 400 노드로 압축하면 어느 주제에도 안 맞는 그림이 되고 일반어가 상위를 먹는다.
+ * 실제 질문은 "지금 보는 주제 옆에 뭐가 있나"이지 "연관어 전체 지도"가 아니다.
+ *
+ * 배치는 물리 시뮬레이션이 아니라 중심 키워드를 가운데 두고 NPMI 순으로 둘레에
+ * 놓는 방사형이다. 결정적이라 새로고침해도 같은 그림이고 드래그 처리가 필요 없다.
+ * 색은 그 키워드가 주로 어느 주제 기사에 나오는지를 나타낸다. */
+async function loadSuggest() {
+  const s = await api('/api/suggest', { limit: 40 });
+  $('#ego-list').innerHTML = s.items.map(i => `<option value="${esc(i.keyword)}">`).join('');
+  // 자주 쓸 만한 출발점 몇 개는 버튼으로 — 빈 화면에서 뭘 쳐야 할지 모르는 걸 막는다
+  $('#ego-presets').innerHTML = s.items.slice(0, 8).map(i =>
+    `<button type="button" class="preset" data-ego="${esc(i.keyword)}">${esc(i.keyword)}</button>`).join('');
+}
+
+async function loadEgo(kw) {
+  if (!kw) return;
+  $('#ego-q').value = kw;
+  $('#graph-svg').innerHTML = '<div class="empty">그리는 중…</div>';
+  const g = await api('/api/ego', { kw, limit: 20 });
+  if (g.empty || g.nodes.length < 2) {
+    $('#graph-svg').innerHTML =
+      `<div class="empty">'${esc(kw)}'와 함께 언급되는 키워드를 찾지 못했습니다.</div>`;
+    return;
   }
-  const W = 900, H = 640, R = 265, cx = W / 2, cy = H / 2 + 8;
-  const keys = AXES.map(a => a.key), anchors = {};
-  keys.forEach((k, i) => {
-    const t = -Math.PI / 2 + i * 2 * Math.PI / keys.length;
-    anchors[k] = [cx + R * Math.cos(t), cy + R * Math.sin(t)];
-  });
-  const bset = new Set((g.bridges || []).map(b => b.keyword));
-  const pos = {};
-  g.nodes.forEach((n, i) => {
-    let x = 0, y = 0, w = 0;
-    keys.forEach(k => {
-      const s = (n.axis_share || {})[k] || 0;
-      x += anchors[k][0] * s; y += anchors[k][1] * s; w += s;
-    });
-    if (!w) { x = cx; y = cy; } else { x /= w; y /= w; }
-    const a = i * 2.399963;   // 황금각 — 난수가 아니라 재현되는 흔들기
-    pos[n.keyword] = [x + Math.cos(a) * 20, y + Math.sin(a) * 20];
+  const W = 880, H = 620, cx = W / 2, cy = H / 2;
+  const ring = g.nodes.slice(1);
+  const maxDf = Math.max(...g.nodes.map(n => n.df));
+  const pos = { [g.center]: [cx, cy] };
+  ring.forEach((n, i) => {
+    const t = -Math.PI / 2 + i * 2 * Math.PI / ring.length;
+    // NPMI가 높을수록 중심에 가깝게 — 거리가 곧 연관 강도다
+    const r = 130 + 175 * (1 - Math.min(1, Math.max(0, n.npmi)));
+    pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .82];
   });
 
-  const maxDf = Math.max(...g.nodes.map(n => n.df));
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
-  keys.forEach(k => {
-    const [x, y] = anchors[k];
-    out.push(`<text x="${x}" y="${y + (y < cy ? -22 : 30)}" text-anchor="middle"
-      font-size="15" font-weight="700" fill="var(--ax-${k})">${esc(label(k))}</text>`);
-  });
-  (g.edges || []).slice(0, 700).forEach(e => {
-    const a = pos[e.source], b = pos[e.target]; if (!a || !b) return;
+  (g.edges || []).forEach(e2 => {
+    const a = pos[e2.source], b = pos[e2.target];
+    if (!a || !b) return;
+    const mid = e2.source === g.center || e2.target === g.center;
     out.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}"
-      y2="${b[1].toFixed(1)}" stroke="#1e3932" stroke-opacity="${(e.npmi * .2).toFixed(3)}"/>`);
+      y2="${b[1].toFixed(1)}" stroke="#1e3932"
+      stroke-opacity="${(e2.npmi * (mid ? .5 : .2)).toFixed(3)}"
+      stroke-width="${mid ? 1.6 : 1}"/>`);
   });
   g.nodes.forEach(n => {
-    const [x, y] = pos[n.keyword], r = 4 + 8 * Math.sqrt(n.df / maxDf), isB = bset.has(n.keyword);
+    const [x, y] = pos[n.keyword];
+    const r = n.center ? 30 : 8 + 12 * Math.sqrt(n.df / maxDf);
     out.push(`<g class="gnode" data-kw="${esc(n.keyword)}">
-      <title>${esc(n.keyword)} · ${n.df}건 (클릭하면 기사 목록)</title>
+      <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · 함께 ${n.cooc}건`} (클릭하면 기사)</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
-        fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${isB ? .95 : .45}"
-        stroke="${isB ? '#c82014' : 'none'}" stroke-width="${isB ? 2 : 0}"/>
-      ${(isB || n.df > maxDf * .3)
-        ? `<text x="${x.toFixed(1)}" y="${(y - r - 5).toFixed(1)}" text-anchor="middle"
-             class="${isB ? 'glabel-bridge' : ''}" fill="#1e3932">${esc(n.keyword)}</text>` : ''}
+        fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${n.center ? .95 : .55}"/>
+      <text x="${x.toFixed(1)}" y="${(y + r + 15).toFixed(1)}" text-anchor="middle"
+        class="${n.center ? 'glabel-bridge' : ''}" fill="#1e3932"
+        font-size="${n.center ? 15 : 12}">${esc(n.keyword)}</text>
     </g>`);
   });
   out.push('</svg>');
   $('#graph-svg').innerHTML = out.join('');
-
-  $('#bridge-table').innerHTML = (g.bridges || []).length
-    ? g.bridges.map(b => `<div class="mini" data-kw="${esc(b.keyword)}">
-        <span class="k">${esc(b.keyword)}</span>
-        <span class="v">${b.spans.map(s => esc(label(s))).join(' · ')} · ${b.df}건</span>
-      </div>`).join('')
-    : '<div class="empty">—</div>';
+  showKeyword(g.center);
 }
+
+$('#ego-form').onsubmit = e => { e.preventDefault(); loadEgo($('#ego-q').value.trim()); };
+$('#ego-presets').onclick = e => {
+  const b = e.target.closest('[data-ego]');
+  if (b) loadEgo(b.dataset.ego);
+};
+
+async function loadGraph() { await loadSuggest(); }
 
 /* 노드·키워드 클릭 → 그 키워드가 나온 기사.
    그래프에서 발견한 걸 기사로 확인할 수 없으면 과제 후보로 못 쓴다. */
@@ -245,7 +253,6 @@ async function showKeyword(kw) {
     ? `<div class="items" style="padding:0;box-shadow:none;margin:0">
         ${r.items.map(itemHTML).join('')}</div>`
     : '<div class="empty">기사가 없습니다.</div>';
-  $('#kw-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /* ── ④ 급상승 ── */
@@ -280,7 +287,7 @@ document.body.addEventListener('click', async e => {
       showTab('graph');
       if (!loaded.has('graph')) { loaded.add('graph'); await loadGraph(); }
     }
-    return showKeyword(kw.dataset.kw);
+    return loadEgo(kw.dataset.kw);   // 망도 그 키워드 중심으로 다시 그린다
   }
   const it = e.target.closest('[data-item]');
   if (it) {

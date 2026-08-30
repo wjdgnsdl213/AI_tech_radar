@@ -71,21 +71,26 @@
     </div>
   </section>
 
-  <!-- ③ 연관어 네트워크 -->
+  <!-- ③ 연관어 네트워크 (검색형) -->
   <section class="panel" id="panel-graph">
     <div class="page-head"><h1>연관어 네트워크</h1>
-      <span class="mut">가운데에 있을수록 여러 주제를 함께 다루는 키워드입니다</span></div>
+      <span class="mut">키워드를 검색하면 함께 언급되는 말들을 그려줍니다</span></div>
+
+    <form class="searchbar" id="ego-form">
+      <input id="ego-q" list="ego-list" placeholder="예: 상권분석, 공공데이터, 마이데이터"
+             autocomplete="off">
+      <datalist id="ego-list"></datalist>
+      <button type="submit">그리기</button>
+    </form>
+    <div class="preset-row" id="ego-presets"></div>
+
     <div class="board board-graph">
       <div class="col-main">
         <div class="card graph-card">
-          <div id="graph-svg"><div class="empty">불러오는 중…</div></div>
+          <div id="graph-svg"><div class="empty">키워드를 검색해 보세요.</div></div>
         </div>
       </div>
       <aside class="col-side">
-        <div class="card">
-          <div class="panel-head"><h2>주제를 잇는 키워드</h2></div>
-          <div id="bridge-table"></div>
-        </div>
         <div class="card" id="kw-card" hidden>
           <div class="panel-head"><h2 id="kw-title">—</h2><span class="mut" id="kw-count"></span></div>
           <div id="kw-body"></div>
