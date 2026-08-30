@@ -1,0 +1,98 @@
+{
+  "data engineering": {
+    "cursor": null,
+    "collected": 142,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:33:05.757689+00:00",
+    "resume_cursor": "1693226845"
+  },
+  "data platform": {
+    "cursor": null,
+    "collected": 211,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:33:10.453361+00:00",
+    "resume_cursor": "1693273864"
+  },
+  "data pipeline": {
+    "cursor": null,
+    "collected": 134,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:33:14.086631+00:00",
+    "resume_cursor": "1693234858"
+  },
+  "analytics": {
+    "cursor": null,
+    "collected": 231,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:33:19.555910+00:00",
+    "resume_cursor": "1693313487"
+  },
+  "LLM production": {
+    "cursor": null,
+    "collected": 106,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:33:22.905898+00:00",
+    "resume_cursor": "1693325645"
+  },
+  "RAG": {
+    "cursor": null,
+    "collected": 6388,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:34:25.604361+00:00",
+    "resume_cursor": "1693133927"
+  },
+  "vector database": {
+    "cursor": null,
+    "collected": 71,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:34:28.005862+00:00",
+    "resume_cursor": "1693325645"
+  },
+  "duckdb": {
+    "cursor": null,
+    "collected": 146,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:34:31.474630+00:00",
+    "resume_cursor": "1693941846"
+  },
+  "iceberg": {
+    "cursor": null,
+    "collected": 34,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:34:33.436936+00:00",
+    "resume_cursor": "1693608234"
+  },
+  "airflow": {
+    "cursor": null,
+    "collected": 27,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:34:35.366707+00:00",
+    "resume_cursor": "1698157247"
+  },
+  "dbt": {
+    "cursor": null,
+    "collected": 4554,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:35:21.607116+00:00",
+    "resume_cursor": "1693134008"
+  },
+  "small business software": {
+    "cursor": null,
+    "collected": 26,
+    "done": true,
+    "covered_since": "2023-08-27T05:33:02.210527+00:00",
+    "updated_at": "2026-08-26T05:35:23.997384+00:00",
+    "resume_cursor": "1694827131"
+  }
+}

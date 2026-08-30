@@ -4,13 +4,27 @@ __pycache__/
 .venv/
 venv/
 
-# 데이터 산출물 (용량 큼, 재생성 가능)
+# 데이터 산출물
+# 레포가 비공개라 수집 데이터를 함께 버전 관리한다 — 다른 컴퓨터에서 바로 이어받기 위해서다.
+# ⚠️ 공개로 되돌릴 경우 반드시 아래 예외(!)를 먼저 지워야 한다.
+#    수집분은 GeekNews·HN의 요약문이라, 공개 저장소에 두면 재배포에 해당한다(CLAUDE.md 원칙).
 data/raw/*
 data/processed/*
 data/checkpoints/*
 !data/**/.gitkeep
 *.db
 *.parquet
+
+# ── 위 규칙의 예외: 이관 대상 ──
+# .gitignore는 줄 끝 주석을 지원하지 않는다. 패턴 뒤에 #을 붙이면 그것까지
+# 패턴의 일부가 돼서 아무것도 매칭되지 않으니, 설명은 반드시 위쪽 줄에 둔다.
+#
+# raw/*.jsonl       원본. 스키마가 바뀌면 여기서 재적재한다(ingest_raw.py)
+# checkpoints/*.json 백필 재개 지점 + CDX 인덱스 캐시
+# radar.db          누적 DB. raw로 재생성 가능하지만 재적재 시간을 아낀다
+!data/raw/*.jsonl
+!data/checkpoints/*.json
+!data/radar.db
 
 logs/
 logs_*.txt
