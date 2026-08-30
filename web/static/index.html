@@ -8,102 +8,98 @@
 </head>
 <body>
 
+<!-- 메뉴를 상단 바에 함께 둔다 -->
 <nav class="topnav">
   <div class="brand">📡 <b>AI·빅데이터 트렌드 레이더</b></div>
-  <div class="brand-sub" id="nav-range"></div>
+  <div class="menu" role="tablist">
+    <button class="tab-btn active" data-tab="digest" role="tab">이번 주</button>
+    <button class="tab-btn" data-tab="search" role="tab">검색</button>
+    <button class="tab-btn" data-tab="graph"  role="tab">연관어 네트워크</button>
+    <button class="tab-btn" data-tab="trend"  role="tab">급상승</button>
+  </div>
 </nav>
 
 <main class="wrap">
 
-  <!-- 상단 지표 -->
-  <section class="stat-row" id="stats">
-    <div class="stat-card"><div class="stat-label">수집 누적</div><div class="stat-value" id="s-total">–</div><div class="stat-foot" id="s-src"></div></div>
-    <div class="stat-card"><div class="stat-label">필터 통과</div><div class="stat-value" id="s-kept">–</div><div class="stat-foot" id="s-keptp"></div></div>
-    <div class="stat-card accent"><div class="stat-label">🔥 3축 교집합</div><div class="stat-value" id="s-cross">–</div><div class="stat-foot">세 축을 모두 걸친 항목</div></div>
-    <div class="stat-card"><div class="stat-label">이번 주</div><div class="stat-value" id="s-week">–</div><div class="stat-foot" id="s-weekname"></div></div>
-  </section>
-
-  <!-- 탭 -->
-  <div class="tabs" role="tablist">
-    <button class="tab-btn active" data-tab="digest" role="tab">📡 이번 주</button>
-    <button class="tab-btn" data-tab="search" role="tab">🔍 검색</button>
-    <button class="tab-btn" data-tab="graph"  role="tab">🕸️ 연관어 네트워크</button>
-    <button class="tab-btn" data-tab="trend"  role="tab">📈 급상승</button>
-    <button class="tab-btn" data-tab="weeks"  role="tab">📅 회차</button>
-  </div>
-
   <!-- ① 이번 주 -->
   <section class="panel active" id="panel-digest">
-    <div class="card lead-card" id="lead-card" hidden>
-      <div class="panel-head"><h2>🧭 이번 주 흐름</h2><span class="mut" id="lead-model">AI 요약</span></div>
-      <div class="lead" id="lead"></div>
+    <div class="page-head">
+      <h1 id="digest-title">—</h1>
+      <label class="weekpick">지난 주차
+        <select id="week-select"></select>
+      </label>
     </div>
 
-    <div class="chip-row" id="axis-chips"></div>
+    <div class="board">
+      <div class="col-main">
+        <div class="card lead-card" id="lead-card" hidden>
+          <div class="lead" id="lead"></div>
+        </div>
+        <div class="chip-row" id="axis-chips"></div>
+        <div id="digest-body"><div class="empty">불러오는 중…</div></div>
+      </div>
 
-    <div class="card" id="digest-body">
-      <div class="empty">불러오는 중…</div>
+      <aside class="col-side">
+        <div class="card">
+          <div class="panel-head"><h2>📈 이번 주 급상승</h2></div>
+          <div id="side-trend"><div class="empty">—</div></div>
+        </div>
+        <div class="card">
+          <div class="panel-head"><h2>🕸️ 브릿지 키워드</h2></div>
+          <div id="side-bridge"><div class="empty">—</div></div>
+        </div>
+      </aside>
     </div>
   </section>
 
   <!-- ② 검색 -->
   <section class="panel" id="panel-search">
+    <div class="page-head"><h1>검색</h1></div>
     <div class="card">
-      <div class="panel-head"><h2>🔍 검색</h2>
-        <span class="mut">보고서·기안에 붙일 인용 목록을 그대로 뽑을 수 있습니다</span></div>
       <form class="searchbar" id="search-form">
-        <input name="q" id="f-q" placeholder="키워드 (제목·요약)" autocomplete="off">
-        <select name="axis" id="f-axis"><option value="">전체 축</option></select>
-        <input name="since" id="f-since" placeholder="2026-01-01" size="10">
-        <input name="until" id="f-until" placeholder="2026-12-31" size="10">
-        <label class="ck"><input type="checkbox" id="f-kept" checked> 통과분만</label>
+        <input name="q" id="f-q" placeholder="키워드로 찾기" autocomplete="off">
+        <select name="axis" id="f-axis"><option value="">전체 주제</option></select>
+        <input name="since" id="f-since" placeholder="시작일" size="10">
+        <input name="until" id="f-until" placeholder="종료일" size="10">
         <button type="submit">검색</button>
-        <a class="btn-ghost" id="f-csv" href="#">⬇ CSV</a>
+        <a class="btn-ghost" id="f-csv" href="#">⬇ 엑셀로 내려받기</a>
       </form>
       <div class="preset-row" id="presets"></div>
       <div class="mut" id="search-count"></div>
-      <div id="search-body"><div class="empty">검색어를 입력하거나 그냥 검색을 눌러보세요.</div></div>
+      <div id="search-body"><div class="empty">검색을 눌러 시작하세요.</div></div>
       <div class="pager" id="search-pager"></div>
     </div>
   </section>
 
   <!-- ③ 연관어 네트워크 -->
   <section class="panel" id="panel-graph">
-    <div class="card">
-      <div class="panel-head"><h2>🕸️ 연관어 네트워크</h2>
-        <span class="mut">두 축을 잇는 <b>브릿지 노드</b> = 과제 후보</span></div>
-      <p class="howto">
-        축별로 모아 배치했습니다. <b>가운데로 올수록 여러 축을 동시에 붙잡고 있는 키워드</b>이고,
-        그게 팀이 봐야 할 교집합 과제의 씨앗입니다. 한 축 안에만 이어진 키워드는 바깥쪽에 남습니다.
-      </p>
-      <div class="section-grid">
-        <div class="panel-graph"><div id="graph-svg"><div class="empty">불러오는 중…</div></div></div>
-        <div class="panel-table">
-          <div class="panel-head"><h3>브릿지 상위</h3></div>
-          <div id="bridge-table"></div>
+    <div class="page-head"><h1>연관어 네트워크</h1>
+      <span class="mut">가운데에 있을수록 여러 주제를 함께 다루는 키워드입니다</span></div>
+    <div class="board board-graph">
+      <div class="col-main">
+        <div class="card graph-card">
+          <div id="graph-svg"><div class="empty">불러오는 중…</div></div>
         </div>
       </div>
+      <aside class="col-side">
+        <div class="card">
+          <div class="panel-head"><h2>주제를 잇는 키워드</h2></div>
+          <div id="bridge-table"></div>
+        </div>
+        <div class="card" id="kw-card" hidden>
+          <div class="panel-head"><h2 id="kw-title">—</h2><span class="mut" id="kw-count"></span></div>
+          <div id="kw-body"></div>
+        </div>
+      </aside>
     </div>
   </section>
 
   <!-- ④ 급상승 -->
   <section class="panel" id="panel-trend">
+    <div class="page-head"><h1>급상승 키워드</h1>
+      <span class="mut" id="trend-week"></span></div>
     <div class="card">
-      <div class="panel-head"><h2>📈 급상승 키워드</h2>
-        <span class="mut">이번 주 비중 ÷ 직전 4주 평균 비중</span></div>
-      <p class="howto">
-        건수가 아니라 <b>비중</b>으로 비교합니다. 수집량이 늘면 모든 키워드가 같이 늘어나는데
-        그건 트렌드가 아니기 때문입니다.
-      </p>
       <div id="trend-body"><div class="empty">불러오는 중…</div></div>
-    </div>
-  </section>
-
-  <!-- ⑤ 회차 -->
-  <section class="panel" id="panel-weeks">
-    <div class="card">
-      <div class="panel-head"><h2>📅 회차 아카이브</h2></div>
-      <div id="weeks-body"><div class="empty">불러오는 중…</div></div>
     </div>
   </section>
 

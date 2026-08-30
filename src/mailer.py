@@ -27,7 +27,7 @@ from email.utils import formataddr, formatdate
 from dotenv import load_dotenv
 
 from src.db import get_engine, init_db, load_config
-from src.digest import build, latest_week, render_html, render_markdown
+from src.digest import build, latest_week, render_html, render_markdown, week_label
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -63,9 +63,11 @@ def main() -> None:
 
     wcfg = cfg.get("web", {})
     base = os.getenv("WEB_BASE_URL", f"http://localhost:{wcfg.get('port', 8000)}")
-    web_url = f"{base.rstrip('/')}/digest/{week}"
+    # SPA는 주차를 쿼리로 받는다(?week=…#digest). 서버 렌더 경로가 아니다.
+    web_url = f"{base.rstrip('/')}/?week={week}#digest"
 
-    subject = f"[트렌드 레이더] {week} — 교집합 {len(d['crossing'])}건"
+    # 제목도 사람이 읽는 표기로. 받은편지함에서 '2026-W35'는 아무 뜻이 없다.
+    subject = f"[트렌드 레이더] {week_label(week)} — 교집합 {len(d['crossing'])}건"
     text = render_markdown(d, mail=True, web_url=web_url)
     html = render_html(d, mail=True, web_url=web_url)
 

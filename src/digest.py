@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 import html as html_mod
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -223,9 +223,29 @@ def save(d: dict[str, Any]) -> None:
 
 
 # ── 렌더 ────────────────────────────────────────────────────────────
-def _week_title(week: str) -> str:
+def week_label(week: str) -> str:
+    """'2026-W35' → '2026년 8월 4주차'. 사람이 읽는 표기.
+
+    ISO 주차 문자열은 내부 키로는 좋지만(정렬·집계가 쉽다) 화면에 그대로 내면
+    아무도 몇 월인지 모른다. 서버·메일·웹이 같은 규칙을 써야 하므로 여기 한 곳에 둔다.
+
+    ★ 기준일은 월요일이 아니라 **목요일**이다.
+      ISO 주차는 '그 주의 목요일이 속한 해'로 정의된다. 월요일로 잡으면
+      2026-W01(월요일 2025-12-29)이 '2025년 12월 5주차'가 되어 연초 주차가
+      전년으로 밀린다. 목요일(2026-01-01)로 잡으면 '2026년 1월 1주차'가 된다.
+    """
     y, _, w = week.partition("-W")
-    return f"{y}년 {int(w)}주차" if w.isdigit() else week
+    if not w.isdigit():
+        return week
+    try:
+        thu = date.fromisocalendar(int(y), int(w), 4)     # 4 = 목요일
+    except ValueError:
+        return week
+    return f"{thu.year}년 {thu.month}월 {(thu.day - 1) // 7 + 1}주차"
+
+
+# 기존 이름을 쓰던 곳이 있어 별칭으로 남긴다
+_week_title = week_label
 
 
 def render_markdown(d: dict[str, Any], mail: bool = False,
@@ -382,7 +402,8 @@ def main() -> None:
     if not args.no_save:
         save(d)
 
-    web_url = f"http://localhost:{cfg.get('web', {}).get('port', 8000)}/digest/{week}"
+    web_url = (f"http://localhost:{cfg.get('web', {}).get('port', 8000)}"
+               f"/?week={week}#digest")
     render = render_html if args.format == "html" else render_markdown
     text = render(d, mail=args.mail, web_url=web_url)
 

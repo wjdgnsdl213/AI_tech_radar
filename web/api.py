@@ -19,6 +19,7 @@ from fastapi import APIRouter, Query
 from sqlalchemy import and_, func, or_, select
 
 from src.db import digests, get_engine, item_axes, items, load_config
+from src.digest import week_label
 
 router = APIRouter(prefix="/api")
 CFG = load_config()
@@ -101,7 +102,8 @@ def weeks(limit: int = Query(80)) -> dict[str, Any]:
             .group_by(items.c.published_week)
             .order_by(items.c.published_week.desc()).limit(limit)).all()
         saved = {w for (w,) in c.execute(select(digests.c.week))}
-    return {"weeks": [{"week": w, "n": n, "saved": w in saved} for w, n in rows]}
+    return {"weeks": [{"week": w, "label": week_label(w), "n": n, "saved": w in saved}
+                      for w, n in rows]}
 
 
 @router.get("/digest")
@@ -121,7 +123,8 @@ def digest(week: str = Query("")) -> dict[str, Any]:
     for ax, ps in d["by_axis"].items():
         sections.append({"key": ax, "label": LABELS.get(ax, ax), "items": ps})
     return {
-        "week": week, "lead": d.get("lead"), "total_kept": d["total_kept"],
+        "week": week, "week_label": week_label(week),
+        "lead": d.get("lead"), "total_kept": d["total_kept"],
         "sections": sections, "trending": d.get("trending", []),
         "empty": not d["crossing"] and not any(d["by_axis"].values()),
     }
@@ -173,7 +176,9 @@ def trend(week: str = Query(""), top: int = Query(20)) -> dict[str, Any]:
     axis_weeks = list(reversed(prev_weeks(week, back))) + [week]
     for r in rows[:8]:
         r["series"] = [{"week": w, "n": n} for w, n in series(r["keyword"], axis_weeks)]
-    return {"week": week, "weeks": axis_weeks, "rows": rows}
+    return {"week": week, "week_label": week_label(week),
+            "weeks": [{"week": w, "label": week_label(w)} for w in axis_weeks],
+            "rows": rows}
 
 
 @router.get("/graph")
@@ -193,6 +198,37 @@ def graph(top: int = Query(24)) -> dict[str, Any]:
         "edges": [e for e in G["edges"]
                   if e["source"] in keep and e["target"] in keep],
         "bridges": br, "empty": False,
+    }
+
+
+@router.get("/keyword/{kw}")
+def keyword(kw: str, limit: int = Query(20)) -> dict[str, Any]:
+    """키워드가 나온 기사들. 연관어 그래프에서 노드를 클릭하면 이걸 부른다.
+
+    그래프가 "예쁜데 뭘 봐야 할지 모르겠다"로 끝나지 않으려면 노드에서 실제 기사로
+    내려갈 수 있어야 한다. 브릿지 노드를 발견하는 것과 그게 왜 브릿지인지 확인하는 건
+    다른 일이고, 후자가 없으면 과제 후보로 쓸 수 없다.
+    """
+    from src.extract import item_keywords
+    with get_engine().connect() as c:
+        ids = [i for (i,) in c.execute(
+            select(item_keywords.c.item_id).where(item_keywords.c.keyword == kw))]
+        if not ids:
+            return {"keyword": kw, "total": 0, "items": []}
+        rows = c.execute(
+            select(items.c.id, items.c.title, items.c.url, items.c.source,
+                   items.c.published_at, items.c.cross_score, items.c.insight)
+            .where(items.c.id.in_(ids), items.c.kept.is_(True))
+            .order_by(items.c.cross_score.desc(), items.c.published_at.desc())
+            .limit(limit)).all()
+        ax = _axes_of(c, [r.id for r in rows])
+    return {
+        "keyword": kw, "total": len(ids),
+        "items": [{"id": r.id, "title": r.title or "", "url": r.url or "",
+                   "source": r.source,
+                   "published": str(r.published_at)[:10] if r.published_at else "",
+                   "cross_score": r.cross_score, "insight": r.insight or None,
+                   "axes": sorted(ax.get(r.id, []))} for r in rows],
     }
 
 
