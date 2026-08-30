@@ -24,6 +24,12 @@
     "Segoe UI","Malgun Gothic","Apple SD Gothic Neo",sans-serif;
 }
 *{box-sizing:border-box}
+/* ★ hidden 속성이 반드시 이기게 한다.
+   브라우저 기본 스타일시트의 [hidden]{display:none}은 **작성자 규칙에 진다.**
+   그래서 .modal{display:flex} 같은 걸 쓰면 hidden=true로 바꿔도 계속 보인다
+   (실측: 급상승 팝업이 뜬 뒤 닫히지 않았다. .graph-tools도 같은 상태였다).
+   JS에서 el.hidden으로 여닫는 요소가 여럿이라 규칙 하나로 못박아 둔다. */
+[hidden]{display:none !important}
 html,body{margin:0;padding:0}
 body{background:var(--bg);color:var(--ink);font:15.5px/1.62 var(--font);
   -webkit-font-smoothing:antialiased}

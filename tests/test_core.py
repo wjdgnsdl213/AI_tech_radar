@@ -11,6 +11,9 @@ DB도 네트워크도 모델도 쓰지 않는다 — 순수 함수만 본다.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from src.digest import _bigrams, is_syndicated
@@ -216,3 +219,33 @@ def test_fragment_detection():
     assert not _fragment_of("지능", counts)
     # '데이터'도 같은 이유로 조각이 아니다
     assert not _fragment_of("데이터", counts)
+
+
+# ── 웹 정적 파일 ────────────────────────────────────────────────────
+STATIC = Path(__file__).resolve().parents[1] / "web" / "static"
+
+
+def test_hidden_attribute_beats_author_display():
+    """`[hidden]{display:none !important}` 규칙이 있어야 한다.
+
+    브라우저 기본 스타일시트의 [hidden]{display:none}은 **작성자 규칙에 진다.**
+    그래서 .modal{display:flex} 같은 걸 쓰면 JS에서 el.hidden = true 로 바꿔도
+    요소가 계속 보인다. 실제로 이것 때문에 급상승 팝업이 닫히지 않았고,
+    연관어 도구막대도 검색 전부터 떠 있었다.
+
+    el.hidden으로 여닫는 요소가 여럿이라 규칙 하나로 못박아 두고 여기서 지킨다.
+    """
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    assert re.search(r"\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important", css), (
+        "style.css에 [hidden]{display:none !important} 가 없다 — "
+        "display를 지정한 요소는 hidden으로 숨겨지지 않는다"
+    )
+
+
+def test_js_hidden_targets_exist_in_html():
+    """app.js가 hidden을 조작하는 id는 index.html에 있어야 한다."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    ids = set(re.findall(r'id="([^"]+)"', html))
+    used = set(re.findall(r"\$\('#([A-Za-z0-9_-]+)'\)\.hidden", js))
+    assert used <= ids, f"HTML에 없는 id를 숨기려 한다: {sorted(used - ids)}"
