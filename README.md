@@ -52,7 +52,7 @@ python -c "import torch; print(torch.cuda.is_available())"
 | 점수 | `python -m src.score` | 교차 점수 → `items.cross_score` |
 | 키워드 | `python -m src.extract` | 명사 n-gram → `item_keywords` |
 | 급상승 | `python -m src.trend --out reports/` | 주간 급상승 키워드 + CSV |
-| 해설 | `python -m src.insight` | L1 항목 해설 / L2 주간 흐름 |
+| 해설 | `python -m src.insight` | L1 **기사 요약** / L2 주간 흐름 |
 | 다이제스트 | `python -m src.digest` | 구성 결정 → `digests` |
 | 메일 | `python -m src.mailer --dry-run` | 짧게 발송 |
 | 연관어 | `python -m src.graph --out reports/` | 브릿지 노드 = 과제 후보 |

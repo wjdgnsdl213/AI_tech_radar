@@ -233,7 +233,7 @@ def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
 
 @router.get("/ego")
 def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
-        min_cooc: int = Query(0)) -> dict[str, Any]:
+        min_cooc: int = Query(0), max_nodes: int = Query(46)) -> dict[str, Any]:
     """키워드 하나를 중심으로 한 연관어 망. 홉 수를 지정할 수 있다.
 
     ★ 전체 코퍼스를 본다 (kept 필터를 걸지 않는다)
@@ -339,11 +339,21 @@ def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
                      "npmi": 1.0, "cooc": 0, "df": 0}}
         frontier = [center]
         doc_cache = docs_of([center])
+        # ★ 총 노드 수에 상한을 둔다.
+        #   홉마다 노드가 per_hop배로 늘어 3홉이면 100개를 넘는다. 그러면 겹치지 않게
+        #   그리려고 캔버스를 키우게 되고, 화면 폭에 맞춰 축소되면서 글자가 다시
+        #   작아진다(실측: 3홉 119노드 → viewBox 2940px). 넓혀서 푸는 문제가 아니다.
+        #   깊은 홉일수록 가지를 좁혀, 멀리 보되 굵은 줄기만 남긴다.
         for hop in range(1, hops + 1):
             nxt: list[str] = []
+            room = max_nodes - len(nodes)
+            if room <= 0:
+                break
+            budget = max(2, room // max(1, len(frontier)))
             for w in frontier:
+                got = 0
                 for sc, k, n, d in neighbours_of(w, doc_cache[w], set(nodes)):
-                    if k in nodes:
+                    if k in nodes or got >= budget or len(nodes) >= max_nodes:
                         continue
                     # 조각 판정은 홉을 넘어서도 해야 한다. 홉 안에서만 걸면
                     # 2홉에 '대전결제'와 '대전결제데이터', '서울시상권'과
@@ -354,6 +364,7 @@ def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
                                 "npmi": round(sc, 3), "cooc": n, "df": d,
                                 "via": w}
                     nxt.append(k)
+                    got += 1
             if not nxt:
                 break
             frontier = nxt

@@ -137,10 +137,11 @@ async function runSearch(page = 1) {
     ? `<div class="tblwrap"><table><tr><th>날짜</th><th>제목</th><th>주제</th><th>출처</th></tr>` +
       r.items.map(p => `<tr>
         <td class="n">${esc(p.published)}</td>
-        <td><a href="#" data-item="${p.id}">${esc(p.title)}</a>
+        <td class="t"><a href="#" data-item="${p.id}">${esc(p.title)}</a>
           <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
              title="원문으로 이동">원문 ↗</a>
-          ${p.insight ? '<span class="has-ai">💡</span>' : ''}</td>
+          ${p.insight ? `<span class="snip">💡 ${esc(p.insight)}</span>`
+            : (p.summary ? `<span class="snip">${esc(p.summary)}</span>` : '')}</td>
         <td>${tags(p.axes)}</td>
         <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
     : '<div class="empty">결과가 없습니다.</div>';
@@ -215,18 +216,40 @@ async function loadEgo(kw, hops) {
 /* 배치는 물리 시뮬레이션이 아니라 홉별 동심원이다.
    중심에서 멀수록 관계가 먼 말이라는 게 거리로 보이고, 결정적이라 다시 그려도 같다. */
 function drawEgo(g) {
-  const W = 900, H = 660, cx = W / 2, cy = H / 2;
   const maxHop = Math.max(...g.nodes.map(n => n.hop));
-  const pos = { [g.center]: [cx, cy] }, byHop = {};
+  const byHop = {};
   g.nodes.forEach(n => (byHop[n.hop] = byHop[n.hop] || []).push(n));
-  Object.keys(byHop).filter(h => +h > 0).forEach(hs => {
-    const h = +hs, arr = byHop[hs];
-    const r = 140 + (h - 1) * (maxHop > 1 ? 200 / maxHop : 0) + (h - 1) * 55;
+
+  /* ★ 반지름을 노드 수에 맞춰 늘린다.
+     고정 반지름이면 홉이 깊어져 노드가 늘 때 원 둘레는 그대로인데 개수만 늘어
+     라벨이 서로 겹친다. 한 노드가 차지할 호 길이(LANE)를 정해두고
+     둘레가 그만큼 나오도록 반지름을 역산하면, 몇 개가 오든 간격이 유지된다. */
+  const LANE = 108;                       // 라벨 하나가 쓸 호 길이(px)
+  const rings = Object.keys(byHop).filter(h => +h > 0).map(Number).sort();
+  const radii = {};
+  let prev = 0;
+  rings.forEach(h => {
+    const need = (byHop[h].length * LANE) / (2 * Math.PI);
+    radii[h] = Math.max(prev + 130, 150, need);
+    prev = radii[h];
+  });
+  const R = rings.length ? radii[rings[rings.length - 1]] : 160;
+  const W = Math.round(Math.max(900, R * 2 + 190));
+  const H = Math.round(Math.max(620, R * 1.72 + 170));
+  const cx = W / 2, cy = H / 2;
+
+  const pos = { [g.center]: [cx, cy] }, lane = {};
+  rings.forEach(h => {
+    const arr = byHop[h], r = radii[h];
     arr.forEach((n, i) => {
       const t = -Math.PI / 2 + (i + (h % 2) * .5) * 2 * Math.PI / arr.length;
-      pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .78];
+      // 세로를 눌러 타원으로 — 가로가 긴 화면을 쓰면서 위아래 여백을 줄인다
+      pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .86];
+      // 라벨을 위/아래로 번갈아 놓아 이웃끼리 같은 높이에 서지 않게 한다
+      lane[n.keyword] = i % 2 ? 1 : -1;
     });
   });
+
   const maxDf = Math.max(...g.nodes.map(n => n.df || 1));
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
   (g.edges || []).forEach(e2 => {
@@ -235,23 +258,25 @@ function drawEgo(g) {
     const mid = e2.source === g.center || e2.target === g.center;
     out.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}"
       x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="#94a3b8"
-      stroke-opacity="${(e2.npmi * (mid ? .55 : .22)).toFixed(3)}"
+      stroke-opacity="${(e2.npmi * (mid ? .5 : .16)).toFixed(3)}"
       stroke-width="${mid ? 1.5 : 1}"/>`);
   });
   g.nodes.forEach(n => {
     const [x, y] = pos[n.keyword];
     const r = n.center ? 26
       : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
-    const fade = n.center ? 1 : Math.max(.38, 1 - (n.hop - 1) * .3);
+    const fade = n.center ? 1 : Math.max(.4, 1 - (n.hop - 1) * .28);
+    const up = (lane[n.keyword] || -1) < 0;
+    const ly = n.center ? y + r + 17 : (up ? y - r - 7 : y + r + 14);
     out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}"
       data-node="${esc(n.keyword)}">
       <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · ${n.hop}홉`}</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
         fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${fade.toFixed(2)}"/>
-      <text x="${x.toFixed(1)}" y="${(y + r + 14).toFixed(1)}" text-anchor="middle"
-        class="${n.center ? 'glabel-bridge' : ''}" fill="#334155"
-        font-size="${n.center ? 15 : Math.max(10, 13 - n.hop)}"
-        opacity="${n.center ? 1 : Math.max(.5, 1 - (n.hop - 1) * .25)}"
+      <text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle"
+        class="glabel${n.center ? ' glabel-bridge' : ''}" fill="#334155"
+        font-size="${n.center ? 15 : Math.max(10.5, 13 - n.hop)}"
+        opacity="${n.center ? 1 : Math.max(.62, 1 - (n.hop - 1) * .2)}"
         >${esc(n.keyword)}</text>
     </g>`);
   });
@@ -330,23 +355,99 @@ async function loadTrend() {
   if (!t.rows?.length) { $('#trend-body').innerHTML = '<div class="empty">데이터가 없습니다.</div>'; return; }
   const max = Math.max(...t.rows.map(r => r.score));
   $('#trend-body').innerHTML = `<div class="tblwrap"><table>
-      <tr><th>키워드</th><th>이번 주</th><th>상승폭</th><th>최근 5주 추이</th></tr>` +
+      <tr><th>키워드</th><th>이번 주</th><th>상승폭</th><th></th></tr>` +
     t.rows.map(r => {
       const sp = (r.series || []).map(s => s.n), sm = Math.max(1, ...sp);
       return `<tr>
-        <td><a href="#" data-kw="${esc(r.keyword)}"><b>${esc(r.keyword)}</b></a>
+        <td><a href="#" data-kwpop="${esc(r.keyword)}"><b>${esc(r.keyword)}</b></a>
           ${r.is_new ? ' <span class="new">신규</span>' : ''}</td>
         <td class="n">${r.count}건</td>
         <td class="n">${r.score.toFixed(1)}배
           <div class="bar" style="width:${Math.round(r.score / max * 90)}px"></div></td>
-        <td class="n">${sp.length ? `<span class="spark" title="${
-            (r.series || []).map(s => `${s.week} ${s.n}건`).join(' / ')}">${
-            sp.map((n, i) => `<i style="height:${Math.max(1, Math.round(n / sm * 22))}px"
-              class="${i === sp.length - 1 ? 'now' : ''}"></i>`).join('')
-          }</span> <span class="spark-n">${sp.join('·')}</span>` : '–'}</td>
+        <td class="n"><button class="preset" data-kwpop="${esc(r.keyword)}">추이·연관어</button></td>
       </tr>`;
     }).join('') + '</table></div>';
 }
+
+/* ── 키워드 팝업 — 추이 + 연관어를 한 화면에 ──
+ * 표 안의 작은 스파크라인으로는 0인 주와 데이터 없음이 구분되지 않았고,
+ * 무엇보다 "왜 떴는지"를 알려면 함께 나온 말을 봐야 한다. 둘을 같이 띄운다. */
+function barChart(series) {
+  if (!series?.length) return '<div class="empty">데이터가 없습니다.</div>';
+  const W = 420, H = 190, pad = 30, n = series.length;
+  const max = Math.max(1, ...series.map(s => s.n));
+  const bw = (W - pad * 2) / n;
+  const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
+  out.push(`<line x1="${pad}" y1="${H - 34}" x2="${W - pad}" y2="${H - 34}" stroke="#e5e9f0"/>`);
+  series.forEach((s, i) => {
+    const hgt = Math.round((s.n / max) * (H - 76));
+    const x = pad + i * bw + bw * .2, w = bw * .6, y = H - 34 - hgt;
+    out.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}"
+      height="${Math.max(hgt, 1)}" rx="3"
+      fill="${i === n - 1 ? 'var(--blue)' : '#cbd5e1'}"/>`);
+    out.push(`<text x="${(x + w / 2).toFixed(1)}" y="${(y - 6).toFixed(1)}"
+      text-anchor="middle" font-size="12" fill="#334155" font-weight="600">${s.n}</text>`);
+    out.push(`<text x="${(x + w / 2).toFixed(1)}" y="${H - 16}" text-anchor="middle"
+      font-size="11" fill="#94a3b8">${esc(s.week.replace(/^\d+-/, ''))}</text>`);
+  });
+  return out.join('') + '</svg>';
+}
+
+function miniNet(g) {
+  if (!g || g.empty || g.nodes.length < 2) return '<div class="empty">연관어가 없습니다.</div>';
+  const W = 460, H = 340, cx = W / 2, cy = H / 2;
+  const ring = g.nodes.filter(n => !n.center);
+  const r0 = Math.max(110, (ring.length * 96) / (2 * Math.PI));
+  const pos = { [g.center]: [cx, cy] };
+  ring.forEach((n, i) => {
+    const t = -Math.PI / 2 + i * 2 * Math.PI / ring.length;
+    pos[n.keyword] = [cx + r0 * Math.cos(t) * .82, cy + r0 * Math.sin(t) * .62];
+  });
+  const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
+  ring.forEach(n => {
+    const [x, y] = pos[n.keyword];
+    out.push(`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"
+      stroke="#cbd5e1" stroke-width="1"/>`);
+  });
+  g.nodes.forEach(n => {
+    const [x, y] = pos[n.keyword], r = n.center ? 20 : 8;
+    out.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}"
+      fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${n.center ? .95 : .55}"/>
+      <text x="${x.toFixed(1)}" y="${(y + r + 13).toFixed(1)}" text-anchor="middle"
+        class="glabel" font-size="${n.center ? 13 : 11.5}" fill="#334155"
+        font-weight="${n.center ? 700 : 500}">${esc(n.keyword)}</text>`);
+  });
+  return out.join('') + '</svg>';
+}
+
+async function showKeywordModal(kw) {
+  $('#kwmodal').hidden = false;
+  $('#m-title').textContent = kw;
+  $('#m-sub').textContent = '';
+  $('#m-chart').innerHTML = '<div class="empty">불러오는 중…</div>';
+  $('#m-net').innerHTML = '<div class="empty">불러오는 중…</div>';
+  $('#m-foot').innerHTML = '';
+  const [t, g, k] = await Promise.all([
+    api('/api/trend', { top: 60 }),
+    api('/api/ego', { kw, hops: 1, per_hop: 9 }),
+    api('/api/keyword/' + encodeURIComponent(kw), { limit: 5 }),
+  ]);
+  const row = (t.rows || []).find(r => r.keyword === kw);
+  $('#m-sub').textContent = row
+    ? `이번 주 ${row.count}건 · 상승폭 ${row.score.toFixed(1)}배${row.is_new ? ' · 신규' : ''}`
+    : '';
+  $('#m-chart').innerHTML = barChart(row?.series);
+  $('#m-net').innerHTML = miniNet(g);
+  $('#m-foot').innerHTML = k.items.length
+    ? `<div class="mut" style="margin-bottom:6px">대표 기사 ${num(k.total)}건 중 ${k.items.length}건</div>
+       <div class="items" style="padding:0;border:0;margin:0">${k.items.map(itemHTML).join('')}</div>`
+    : '';
+}
+document.body.addEventListener('click', e => {
+  const b = e.target.closest('[data-kwpop]');
+  if (b) { e.preventDefault(); showKeywordModal(b.dataset.kwpop); }
+  if (e.target.closest('[data-mclose]')) $('#kwmodal').hidden = true;
+});
 
 /* ── 공통 클릭 ── */
 document.body.addEventListener('click', async e => {
@@ -376,7 +477,9 @@ document.body.addEventListener('click', async e => {
   }
   if (e.target.closest('[data-close]')) $('#drawer').hidden = true;
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#drawer').hidden = true; });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { $('#drawer').hidden = true; $('#kwmodal').hidden = true; }
+});
 
 /* ── 시작 ── */
 const LOADERS = {
