@@ -36,6 +36,9 @@ from src.db import get_engine, item_axes, items, load_config
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 LABEL_PATH = Path("data/labels/labels.csv")
+# AI가 만든 잠정 라벨. 사람이 채운 labels.csv와 절대 섞지 않는다 —
+# 필터를 만든 쪽이 그 필터를 채점하면 수치가 낙관적으로 편향된다.
+AI_LABEL_PATH = Path("data/labels/labels_ai.csv")
 FIELDS = ["label", "id", "kept", "relevance", "cross_score", "axes", "source",
           "published", "title", "url"]
 
@@ -93,17 +96,57 @@ def make_labels(n: int, force: bool, seed_note: str = "") -> None:
         print(f"\n{seed_note}")
 
 
-def evaluate() -> None:
-    if not LABEL_PATH.exists():
-        sys.exit(f"라벨 파일이 없습니다: {LABEL_PATH}\n"
-                 "  먼저 python -m src.evaluate --make-labels 를 실행하세요.")
+def refresh(path: Path) -> None:
+    """라벨은 그대로 두고 모델 판정 열(kept/relevance/cross_score/axes)만 DB에서 다시 읽는다.
 
-    with open(LABEL_PATH, encoding="utf-8-sig", newline="") as f:
+    임계값이나 시드를 바꿔 다시 돌리면 kept가 바뀌는데, 라벨 CSV에는 예전 판정이
+    박혀 있다. 이걸 안 갱신하면 옛 필터를 채점하게 된다. 라벨링은 한 번만 하고
+    필터는 여러 번 고치는 게 정상이므로 갱신 경로가 필요하다.
+    """
+    if not path.exists():
+        sys.exit(f"라벨 파일이 없습니다: {path}")
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    ids = [int(r["id"]) for r in rows]
+    engine = get_engine()
+    with engine.connect() as conn:
+        cur = {r.id: r for r in conn.execute(
+            select(items.c.id, items.c.kept, items.c.relevance, items.c.cross_score)
+            .where(items.c.id.in_(ids)))}
+        axes_map: dict[int, list[str]] = {}
+        for item_id, axis in conn.execute(select(item_axes.c.item_id, item_axes.c.axis)):
+            axes_map.setdefault(item_id, []).append(axis)
+    changed = 0
+    for r in rows:
+        row = cur.get(int(r["id"]))
+        if not row:
+            continue
+        before = r["kept"]
+        r["kept"] = str(int(bool(row.kept)))
+        r["relevance"] = f"{row.relevance:.4f}" if row.relevance is not None else ""
+        r["cross_score"] = row.cross_score
+        r["axes"] = "+".join(sorted(axes_map.get(int(r["id"]), [])))
+        changed += before != r["kept"]
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader(); w.writerows(rows)
+    print(f"{path} 갱신 — 판정이 바뀐 항목 {changed}건 (라벨은 그대로)")
+
+
+def evaluate(path: Path = LABEL_PATH) -> None:
+    if not path.exists():
+        sys.exit(f"라벨 파일이 없습니다: {path}\n"
+                 "  먼저 python -m src.evaluate --make-labels 를 실행하세요.")
+    if path == AI_LABEL_PATH:
+        print("⚠️  AI 잠정 라벨 기준입니다. 필터를 만든 쪽이 그 필터를 채점한 것이라\n"
+              "    실제보다 낙관적으로 나올 수 있습니다. 사람 라벨로 반드시 재측정하세요.\n")
+
+    with open(path, encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
 
     labeled = [r for r in rows if str(r.get("label", "")).strip() in ("0", "1")]
     if not labeled:
-        sys.exit(f"label 열이 비어 있습니다. 1/0을 채운 뒤 다시 실행하세요 ({LABEL_PATH})")
+        sys.exit(f"label 열이 비어 있습니다. 1/0을 채운 뒤 다시 실행하세요 ({path})")
 
     # 혼동행렬 — kept(모델 판정) × label(사람 판정)
     tp = sum(1 for r in labeled if r["kept"] == "1" and r["label"] == "1")
@@ -134,7 +177,8 @@ def evaluate() -> None:
     if scored:
         print(f"\n{'=' * 52}\n임계값 후보별 (라벨 {len(scored)}건 기준)\n{'=' * 52}")
         print(f"  {'임계값':<8}{'precision':>11}{'recall':>9}{'통과':>7}")
-        for t in (0.45, 0.50, 0.52, 0.55, 0.58, 0.60, 0.65):
+        # 대비 점수 눈금(-0.14~+0.14). 코사인 눈금이 아니다 — filter.py 참조
+        for t in (0.00, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06):
             p_tp = sum(1 for r in scored if float(r["relevance"]) >= t and r["label"] == "1")
             p_fp = sum(1 for r in scored if float(r["relevance"]) >= t and r["label"] == "0")
             p_fn = sum(1 for r in scored if float(r["relevance"]) < t and r["label"] == "1")
@@ -169,13 +213,20 @@ def main() -> None:
                         help="라벨링용 무작위 표본 CSV 생성")
     parser.add_argument("-n", type=int, default=50, help="표본 수 (기본 50)")
     parser.add_argument("--force", action="store_true", help="기존 labels.csv 덮어쓰기")
+    parser.add_argument("--ai", action="store_true",
+                        help="AI 잠정 라벨(labels_ai.csv)로 측정")
+    parser.add_argument("--refresh", action="store_true",
+                        help="라벨은 두고 모델 판정 열만 DB에서 다시 읽는다")
     args = parser.parse_args()
 
     load_config()   # config가 깨져 있으면 여기서 바로 알린다
+    target = AI_LABEL_PATH if args.ai else LABEL_PATH
     if args.make_labels:
         make_labels(args.n, args.force)
-    else:
-        evaluate()
+        return
+    if args.refresh:
+        refresh(target)
+    evaluate(target)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,51 @@
+﻿label,id,kept,relevance,cross_score,axes,source,published,title,url,note
+0,62367,0,0.0215,0.5,ai,naver_news,2026-08-28,"넥스브이, 한국장애인고용공단과 ' AI 기반 산재예방 보조공학기기' 실증...",https://www.kdpress.co.kr/news/articleView.html?idxno=208140,공공기관 AI 도입 사례이나 보조공학기기라 데이터·상권 업무와 접점 없음
+0,41451,0,-0.0010,0.5,ai,hackernews,2026-01-28,Show HN: Cursor for Userscripts,https://github.com/chebykinn/browser-code,개발자용 코딩 도구. (b) AI 서비스 개발 영역으로 팀 주력 아님
+0,52118,0,-0.0206,0.5,ai,geeknews,2026-02-23,Show GN: AI 에이전트가 Unity/Godot/Unreal 에디터를 직접 제어하는,https://news.hada.io/topic?id=26927,게임 엔진 제어 에이전트. 도메인 무관
+0,51925,0,0.0093,0.5,ai,geeknews,2026-03-05,OpenAI Symphony - 에이전트 기반 프로젝트 관리 자동화 도구,https://news.hada.io/topic?id=27201,에이전트 개발 도구. 개발자 대상이라 과제관리와 다름
+0,20068,0,-0.0015,6.6,ai+smallbiz,sobiz_news,2026-07-15,"[Telecom & Now] LG U+, '로밍패스' 개편",https://www.ebn.co.kr/news/articleView.html?idxno=1716419,통신 로밍 상품 개편. 무관
+0,62321,0,0.0101,0.5,ai,naver_news,2026-08-28,"최태원 ""규제 풀어보고 효과 따져야""…'규제 실험장' 제안",https://it.chosun.com/news/articleView.html?idxno=2023092169056,재계 규제완화 발언. 데이터·개인정보 규제가 아님
+0,20355,0,0.0157,0.6,smallbiz,sobiz_news,2026-07-15,"㈜ 신신엠앤씨 황배근 대표, '2026 대구·경북 '중소기업인대회 유공자...",https://www.kdpress.co.kr/news/articleView.html?idxno=206936,개인 수상 소식. 무관
+1,61396,0,0.0231,0.5,ai,naver_news,2026-08-30,AIDC 특별법 시행 앞두고 인허가 · 전력 · 세제 등 현장 걸림돌 점검,https://www.pinpointnews.co.kr/news/articleView.html?idxno=481387,AIDC 특별법 시행 — 인허가·전력·세제. (c) 인프라 관련 규제로 직접 참고
+1,46254,0,0.0098,0.6,bigdata,hackernews,2025-08-11,Apache Iceberg V3 Spec new features for more efficient and flexible data lakes,https://opensource.googleblog.com/2025/08/whats-new-in-iceberg-v3.html,Iceberg V3 스펙. (c) 데이터플랫폼 운영의 핵심 포맷
+0,60819,0,0.0001,0.5,ai,naver_news,2026-08-28,"빅테크 120곳 "" AI 해킹 비상""…사이버 방어 재편 촉구",https://www.mstoday.co.kr/news/articleView.html?idxno=102438,일반 사이버보안 뉴스. 데이터 거버넌스 이슈로 보긴 멂
+0,60867,1,0.0423,0.5,ai,naver_news,2026-08-28,울주 학부모 대상 진로 교육사업…부모가 먼저 배우는 생성형 AI,https://www.yna.co.kr/view/AKR20260828045200057?input=1195m,학부모 진로교육 사업. 무관
+0,51371,0,0.0234,0.5,ai,geeknews,2026-03-30,AI 판사 도입시 디지털 변론주의의 확립: 프롬프트 합의 및 메타데이터 중립성 확보 방안,https://news.hada.io/topic?id=28005,사법 AI 논의. 도메인 무관
+0,47457,1,0.0330,0.5,ai,hackernews,2025-07-11,"At Amazon's biggest data center, everything is supersized for AI",https://www.nytimes.com/2025/06/24/technology/amazon-ai-data-centers.html,하이퍼스케일 데이터센터 르포. 팀 운영 규모와 접점 없음
+0,44324,0,-0.0562,0.5,ai,hackernews,2024-06-15,Making my local LLM voice assistant faster and more scalable with RAG,https://johnthenerd.com/blog/faster-local-llm-assistant/,개인 LLM 음성비서 프로젝트. (b) 영역
+0,40830,0,-0.0034,0.5,ai,hackernews,2026-05-14,"AI coders are carrying half-open laptops through airports, offices, ice rinks",https://www.businessinsider.com/coders-keep-laptops-open-in-public-ai-agent-2026-5,개발자 문화 잡담
+0,55128,0,0.0228,0.5,ai,geeknews,2025-10-15,Microsoft Amplifier - 초고속 AI 개발 환경,https://news.hada.io/topic?id=23672,AI 개발환경 도구. (b) 영역
+1,55412,0,-0.0064,0.5,ai,geeknews,2025-09-30,"OpenAI는 Shopify, Stripe 등과 LLM 커머스 제휴를 맺고 2% 수수료를",https://news.hada.io/topic?id=23372,LLM 커머스 제휴·수수료 — 소상공인 판매채널에 AI가 들어오는 사례
+1,63410,1,0.0959,6.6,ai+bigdata,naver_news,2026-08-27,농식품 빅 데이터 클라우드 서비스 개시,http://www.amnews.co.kr/news/articleView.html?idxno=74191,농식품 빅데이터 클라우드 개시. 공공 데이터플랫폼 구축 사례로 (a)(c)(d) 참고
+0,50071,0,-0.0591,0.5,ai,geeknews,2026-07-24,코딩이 해결됐다면 왜 소프트웨어는 계속 나빠지는가?,https://news.hada.io/topic?id=31787,소프트웨어 품질 에세이
+0,51426,0,-0.0502,0.5,ai,geeknews,2026-03-27,A.T.L.A.S - $500 GPU가 코딩 벤치마크에서 Claude Sonnet을 능가,https://news.hada.io/topic?id=27922,모델 벤치마크. (b) 영역
+1,46557,1,0.0333,6.6,ai+bigdata,hackernews,2026-05-05,"AI didn't delete your database, you did",https://idiallo.com/blog/ai-didnt-delete-your-database-you-did,AI 에이전트發 DB 사고 교훈. (c) 데이터 운영 안전에 직접
+0,43936,0,-0.0224,0.5,ai,hackernews,2024-08-19,AI companies are pivoting from creating gods to building products,https://www.aisnakeoil.com/p/ai-companies-are-pivoting-from-creating,AI 업계 논평
+0,45180,0,-0.0447,0.5,ai,hackernews,2024-01-24,"WikiChat – a chatbot built on real-time Wikipedia updates, LangChain and AstraDB",https://www.datastax.com/events/wikichat-build-a-real-time-rag-app-on-wikipedia-with-langchain-and-vercel,위키 기반 챗봇. RAG 사례지만 팀 업무 맥락 없음
+1,59207,1,0.1004,27.2,ai+bigdata+smallbiz,naver_news,2026-08-28,전 국민 위한 '모두의 AI'… 카카오·SKT·KT 최종 선정,https://www.newscj.com/news/articleView.html?idxno=3428440,정부 '모두의 AI' 사업자 선정. 공공 AI 정책 동향으로 (d) 기획 참고
+0,63125,0,-0.0264,0.5,ai,naver_news,2026-08-28,매출 1.5억달러 회사에 129억달러…엔비디아가 허깅페이스를 원하는 이...,https://www.betanews.net/article/view/beta202608280019,빅테크 M&A 업계뉴스
+0,57526,0,,0.0,,geeknews,2025-05-07,낙관주의를 선택할 수도 있다,https://news.hada.io/topic?id=20751,에세이. 0축
+0,17889,0,0.0230,0.6,smallbiz,sobiz_news,2026-07-14,'5극3특' 지역주도 성장 지원…수도권 편중 해소 관건,https://www.nocutnews.co.kr/news/6547763?utm_source=naver&utm_medium=article&utm_campaign=20260714114722,지역균형발전 정책. 소상공인 간접이나 데이터·AI 없음
+0,28704,0,-0.0269,0.6,smallbiz,sobiz_news,2026-08-18,[Weekly 편의점·마트] 이마트·세븐일레븐·CU·GS25 外,https://www.startuptoday.co.kr/news/articleView.html?idxno=809931,편의점 유통 동향. 상권과 닿지만 데이터·AI 요소 없음
+0,50258,0,,0.0,,geeknews,2026-07-10,"모델 3/Y를 위한 테슬라 FSD v14 Lite, 한국에 배포 시작",https://news.hada.io/topic?id=31292,자율주행 배포. 무관
+0,55900,0,-0.0158,0.5,ai,geeknews,2025-08-31,AI 모델에는 가상 머신이 필요함,https://news.hada.io/topic?id=22821,모델 실행환경 기술 에세이. (b) 영역
+0,39122,0,-0.0524,0.6,smallbiz,sobiz_news,2026-08-25,"진보당 서울시당 ""지방의회 해외연수 중단하고 예산 민생에 써야""",https://www.shinailbo.co.kr/news/articleView.html?idxno=5054644,정당 논평
+0,33058,0,0.0006,0.6,smallbiz,sobiz_news,2026-08-20,"최보라 경기도의원 ""도 발전 가로막는 규제 개혁 추진""",https://www.yna.co.kr/view/AKR20260820125500061?input=1195m,지방의원 규제개혁 발언
+0,14797,0,-0.0528,0.6,smallbiz,sobiz_news,2026-07-11,"한국은행, 16일 기준금리 인상 유력…관건은 ‘얼마나 더 올리나’",https://www.kmib.co.kr/article/view.asp?arcid=0030097216&code=61141111&cp=nv,기준금리. 거시경제로 팀 업무 아님
+0,6988,0,0.0179,0.6,smallbiz,sobiz_news,2026-06-30,"본푸드서비스, ‘조은음식드림’과 식자재 유통 MOU 체결",http://www.lawissue.co.kr/view.php?ud=2026063017591520659aeda69934_12,식자재 유통 MOU
+0,12163,0,0.0025,0.6,smallbiz,sobiz_news,2026-07-03,"NH농협은행, 상반기 포용금융에 1.9조…하반기 채무감면 시행",https://www.ddaily.co.kr/page/view/2026070309550917811,은행 포용금융. 소상공인 금융이나 데이터·AI 없음
+0,62363,0,0.0173,0.5,ai,naver_news,2026-08-28,"한국농어촌공사, 조직 혁신 핵심 수단 ' AI 리더십' 교육 실시",https://www.greened.kr/news/articleView.html?idxno=348701,공공기관 AI 리더십 교육. 조직 교육이라 업무 접점 약함
+0,12877,0,-0.0185,0.6,smallbiz,sobiz_news,2026-07-08,"충주시, 군소음 피해보상금 '50일 앞당겨' 지급",https://www.ccreview.co.kr/news/articleView.html?idxno=352280,지자체 보상금 지급
+0,3796,0,-0.0229,0.6,smallbiz,sobiz_news,2026-06-15,"노동계 ""내년 최저임금 1만2천원""…16.3% 인상 요구",http://www.4th.kr/news/articleView.html?idxno=2113183,최저임금 요구. 소상공인 영향은 크나 팀 업무 아님
+0,62474,0,,0.0,,naver_news,2026-08-28,"노르마, 한림대와 양자 컴퓨팅 기반 교육과정 개설 MOU 체결",https://www.hellot.net/news/article.html?no=114604,양자컴퓨팅 교육 MOU
+0,14174,0,,0.0,,sobiz_news,2026-07-10,경제·복지 기준 되는 최저임금…흥정하듯 정하는 결정구조 괜찮나,https://www.dailian.co.kr/news/view/1665785/?sc=Naver,최저임금 결정구조 논설
+0,7419,0,-0.0015,6.6,ai+smallbiz,sobiz_news,2026-07-01,"조용호 오산시장…""AI·교통·교육 키워 성장도시 만들겠다""",https://www.news1.kr/local/gyeonggi/6214429,지자체장 AI 구호. 구체 내용 없음
+0,38128,0,,0.0,,sobiz_news,2026-08-25,"코인베이스, 베이스서 첫 美토큰화주식 출시…바이낸스·크라켄과 경쟁",https://www.edaily.co.kr/News/Read?newsId=02781446645550928&mediaCodeNo=257&utm_source=naver&utm_medium=referral&utm_campaign=news_syndication&utm_content=original_article,토큰화 주식. 무관
+0,61906,0,-0.0065,0.5,ai,naver_news,2026-08-28,"철강에 배터리·SMR 더한다…포항, '제2의 산업도시' 도전",https://www.ziksir.com/news/articleView.html?idxno=144619,지역 산업정책
+0,35253,0,-0.0125,0.6,smallbiz,sobiz_news,2026-08-21,거제 전역·통영 2곳 특별재난지역 우선 선포… 복구비 국비 추가 지원,https://www.hankookilbo.com/news/article/A2026082118190002956?did=NA,재난지역 선포
+0,58676,0,-0.0503,0.5,ai,geeknews,2025-02-22,450달러 이하로 O1 Preview 모델 직접 훈련,https://news.hada.io/topic?id=19364,모델 직접 훈련. (b) 영역
+0,18994,0,-0.0152,0.6,smallbiz,sobiz_news,2026-07-14,인천 영종~신도 육로 시대…강화 연결 2단계는 과제,https://news.ifm.kr/news/articleView.html?idxno=475032,교통 인프라
+0,56552,0,,0.0,,geeknews,2025-07-15,Three.js 기반 광선검 시뮬레이터,https://news.hada.io/topic?id=21990,3D 시뮬레이터 토이 프로젝트
+0,61294,0,-0.0283,0.5,ai,naver_news,2026-08-30,"이재명 대통령, 2기 내각 전격 개편…경제·법무·국방 수장 교체",http://www.newsian.co.kr/news/articleView.html?idxno=94460,내각 개편
+0,45032,0,,0.0,,hackernews,2024-02-20,"Show HN: Hyperdiv – Reactive, immediate-mode web UI framework for Python",https://github.com/hyperdiv/hyperdiv,웹 UI 프레임워크
+0,37918,0,-0.0096,0.6,smallbiz,sobiz_news,2026-08-24,"정부 압박에 내렸던 빵 가격, 6개월 만에 다시 제자리로... “원가 부담...",https://biz.chosun.com/distribution/food/2026/08/25/QOD3YFQPTVCYXOEEREYI4D5N44/?utm_source=naver&utm_medium=original&utm_campaign=biz,빵 가격 동향

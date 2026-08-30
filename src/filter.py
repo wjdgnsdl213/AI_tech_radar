@@ -40,7 +40,8 @@ from src.db import get_engine, item_axes, items, load_config
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-THRESHOLD_GRID = [0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65]
+# 대비 점수(양성-부정)는 0 근처에 몰리므로 눈금이 코사인과 다르다
+THRESHOLD_GRID = [0.00, 0.02, 0.04, 0.06, 0.08, 0.10, 0.12, 0.15]
 
 
 def load_seeds(path: str) -> list[str]:
@@ -231,7 +232,13 @@ def main() -> None:
     else:
         print("  전부 캐시에 있습니다 — 임베딩 생략\n")
 
-    # ── 시드 centroid ──
+    # ── 시드 centroid (양성 / 부정) ──
+    #
+    # 부정 시드를 빼는 이유(실측): 양성 centroid만 쓰면 '엔비디아 M&A', '새 코딩 도구'
+    # 같은 일반 AI 뉴스가 0.55~0.60을 받아 정답(0.576~0.659)과 구간이 통째로 겹친다.
+    # 임계값을 어디에 둬도 안 갈라진다. 무관한 것의 centroid를 따로 만들어 빼면
+    # 양쪽에 다 가까운 항목이 0 근처로 눌리면서 갈라진다.
+    #     relevance = sim(양성) - sim(부정)      ← DB에 저장되는 값이 이것이다
     seeds = load_seeds(fcfg["seed_path"])
     # 시드 자체는 수십 문장이라 계산이 싸지만 모델 로딩(수십 초)이 아깝다 → 캐시한다.
     # 파일명에 시드 내용 해시를 박아 시드를 한 글자라도 고치면 자동으로 무효화되게 한다.
@@ -253,10 +260,34 @@ def main() -> None:
         seed_cache.save()
     centroid = centroid_src.mean(axis=0)
     centroid /= np.linalg.norm(centroid)
-    print(f"시드 {len(seeds)}문장 → centroid\n")
 
     doc_vecs = cache.matrix(ids)
     sims = doc_vecs @ centroid           # 정규화했으므로 내적 = 코사인
+
+    neg_path = fcfg.get("negative_seed_path")
+    if neg_path and Path(neg_path).exists():
+        neg_seeds = load_seeds(neg_path)
+        neg_hash = hashlib.sha1("\n".join(neg_seeds).encode("utf-8")).hexdigest()[:8]
+        neg_cache = EmbeddingCache(Path("data/processed") / f"negseeds_{slug}_{neg_hash}.npz")
+        if len(neg_cache.index) != len(neg_seeds):
+            from sentence_transformers import SentenceTransformer
+            import torch
+            m = SentenceTransformer(model_name,
+                                    device="cuda" if torch.cuda.is_available() else "cpu")
+            vecs = m.encode(neg_seeds, convert_to_numpy=True,
+                            normalize_embeddings=True).astype(np.float32)
+            neg_cache.ids = np.arange(len(neg_seeds), dtype=np.int64)
+            neg_cache.vecs = vecs
+            neg_cache.index = {i: i for i in range(len(neg_seeds))}
+            neg_cache.save()
+        neg_centroid = neg_cache.vecs.mean(axis=0)
+        neg_centroid /= np.linalg.norm(neg_centroid)
+        neg_sims = doc_vecs @ neg_centroid
+        print(f"시드 양성 {len(seeds)}문장 / 부정 {len(neg_seeds)}문장 → 대비 점수")
+        print(f"  양성 평균 {sims.mean():.3f}  부정 평균 {neg_sims.mean():.3f}\n")
+        sims = sims - neg_sims
+    else:
+        print(f"시드 {len(seeds)}문장 → centroid  (부정 시드 없음)\n")
 
     # ── 임계값 후보별 통과량 ──
     print(f"{'=' * 62}\n① 유사도 분포\n{'=' * 62}")
