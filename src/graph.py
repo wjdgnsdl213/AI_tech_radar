@@ -50,7 +50,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from src.db import get_engine, init_db, item_axes, items, load_config
+from src.db import get_engine, init_db, item_axes, items, kw_engine, load_config
 from src.extract import STOPWORDS, item_keywords
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
@@ -60,13 +60,16 @@ sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 def load_data(engine=None, kept_only: bool = True):
     """문서별 키워드 집합과 축 집합을 읽는다."""
     engine = engine or get_engine()
+    # 키워드는 파생 인덱스 DB에 있다(src/db.kw_engine). kept를 그 테이블에 같이
+    # 박아뒀으므로 본 DB와 조인하지 않고 여기서 바로 거른다.
+    docs: dict[int, set[str]] = defaultdict(set)
+    stmt = select(item_keywords.c.item_id, item_keywords.c.keyword)
+    if kept_only:
+        stmt = stmt.where(item_keywords.c.kept.is_(True))
+    with kw_engine().connect() as kc:
+        for i, k in kc.execute(stmt):
+            docs[i].add(k)
     with engine.connect() as conn:
-        ok = {r[0] for r in conn.execute(
-            select(items.c.id).where(items.c.kept.is_(True)))} if kept_only else None
-        docs: dict[int, set[str]] = defaultdict(set)
-        for i, k in conn.execute(select(item_keywords.c.item_id, item_keywords.c.keyword)):
-            if ok is None or i in ok:
-                docs[i].add(k)
         axes: dict[int, set[str]] = defaultdict(set)
         for i, a in conn.execute(select(item_axes.c.item_id, item_axes.c.axis)):
             if i in docs:

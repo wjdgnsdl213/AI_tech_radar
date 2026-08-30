@@ -145,6 +145,35 @@ def get_engine(url: str | None = None) -> Engine:
     return _engine
 
 
+# ── 파생 인덱스 DB ───────────────────────────────────────────────────
+# item_keywords는 **전체 코퍼스**에서 뽑은 키워드 인덱스라 180만 행이다.
+# radar.db에 넣으면 46MB → 270MB가 되는데, radar.db는 git으로 관리되므로
+# 커밋할 때마다 그 크기가 통째로 이력에 쌓인다.
+#
+# 이건 임베딩 캐시와 같은 성격이다 — **원본이 아니라 파생물**이고,
+# python -m src.extract 로 80초면 다시 만든다. 그래서 별도 파일에 두고 gitignore 한다.
+# 배포 시 한 DB에 몰고 싶으면 config의 db.keywords_url을 db.url과 같게 두면 된다.
+_kw_engine: Engine | None = None
+
+
+def kw_engine(url: str | None = None) -> Engine:
+    """키워드 인덱스용 엔진. 기본은 data/keywords.db (gitignore 대상)."""
+    global _kw_engine
+    if _kw_engine is None or url is not None:
+        if url is None:
+            url = os.getenv("KEYWORDS_URL") or load_config().get("db", {}).get(
+                "keywords_url", "sqlite:///data/keywords.db")
+        if url.startswith("sqlite"):
+            path = url.split("///")[-1]
+            if path and path != ":memory:":
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+        _kw_engine = create_engine(url, future=True)
+        if url.startswith("sqlite"):
+            with _kw_engine.begin() as conn:
+                conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+    return _kw_engine
+
+
 def init_db(engine: Engine | None = None) -> None:
     engine = engine or get_engine()
     metadata.create_all(engine)

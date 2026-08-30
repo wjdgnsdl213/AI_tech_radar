@@ -187,44 +187,54 @@ async function loadSuggest() {
 async function loadEgo(kw) {
   if (!kw) return;
   $('#ego-q').value = kw;
+  const hops = +($('#ego-hops')?.value || 1);
   $('#graph-svg').innerHTML = '<div class="empty">그리는 중…</div>';
-  const g = await api('/api/ego', { kw, limit: 20 });
-  if (g.empty || g.nodes.length < 2) {
+  const g = await api('/api/ego', { kw, hops, per_hop: hops > 1 ? 8 : 14 });
+  if (g.empty) {
     $('#graph-svg').innerHTML =
-      `<div class="empty">'${esc(kw)}'와 함께 언급되는 키워드를 찾지 못했습니다.</div>`;
+      `<div class="empty">'${esc(kw)}' — ${esc(g.reason || '결과가 없습니다.')}</div>`;
     return;
   }
-  const W = 880, H = 620, cx = W / 2, cy = H / 2;
-  const ring = g.nodes.slice(1);
-  const maxDf = Math.max(...g.nodes.map(n => n.df));
-  const pos = { [g.center]: [cx, cy] };
-  ring.forEach((n, i) => {
-    const t = -Math.PI / 2 + i * 2 * Math.PI / ring.length;
-    // NPMI가 높을수록 중심에 가깝게 — 거리가 곧 연관 강도다
-    const r = 130 + 175 * (1 - Math.min(1, Math.max(0, n.npmi)));
-    pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .82];
+  const W = 900, H = 660, cx = W / 2, cy = H / 2;
+  const maxHop = Math.max(...g.nodes.map(n => n.hop));
+  // 홉마다 동심원. 중심에서 멀수록 관계가 먼 말이라는 게 거리로 보인다.
+  const radius = h => 150 + (h - 1) * (maxHop > 1 ? 190 / maxHop : 0) + (h - 1) * 40;
+  const pos = {}, byHop = {};
+  g.nodes.forEach(n => (byHop[n.hop] = byHop[n.hop] || []).push(n));
+  pos[g.center] = [cx, cy];
+  Object.keys(byHop).filter(h => +h > 0).forEach(hs => {
+    const h = +hs, arr = byHop[hs], r = radius(h);
+    arr.forEach((n, i) => {
+      // 홉마다 시작 각도를 조금 틀어 안쪽 노드와 겹치지 않게 한다
+      const t = -Math.PI / 2 + (i + (h % 2) * .5) * 2 * Math.PI / arr.length;
+      pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .78];
+    });
   });
 
+  const maxDf = Math.max(...g.nodes.map(n => n.df || 1));
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
   (g.edges || []).forEach(e2 => {
-    const a = pos[e2.source], b = pos[e2.target];
-    if (!a || !b) return;
+    const a2 = pos[e2.source], b2 = pos[e2.target];
+    if (!a2 || !b2) return;
     const mid = e2.source === g.center || e2.target === g.center;
-    out.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}"
-      y2="${b[1].toFixed(1)}" stroke="#1e3932"
-      stroke-opacity="${(e2.npmi * (mid ? .5 : .2)).toFixed(3)}"
-      stroke-width="${mid ? 1.6 : 1}"/>`);
+    out.push(`<line x1="${a2[0].toFixed(1)}" y1="${a2[1].toFixed(1)}"
+      x2="${b2[0].toFixed(1)}" y2="${b2[1].toFixed(1)}" stroke="#94a3b8"
+      stroke-opacity="${(e2.npmi * (mid ? .55 : .22)).toFixed(3)}"
+      stroke-width="${mid ? 1.5 : 1}"/>`);
   });
   g.nodes.forEach(n => {
     const [x, y] = pos[n.keyword];
-    const r = n.center ? 30 : 8 + 12 * Math.sqrt(n.df / maxDf);
+    const r = n.center ? 26 : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
+    const fade = n.center ? 1 : Math.max(.38, 1 - (n.hop - 1) * .3);
     out.push(`<g class="gnode" data-kw="${esc(n.keyword)}">
-      <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · 함께 ${n.cooc}건`} (클릭하면 기사)</title>
+      <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · ${n.hop}홉`}${n.via ? ` (${esc(n.via)} 경유)` : ''}</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
-        fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${n.center ? .95 : .55}"/>
-      <text x="${x.toFixed(1)}" y="${(y + r + 15).toFixed(1)}" text-anchor="middle"
-        class="${n.center ? 'glabel-bridge' : ''}" fill="#1e3932"
-        font-size="${n.center ? 15 : 12}">${esc(n.keyword)}</text>
+        fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${fade.toFixed(2)}"/>
+      <text x="${x.toFixed(1)}" y="${(y + r + 14).toFixed(1)}" text-anchor="middle"
+        class="${n.center ? 'glabel-bridge' : ''}" fill="#334155"
+        font-size="${n.center ? 15 : Math.max(10, 13 - n.hop)}"
+        opacity="${n.center ? 1 : Math.max(.5, 1 - (n.hop - 1) * .25)}"
+        >${esc(n.keyword)}</text>
     </g>`);
   });
   out.push('</svg>');
@@ -233,6 +243,7 @@ async function loadEgo(kw) {
 }
 
 $('#ego-form').onsubmit = e => { e.preventDefault(); loadEgo($('#ego-q').value.trim()); };
+$('#ego-hops').onchange = () => { const v = $('#ego-q').value.trim(); if (v) loadEgo(v); };
 $('#ego-presets').onclick = e => {
   const b = e.target.closest('[data-ego]');
   if (b) loadEgo(b.dataset.ego);

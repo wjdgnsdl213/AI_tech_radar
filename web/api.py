@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from sqlalchemy import and_, func, or_, select
 
-from src.db import digests, get_engine, item_axes, items, load_config
+from src.db import digests, get_engine, item_axes, items, kw_engine, load_config
 from src.digest import week_label
 
 router = APIRouter(prefix="/api")
@@ -210,7 +210,7 @@ def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
     → 더 긴 키워드에 포함되면서 빈도가 비슷한 것은 조각으로 보고 뺀다.
     """
     from src.extract import STOPWORDS, item_keywords
-    with get_engine().connect() as c:
+    with kw_engine().connect() as c:      # 키워드는 파생 인덱스 DB에 있다
         stmt = (select(item_keywords.c.keyword, func.count().label("n"))
                 .group_by(item_keywords.c.keyword)
                 .order_by(func.count().desc()).limit(limit * 8))
@@ -232,109 +232,181 @@ def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
 
 
 @router.get("/ego")
-def ego(kw: str = Query(...), limit: int = Query(24)) -> dict[str, Any]:
-    """키워드 하나를 중심으로 한 연관어 망(ego network).
+def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
+        min_cooc: int = Query(0)) -> dict[str, Any]:
+    """키워드 하나를 중심으로 한 연관어 망. 홉 수를 지정할 수 있다.
 
-    ★ 전체 그래프를 미리 그려두지 않고 검색할 때마다 만든다.
-      전체 코퍼스를 400 노드로 압축하면 어느 주제에도 안 맞는 지도가 되고,
-      일반어가 상위를 먹는다. "지금 보는 주제 주변이 어떻게 생겼나"가 실제 질문이다.
-      계산도 훨씬 싸다 — 전체 그래프는 40만 쌍을 훑지만 여기는 이웃만 본다.
+    ★ 전체 코퍼스를 본다 (kept 필터를 걸지 않는다)
+      필터는 다이제스트를 위한 것이다 — 밀어주는 지면은 좁으니 좁게 걸러야 한다.
+      탐색은 반대다. 'Ollama'(48건), 'LangChain'(12건), 'Kubernetes'(65건) 같은 말은
+      통과분 3,046건 안에는 거의 없다. push와 pull은 기준이 달라야 한다.
 
-    NPMI는 graph.py와 같은 식이다. 화면마다 다른 지표를 쓰면 값이 갈린다.
+    ★ 인덱스 질의로만 만든다
+      220만 행을 매번 메모리에 올리면 요청마다 몇 초가 걸린다. 필요한 건
+      "이 키워드가 나온 문서"와 "그 문서에 또 뭐가 있나"뿐이라 인덱스로 좁혀 읽는다.
+
+    NPMI 식은 graph.py와 같다. 화면마다 다른 지표를 쓰면 값이 갈린다.
     """
     import math
-    from collections import Counter, defaultdict
+    from collections import Counter
 
     from src.extract import STOPWORDS, item_keywords
 
-    with get_engine().connect() as c:
-        kept = {i for (i,) in c.execute(
-            select(items.c.id).where(items.c.kept.is_(True)))}
-        docs: dict[int, set[str]] = defaultdict(set)
-        for i, k in c.execute(select(item_keywords.c.item_id, item_keywords.c.keyword)):
-            if i in kept:
-                docs[i].add(k)
-        axis_of: dict[int, set[str]] = defaultdict(set)
-        for i, a in c.execute(select(item_axes.c.item_id, item_axes.c.axis)):
-            if i in docs:
-                axis_of[i].add(a)
+    hops = max(1, min(hops, 3))
+    per_hop = max(3, min(per_hop, 30))
+    eng = kw_engine()                     # 키워드는 파생 인덱스 DB에 있다
 
-    n_docs = len(docs) or 1
-    df = Counter(k for ks in docs.values() for k in ks)
-    if kw not in df:
-        return {"center": kw, "empty": True, "nodes": [], "edges": []}
+    def chunked(seq, n=400):
+        seq = list(seq)
+        for i in range(0, len(seq), n):
+            yield seq[i:i + n]
 
-    host_docs = [i for i, ks in docs.items() if kw in ks]
+    with eng.connect() as c:
+        n_docs = c.execute(select(func.count(func.distinct(item_keywords.c.item_id)))
+                           ).scalar_one() or 1
 
-    def npmi(a: str, b: str, cooc: int) -> float:
-        pa, pb, pab = df[a] / n_docs, df[b] / n_docs, cooc / n_docs
-        d = -math.log(pab)
-        return math.log(pab / (pa * pb)) / d if d > 0 else 0.0
+        # 대소문자가 달라도 찾게 한다 — 'ollama'로 쳐도 'Ollama'가 나와야 한다.
+        # 대소문자 변형이 여러 개면 **문서가 가장 많은 것**을 고른다.
+        # (실측: 'CLAUDE' 2건과 'Claude' 873건이 따로 있어 LIMIT 1이 적은 쪽을 집었다)
+        center = c.execute(
+            select(item_keywords.c.keyword)
+            .where(func.lower(item_keywords.c.keyword) == kw.strip().lower())
+            .group_by(item_keywords.c.keyword)
+            .order_by(func.count().desc()).limit(1)).scalar_one_or_none()
+        if not center:
+            return {"center": kw, "empty": True, "nodes": [], "edges": [],
+                    "reason": "코퍼스에 없는 키워드입니다."}
 
-    # 중심 키워드와 함께 나온 것들.
-    # 동시등장이 2건이면 NPMI가 크게 흔들려 지역명·조각이 상위에 낀다(실측:
-    # 상권분석 이웃에 '안산', '사이', '예비'가 들어왔다). 중심 기사 수에 비례해
-    # 하한을 올리되, 기사가 많은 키워드에서 너무 빡빡해지지 않게 상한을 둔다.
-    min_cooc = max(3, min(len(host_docs) // 15, 6))
-    co = Counter()
-    for i in host_docs:
-        co.update(docs[i] - {kw})
-    cand = [(k, n) for k, n in co.items()
-            if n >= min_cooc and k not in STOPWORDS and df[k] >= 5
-            and kw not in k and k not in kw]          # 조각·상위어 제외
-    # n-gram 조각을 걷어낸다. 안 하면 좁은 ego 지면이 같은 말의 조각으로 덮인다.
-    # 실측: 공공데이터 이웃이 관계부처 / 관계부처협의 / 즉시실무 / 즉시실무협의체로,
-    #       마이데이터 이웃이 초본 / 등록초본 / 주민등록초본으로 채워졌다.
-    # 규칙은 graph.drop_fragments와 같다 — 더 긴 말이 있고 동시등장이 비슷하면 조각이다.
-    ranked = sorted(((npmi(kw, k, n), k, n) for k, n in cand), reverse=True)
-    scored: list[tuple[float, str, int]] = []
-    for s, k, n in ranked:
-        # 비율 0.5: n-gram에서 더 긴 말에 포함되는 짧은 말은 거의 항상 조각이다.
-        # 0.8로 조였더니 '관계부처'(9건)가 '관계부처협의'(7건)의 조각으로 안 잡혔다.
-        # 여러 복합어에 두루 쓰이는 말('개방' 20건)은 자기 빈도가 훨씬 커서 살아남는다.
-        if any(k != o and k in o and m >= n * 0.5 for _, o, m in ranked):
-            continue                       # 더 긴 말의 조각
-        if any(o in k and n >= m * 0.5 for _, o, m in scored):
-            continue                       # 이미 뽑은 것의 확장형(같은 말)
-        scored.append((s, k, n))
-        if len(scored) >= limit:
-            break
-    names = [kw] + [k for _, k, _ in scored]
-    nameset = set(names)
+        def docs_of(words: list[str]) -> dict[str, set[int]]:
+            out: dict[str, set[int]] = {w: set() for w in words}
+            for part in chunked(words):
+                for w, i in c.execute(
+                        select(item_keywords.c.keyword, item_keywords.c.item_id)
+                        .where(item_keywords.c.keyword.in_(part))):
+                    out[w].add(i)
+            return out
 
-    # 이웃끼리의 간선도 그린다 — 이게 있어야 '망'으로 보인다
-    pair = Counter()
-    for ks in docs.values():
-        sel = sorted(ks & nameset)
-        for x in range(len(sel)):
-            for y in range(x + 1, len(sel)):
-                pair[(sel[x], sel[y])] += 1
-    edges = []
-    for (a, b), n in pair.items():
-        if n < 2:
-            continue
-        v = npmi(a, b, n)
-        if v >= 0.15:
-            edges.append({"source": a, "target": b, "npmi": round(v, 4), "cooc": n})
+        def df_of(words: list[str]) -> dict[str, int]:
+            out: dict[str, int] = {}
+            for part in chunked(words):
+                for w, n in c.execute(
+                        select(item_keywords.c.keyword, func.count())
+                        .where(item_keywords.c.keyword.in_(part))
+                        .group_by(item_keywords.c.keyword)):
+                    out[w] = n
+            return out
 
-    axis_hits: dict[str, Counter] = defaultdict(Counter)
-    for i, ks in docs.items():
-        for k in ks & nameset:
-            for a in axis_of.get(i, ()):
-                axis_hits[k][a] += 1
-    nodes = []
-    for k in names:
+        def neighbours_of(word: str, host: set[int], exclude: set[str]) -> list[tuple]:
+            """host 문서들에 word와 함께 나온 키워드를 NPMI 순으로."""
+            co = Counter()
+            for part in chunked(host):
+                for k, n in c.execute(
+                        select(item_keywords.c.keyword, func.count())
+                        .where(item_keywords.c.item_id.in_(part))
+                        .group_by(item_keywords.c.keyword)):
+                    co[k] += n
+            floor = min_cooc or max(3, min(len(host) // 15, 6))
+            cand = {k: n for k, n in co.items()
+                    if n >= floor and k not in STOPWORDS and k not in exclude
+                    and word not in k and k not in word}
+            if not cand:
+                return []
+            dfs = df_of(list(cand) + [word])
+            dw = dfs.get(word, 1)
+
+            def npmi(k: str, n: int) -> float:
+                pa, pb, pab = dw / n_docs, dfs.get(k, 1) / n_docs, n / n_docs
+                d = -math.log(pab)
+                return math.log(pab / (pa * pb)) / d if d > 0 else 0.0
+
+            ranked = sorted(((npmi(k, n), k, n) for k, n in cand.items()), reverse=True)
+            # n-gram 조각 제거 — 좁은 지면이 같은 말의 조각으로 덮이는 걸 막는다
+            out: list[tuple] = []
+            for sc, k, n in ranked:
+                if any(k != o and k in o and m >= n * 0.5 for _, o, m in ranked):
+                    continue
+                # out은 4-튜플이다. 3개로 언팩하면 ValueError로 500이 난다(실측).
+                if any(o in k and n >= m * 0.5 for _, o, m, _d in out):
+                    continue
+                out.append((sc, k, n, dfs.get(k, 0)))
+                if len(out) >= per_hop:
+                    break
+            return out
+
+        # ── 홉을 넓혀 나간다 ──
+        nodes: dict[str, dict[str, Any]] = {
+            center: {"keyword": center, "hop": 0, "center": True,
+                     "npmi": 1.0, "cooc": 0, "df": 0}}
+        frontier = [center]
+        doc_cache = docs_of([center])
+        for hop in range(1, hops + 1):
+            nxt: list[str] = []
+            for w in frontier:
+                for sc, k, n, d in neighbours_of(w, doc_cache[w], set(nodes)):
+                    if k in nodes:
+                        continue
+                    # 조각 판정은 홉을 넘어서도 해야 한다. 홉 안에서만 걸면
+                    # 2홉에 '대전결제'와 '대전결제데이터', '서울시상권'과
+                    # '서울시상권분석'이 따로 올라온다(실측).
+                    if any(k in o or o in k for o in nodes if len(o) > 2 and len(k) > 2):
+                        continue
+                    nodes[k] = {"keyword": k, "hop": hop, "center": False,
+                                "npmi": round(sc, 3), "cooc": n, "df": d,
+                                "via": w}
+                    nxt.append(k)
+            if not nxt:
+                break
+            frontier = nxt
+            if hop < hops:
+                doc_cache.update(docs_of(nxt))
+
+        names = list(nodes)
+        dfs = df_of(names)
+        for k, nd in nodes.items():
+            nd["df"] = dfs.get(k, nd.get("df", 0))
+
+        # ── 노드끼리의 간선 ──
+        sets = docs_of(names)
+        edges = []
+        for x in range(len(names)):
+            for y in range(x + 1, len(names)):
+                a, b = names[x], names[y]
+                n = len(sets[a] & sets[b])
+                if n < 2:
+                    continue
+                pa, pb, pab = dfs.get(a, 1) / n_docs, dfs.get(b, 1) / n_docs, n / n_docs
+                d = -math.log(pab)
+                v = math.log(pab / (pa * pb)) / d if d > 0 else 0.0
+                if v >= 0.15:
+                    edges.append({"source": a, "target": b,
+                                  "npmi": round(v, 4), "cooc": n})
+
+        # 주제 성향 — 색에 쓴다
+        axis_hits: dict[str, Counter] = {k: Counter() for k in names}
+        all_docs = set().union(*sets.values()) if sets else set()
+        pairs: list[tuple[int, str]] = []
+    # 축은 본 DB에 있다 — 키워드 DB와 다른 파일이라 커넥션을 따로 연다
+    with get_engine().connect() as mc:
+        for part in chunked(all_docs):
+            pairs += list(mc.execute(select(item_axes.c.item_id, item_axes.c.axis)
+                                     .where(item_axes.c.item_id.in_(part))))
+        by_doc: dict[int, list[str]] = {}
+        for i, a in pairs:
+            by_doc.setdefault(i, []).append(a)
+        for k in names:
+            for i in sets[k]:
+                for a in by_doc.get(i, ()):
+                    axis_hits[k][a] += 1
+
+    for k, nd in nodes.items():
         h = axis_hits[k]
         tot = sum(h.values())
-        nodes.append({
-            "keyword": k, "df": df[k], "center": k == kw,
-            "axis": max(h, key=h.get) if h else None,
-            "axis_share": {a: round(v / tot, 3) for a, v in h.items()} if tot else {},
-            "npmi": next((round(s, 3) for s, kk, _ in scored if kk == k), 1.0),
-            "cooc": next((n for _, kk, n in scored if kk == k), df[k]),
-        })
-    return {"center": kw, "empty": False, "nodes": nodes, "edges": edges,
-            "docs": len(host_docs)}
+        nd["axis"] = max(h, key=h.get) if h else None
+        nd["axis_share"] = {a: round(v / tot, 3) for a, v in h.items()} if tot else {}
+
+    return {"center": center, "empty": False, "hops": hops,
+            "nodes": list(nodes.values()), "edges": edges,
+            "docs": len(sets.get(center, ()))}
 
 
 @router.get("/keyword/{kw}")
@@ -346,11 +418,12 @@ def keyword(kw: str, limit: int = Query(20)) -> dict[str, Any]:
     다른 일이고, 후자가 없으면 과제 후보로 쓸 수 없다.
     """
     from src.extract import item_keywords
-    with get_engine().connect() as c:
-        ids = [i for (i,) in c.execute(
+    with kw_engine().connect() as kc:
+        ids = [i for (i,) in kc.execute(
             select(item_keywords.c.item_id).where(item_keywords.c.keyword == kw))]
-        if not ids:
-            return {"keyword": kw, "total": 0, "items": []}
+    if not ids:
+        return {"keyword": kw, "total": 0, "items": []}
+    with get_engine().connect() as c:
         rows = c.execute(
             select(items.c.id, items.c.title, items.c.url, items.c.source,
                    items.c.published_at, items.c.cross_score, items.c.insight)

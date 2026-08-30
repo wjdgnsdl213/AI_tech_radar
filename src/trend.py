@@ -41,7 +41,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from src.db import get_engine, init_db, items, load_config
+from src.db import get_engine, init_db, items, kw_engine, load_config
 from src.extract import item_keywords
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
@@ -97,12 +97,16 @@ def rising(week: str, back: int, min_freq: int, engine=None) -> list[dict[str, A
     past = prev_weeks(week, back)
 
     def freq(weeks: list[str]) -> Counter:
+        # 키워드는 파생 인덱스 DB에 있다(src/db.kw_engine)
         if not weeks:
             return Counter()
-        with engine.connect() as conn:
+        with kw_engine().connect() as conn:
+            # 통과분만 센다 — 키워드 자체는 전체 코퍼스에서 뽑지만(탐색용),
+            # 급상승은 다이제스트에 실리는 것이므로 필터 기준이 같아야 한다.
             rows = conn.execute(
                 select(item_keywords.c.keyword, func.count().label("n"))
-                .where(item_keywords.c.week.in_(weeks))
+                .where(item_keywords.c.week.in_(weeks),
+                       item_keywords.c.kept.is_(True))
                 .group_by(item_keywords.c.keyword)).all()
         return Counter({k: n for k, n in rows})
 
@@ -144,12 +148,12 @@ def rising(week: str, back: int, min_freq: int, engine=None) -> list[dict[str, A
 
 def series(keyword: str, weeks: list[str], engine=None) -> list[tuple[str, int]]:
     """키워드 하나의 주차별 시계열 (PLAN §3-B의 '키워드 × 주차 × 언급량')."""
-    engine = engine or get_engine()
-    with engine.connect() as conn:
+    with kw_engine().connect() as conn:
         rows = dict(conn.execute(
             select(item_keywords.c.week, func.count())
             .where(item_keywords.c.keyword == keyword,
-                   item_keywords.c.week.in_(weeks))
+                   item_keywords.c.week.in_(weeks),
+                   item_keywords.c.kept.is_(True))
             .group_by(item_keywords.c.week)).all())
     return [(w, rows.get(w, 0)) for w in weeks]
 
@@ -174,6 +178,7 @@ def main() -> None:
         if not week:
             week = conn.execute(select(func.max(items.c.published_week))
                                 .where(items.c.kept.is_(True))).scalar_one_or_none()
+    with kw_engine().connect() as conn:
         have = conn.execute(select(func.count()).select_from(item_keywords)).scalar_one()
     if not week:
         sys.exit("통과 항목이 없습니다.")

@@ -25,6 +25,9 @@ data/checkpoints/*
 !data/raw/*.jsonl
 !data/checkpoints/*.json
 !data/radar.db
+# WAL/SHM은 SQLite 실행 중에만 생기는 임시 파일이다. 커밋하면 안 된다.
+data/*.db-wal
+data/*.db-shm
 
 logs/
 logs_*.txt

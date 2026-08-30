@@ -21,8 +21,20 @@ F8(키워드 트렌드)의 입력이다. PLAN §3-B가 "키워드 × 주차 × �
        new / for / features 같은 것들. 대문자로 시작하거나 전부 대문자인 토큰만
        남긴다 — 고유명사(Apache, Iceberg)와 약어(AI, CCTV, RAG)가 정확히 그 형태다.
 
+★ 통과 항목이 아니라 **전체 코퍼스**에서 뽑는다
+    필터(kept)는 다이제스트를 위한 것이다 — 밀어주는 지면은 좁으니 좁게 걸러야 한다.
+    그런데 탐색은 반대다. 'ollama', '퀀트투자' 같은 말을 찾아보려면 95%를 버린
+    3,046건 안에는 아예 없다. push(다이제스트)와 pull(탐색)은 기준이 달라야 한다.
+    급상승·브릿지는 여전히 통과분만 본다(trend.py / graph.py에서 걸러 쓴다).
+
+★ 1회성 키워드는 저장하지 않는다
+    n-gram이라 항목당 34개가 나오고 전체 6.4만 건이면 220만 행이다. 그중 대부분이
+    한 문서에만 나오는 말이라 공기 관계를 만들 수 없다 — 저장해도 쓸 데가 없고
+    DB만 불린다. min_df로 자른다.
+
 실행:
-  python -m src.extract                # 통과 항목 전체 재추출 (멱등)
+  python -m src.extract                # 전체 코퍼스 재추출 (멱등)
+  python -m src.extract --scope kept   # 통과 항목만 (예전 동작)
   python -m src.extract --sample 300   # 표본으로 품질 확인
   python -m src.extract --dry-run
 """
@@ -36,23 +48,29 @@ import time
 from collections import Counter
 from typing import Any, Iterable
 
-from sqlalchemy import Column, Index, MetaData, String, Table, func, select
+from sqlalchemy import (Boolean, Column, Index, MetaData, String, Table,
+                        func, select)
 
-from src.db import PK_INT, get_engine, init_db, items, load_config, metadata
+from src.db import PK_INT, get_engine, init_db, items, kw_engine, load_config
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 # ── item_keywords: 항목 × 키워드 ──────────────────────────────────
-# 새 테이블이라 metadata.create_all이 알아서 만든다(기존 테이블에 컬럼을 더하는
-# ALTER와 달리 테이블 추가는 create_all이 처리한다).
+# radar.db가 아니라 파생 인덱스 DB(data/keywords.db)에 산다 — src/db.kw_engine 참조.
+kw_metadata = MetaData()
 item_keywords = Table(
-    "item_keywords", metadata,
+    "item_keywords", kw_metadata,
     Column("item_id", PK_INT, nullable=False),
     Column("keyword", String(64), nullable=False),
     Column("week", String(8)),            # 집계 키를 같이 박아 조인을 줄인다
+    # 이 항목이 필터를 통과했는지. 키워드 DB와 본 DB가 다른 파일이라 조인을 못 하는데,
+    # 급상승(trend)과 브릿지(graph)는 통과분만 봐야 하므로 여기 같이 박아둔다.
+    # 탐색(ego)은 이 값을 무시하고 전체를 본다.
+    Column("kept", Boolean),
     Index("ix_kw_keyword", "keyword"),
     Index("ix_kw_week", "week", "keyword"),
+    Index("ix_kw_kept", "kept", "keyword"),
     Index("ix_kw_item", "item_id"),
 )
 
@@ -155,16 +173,21 @@ class KeywordExtractor:
         return sorted(set(out))
 
 
-def replace_keywords(rows: Iterable[tuple[int, str | None, list[str]]],
+def init_kw_db(engine=None) -> None:
+    """키워드 인덱스 테이블 보장."""
+    kw_metadata.create_all(engine or kw_engine())
+
+
+def replace_keywords(rows: Iterable[tuple[int, str | None, list[str], bool]],
                      engine=None) -> int:
     """항목별 키워드를 통째로 교체한다. 한 트랜잭션에서 delete+insert."""
-    engine = engine or get_engine()
+    engine = engine or kw_engine()
     rows = list(rows)
     if not rows:
         return 0
     ids = [r[0] for r in rows]
-    payload = [{"item_id": i, "keyword": k, "week": w}
-               for i, w, kws in rows for k in kws]
+    payload = [{"item_id": i, "keyword": k, "week": w, "kept": bool(kp)}
+               for i, w, kws, kp in rows for k in kws]
     with engine.begin() as conn:
         for i in range(0, len(ids), 500):     # SQLite 파라미터 상한(999) 회피
             conn.execute(item_keywords.delete()
@@ -181,34 +204,57 @@ def main() -> None:
     parser.add_argument("--top", type=int, default=25, help="상위 키워드 출력 수")
     parser.add_argument("--max-ngram", type=int, default=4)
     parser.add_argument("--batch", type=int, default=2000)
+    parser.add_argument("--scope", default="all", choices=["all", "kept"],
+                        help="all=전체 코퍼스(탐색용, 기본) / kept=통과분만")
+    parser.add_argument("--min-df", type=int, default=2,
+                        help="이 문서 수 미만 키워드는 저장하지 않는다 (1회성 제거)")
     args = parser.parse_args()
 
     load_config()
     engine = get_engine()
-    init_db(engine)      # item_keywords 테이블 보장
+    init_db(engine)
+    init_kw_db()         # 파생 인덱스 DB 보장
 
-    stmt = (select(items.c.id, items.c.title, items.c.summary, items.c.published_week)
-            .where(items.c.kept.is_(True)))
+    stmt = select(items.c.id, items.c.title, items.c.summary,
+                  items.c.published_week, items.c.kept)
+    if args.scope == "kept":
+        stmt = stmt.where(items.c.kept.is_(True))
     if args.sample:
         stmt = stmt.order_by(func.random()).limit(args.sample)
     with engine.connect() as conn:
         rows = conn.execute(stmt).all()
     if not rows:
-        sys.exit("통과 항목이 없습니다. 먼저 python -m src.filter 를 실행하세요.")
+        sys.exit("항목이 없습니다. 먼저 python -m src.collect 를 실행하세요.")
 
-    print(f"대상 {len(rows):,}건  |  최대 {args.max_ngram}-gram")
+    print(f"대상 {len(rows):,}건 ({args.scope})  |  최대 {args.max_ngram}-gram "
+          f"|  df<{args.min_df} 제외")
     extract = KeywordExtractor(args.max_ngram)
 
     t0 = time.time()
-    result: list[tuple[int, str | None, list[str]]] = []
+    result: list[tuple[int, str | None, list[str], bool]] = []
     counter = Counter()
     for n, r in enumerate(rows, 1):
         kws = extract(f"{r.title or ''} {r.summary or ''}")
-        result.append((r.id, r.published_week, kws))
+        result.append((r.id, r.published_week, kws, bool(r.kept)))
         counter.update(kws)
         if n % 1000 == 0:
             print(f"  {n:,}/{len(rows):,}")
-    print(f"  ({time.time() - t0:.1f}초)  고유 키워드 {len(counter):,}개\n")
+    elapsed = time.time() - t0
+
+    # 1회성 키워드 제거. n-gram이라 항목당 34개가 나오는데 대부분이 한 문서에만
+    # 나오는 말이라 공기 관계를 만들 수 없다 — 저장해도 쓸 데가 없고 DB만 불린다.
+    # (실측: 이 컷 없이 전체 코퍼스를 넣었더니 220만 행 / radar.db가 72MB→284MB)
+    if args.min_df > 1:
+        keep = {k for k, n in counter.items() if n >= args.min_df}
+        before = sum(len(ks) for _, _, ks, _ in result)
+        result = [(i, w, [k for k in ks if k in keep], kp) for i, w, ks, kp in result]
+        after = sum(len(ks) for _, _, ks, _ in result)
+        print(f"  ({elapsed:.1f}초)  고유 키워드 {len(counter):,}개 "
+              f"→ df≥{args.min_df} {len(keep):,}개")
+        print(f"  저장 행 {before:,} → {after:,} "
+              f"({after / max(before, 1) * 100:.0f}%)\n")
+    else:
+        print(f"  ({elapsed:.1f}초)  고유 키워드 {len(counter):,}개\n")
 
     print(f"{'=' * 56}\n상위 {args.top} 키워드 (문서 빈도)\n{'=' * 56}")
     for kw, c in counter.most_common(args.top):
@@ -222,8 +268,9 @@ def main() -> None:
     print("\nitem_keywords 적재 중…")
     total = 0
     for i in range(0, len(result), args.batch):
-        total += replace_keywords(result[i:i + args.batch], engine)
-    with engine.connect() as conn:
+        # ★ 본 DB 엔진(engine)이 아니라 키워드 인덱스 DB에 쓴다.
+        total += replace_keywords(result[i:i + args.batch], kw_engine())
+    with kw_engine().connect() as conn:
         in_db = conn.execute(select(func.count()).select_from(item_keywords)).scalar_one()
     print(f"  {total:,}개 적재 (테이블 총 {in_db:,}행)")
     print("\n  다음: python -m src.trend")
