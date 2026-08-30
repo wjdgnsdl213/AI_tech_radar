@@ -136,7 +136,7 @@ python -c "import torch; print('GPU:', torch.cuda.is_available(), torch.cuda.get
 | 축 태깅 | `prefilter.py` | ✅ 64,433건 5초 |
 | 임베딩 필터 | `filter.py` | ✅ 부정 시드 대비 점수 + 캐시 + 군집 중복제거 |
 | 교차 점수 | `score.py` | ✅ |
-| AI 해설 | `insight.py` | 🟡 코드 완성, 키 없어 미실행 |
+| AI 해설 | `insight.py` | ✅ L1 238건 + L2. 실행당 약 $0.57 |
 | 다이제스트 | `digest.py` | ✅ 한 번 생성 → 메일/웹 공통 |
 | 메일 | `mailer.py` | 🟡 코드 완성, SMTP 미설정 |
 | 웹 | `web/server.py` | ✅ /, /digest/{week}, /search, /item/{id}, /weeks |
@@ -172,8 +172,8 @@ PLAN §13-1이 "가장 중요한 미결정 사항"으로 꼽은 항목이고, �
 
 | # | 항목 | 없으면 |
 |---|---|---|
-| 1 | `.env`에 `ANTHROPIC_API_KEY` | AI 해설(L1/L2) 전체 불가 |
-| 2 | `.env`에 `CONTACT_EMAIL` | GeekNews 크롤링 UA에 `contact: unknown`으로 나감 (원칙 위반) |
+| 1 | ~~`ANTHROPIC_API_KEY`~~ | ✅ 완료 — 해설 동작 확인 |
+| 2 | ~~`CONTACT_EMAIL`~~ | ✅ 완료 |
 | 3 | `.env`에 SMTP 4종 | 메일 push 불가 |
 | 4 | `labels.csv` 50건 라벨링 | precision 실측 불가 |
 | 5 | 시드·팀 프로파일 실제 내용 | 필터 품질이 초안 수준에 머묾 |
@@ -191,6 +191,14 @@ PLAN §13-1이 "가장 중요한 미결정 사항"으로 꼽은 항목이고, �
 
 → **공공데이터포털에서 키를 발급받는 게 유일한 정공법이다.** 무료·즉시 발급.
    키가 생기면 `sources/pipc.py`·`sources/assembly.py`를 붙인다(config에 자리 있음).
+
+### ⚠️ 환경 함정 — brotli 1.0.9
+anthropic SDK 1.x는 httpx2를 쓰는데, httpx2의 Brotli 디코더가
+`Decompressor.process(data, output_buffer_limit=...)`를 호출한다. brotli 1.0.9의
+`process()`는 키워드 인자를 안 받아서 **모든 응답이 APIConnectionError로 터진다.**
+응답 압축 해제 단계에서 나는 오류라 네트워크 문제처럼 보이는 게 함정이다(curl은 된다).
+  pip install -U brotli      # 1.2.0 이상
+requirements.txt에 하한을 박아뒀다.
 
 ### 미결정
 - **HN 백필 10,070건 재수집** — Algolia 쿼리 버그 시기 수집분이라 오염돼 있고

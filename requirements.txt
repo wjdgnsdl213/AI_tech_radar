@@ -26,6 +26,11 @@ kiwipiepy
 
 # ── 3주차: AI 해설 + 웹 + 메일 ───────────────────────
 anthropic
+# ⚠️ anthropic SDK 1.x가 쓰는 httpx2의 Brotli 디코더는
+#    Decompressor.process(data, output_buffer_limit=...) 를 호출한다.
+#    1.0.9의 process()는 키워드 인자를 안 받아 모든 응답이 APIConnectionError로 터진다
+#    (응답 압축 해제 단계라 네트워크 문제처럼 보이지만 아니다).
+brotli>=1.1.0
 fastapi
 uvicorn
 jinja2              # 다이제스트 → HTML/메일 렌더 (한 번 생성, 두 형태)

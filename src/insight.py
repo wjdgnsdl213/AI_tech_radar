@@ -4,7 +4,7 @@
     … → filter → score → **insight** → digest → 메일/웹
 
 두 층위를 만든다(PLAN §4):
-    L1  항목별 "우리 팀에 왜 중요한가" 1~2문장. 교차 점수 상위 N건. Haiku
+    L1  항목별 "우리 팀에 왜 중요한가" 한 문장. 교차 점수 상위 N건. Haiku
     L2  "이번 주 흐름" 3줄 + 섹션 리드. 주 1회. Sonnet
 
 ★ 반드시 지키는 두 원칙 (CLAUDE.md)
@@ -56,13 +56,20 @@ PRICING = {
 
 L1_RULES = """\
 당신은 사내 AI·빅데이터팀의 트렌드 레이더가 쓰는 해설자다.
-아래 팀 프로파일을 읽고, 주어진 항목이 **이 팀에게 왜 중요한지**를 한국어 1~2문장으로 쓴다.
+아래 팀 프로파일을 읽고, 주어진 항목이 **이 팀에게 왜 중요한지**를 한국어 한 문장으로 쓴다.
 
 반드시 지킬 것:
 - 제목과 요약에 있는 사실만 쓴다. 없는 내용을 추측하거나 지어내지 않는다.
-- "도입해야 한다", "검토가 필요하다" 같은 판단·권고는 쓰지 않는다.
-  무엇이 일어났고 그것이 팀 업무와 어떻게 닿는지까지만 쓴다.
+- **판단·권고·전망을 쓰지 않는다.** 아래 어미는 하나도 쓰지 말 것:
+    …해야 한다 / …필요하다 / …필요해질 것이다 / …가능성이 높다 / …전망이다
+    …도움이 될 것이다 / …고려할 만하다 / …주목할 필요가 있다
+  일어난 일과 그것이 팀 업무의 어디에 닿는지까지만, **현재형 서술로** 쓴다.
+  (나쁨: "데이터 품질 검토가 필요해질 가능성이 높다"
+   좋음: "공공 플랫폼이 소상공인 매출 데이터를 직접 다루는 첫 사례다")
 - 제목을 그대로 반복하지 않는다. 팀 업무 맥락으로 연결하는 게 목적이다.
+- **정확히 한 문장, 100자 이내.** 문장을 늘리면 뒤에 논평이 붙는다.
+  (실측: 두 문장을 허용하면 둘째 문장이 거의 항상 "…참고할 만하다",
+   "…가능성이 높아진다" 같은 판단으로 끝났다)
 - 정보가 부족해 팀과의 연결을 말할 수 없으면 정확히 `관련 낮음` 다섯 글자만 출력한다.
 - 군더더기 없이 문장만 출력한다. 머리말·따옴표·마크다운을 붙이지 않는다."""
 
@@ -255,8 +262,12 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
         stats["cached"] += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
         text = "".join(b.text for b in resp.content if b.type == "text").strip()
         if not text or text.startswith("관련 낮음"):
+            # '관련 낮음'은 버리는 값이 아니라 **신호**다. 임베딩 필터와 완전히 다른
+            # 방식(LLM이 팀 프로파일을 읽고 판단)으로 나온 두 번째 의견이라,
+            # 필터가 통과시켰지만 실제로는 무관한 항목을 짚어준다.
+            # 빈 문자열로 표시해 '시도했는데 연결을 못 찾음'과 '아직 안 함'을 구분한다.
             stats["skip"] += 1
-            return item_id, None
+            return item_id, ""
         stats["ok"] += 1
         return item_id, text
 
@@ -277,8 +288,10 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
         print("  ⏭ 해설 없이 진행합니다 (fail_open)")
         return 0
 
+    # t가 None이면 실패(재시도 여지가 있으니 기록하지 않는다).
+    # t가 ""이면 '관련 낮음' — 모델이 판단한 결과이므로 기록한다.
     payload = [{"b_id": i, "b_text": t, "b_model": model, "b_at": datetime.now(timezone.utc)}
-               for i, t in results if t]
+               for i, t in results if t is not None]
     if payload:
         stmt_up = (items.update()
                    .where(items.c.id == bindparam("b_id"))

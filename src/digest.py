@@ -136,8 +136,14 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
     titles: list[str] = []      # 지면 안에서 같은 사건이 반복되지 않게 쓰는 기록
 
     def take(p: dict[str, Any]) -> bool:
-        """이 항목을 지면에 올릴지. 올리면 True."""
-        if p["id"] in used:
+        """이 항목을 지면에 올릴지. 올리면 True.
+
+        L1이 '관련 낮음'으로 판정한 항목(insight == "")은 올리지 않는다.
+        임베딩 필터가 통과시켰지만 LLM이 팀 프로파일을 읽고 연결을 못 찾은 것이라,
+        두 방식이 엇갈린 항목이다. 지면은 좁으니 둘 다 통과한 것부터 채운다.
+        (해설을 아직 안 돌렸으면 insight가 None이라 이 조건에 안 걸린다)
+        """
+        if p["id"] in used or p.get("insight") == "":
             return False
         used.add(p["id"])
         dup = is_syndicated(p["title"], titles)
