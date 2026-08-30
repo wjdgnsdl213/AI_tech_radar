@@ -134,13 +134,32 @@ def rows_table(rows: list[Any], axes: dict[int, list[str]]) -> str:
     return "".join(out) + "</table></div>"
 
 
+def _asset_version() -> str:
+    """정적 파일 수정 시각으로 만든 버전 문자열.
+
+    ★ 이게 없으면 배포해도 사용자 화면이 안 바뀐다.
+      실제로 겪었다 — HTML은 새로 받아왔는데 app.js는 캐시된 옛 버전이라
+      새 화면 구조에 옛 스크립트가 붙어서, 제목이 비고 주차 선택이 빈 채로 떴다.
+      파일이 바뀌면 URL이 바뀌므로 브라우저가 반드시 새로 받는다.
+    """
+    stamp = 0.0
+    for name in ("app.js", "style.css"):
+        f = _STATIC / name
+        if f.exists():
+            stamp = max(stamp, f.stat().st_mtime)
+    return str(int(stamp))
+
+
 @app.get("/", response_class=HTMLResponse)
 def spa():
     """SPA 진입점. 정적 파일이 없으면 예전 화면으로 넘긴다."""
     index = _STATIC / "index.html"
-    if index.exists():
-        return FileResponse(str(index))
-    return home()
+    if not index.exists():
+        return home()
+    html = index.read_text(encoding="utf-8").replace("{{V}}", _asset_version())
+    # HTML 자체는 캐시하지 않는다. 이걸 캐시하면 버전 문자열이 낡아서
+    # 캐시 무효화 장치가 통째로 무력해진다.
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @app.get("/legacy", response_class=HTMLResponse)
