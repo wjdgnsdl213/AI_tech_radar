@@ -30,8 +30,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import (FileResponse, HTMLResponse, PlainTextResponse,
+                               StreamingResponse)
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import and_, func, or_, select
+
+from pathlib import Path
 
 from src.db import digests, get_engine, item_axes, items, load_config
 from src.digest import build, render_html
@@ -39,6 +43,17 @@ from src.digest import build, render_html
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 app = FastAPI(title="AI·빅데이터 트렌드 레이더")
+
+# ── SPA ──
+# 화면은 web/static의 SPA가 그린다(sobiz web/ 패턴). 서버는 JSON만 낸다.
+# 예전 서버 렌더 화면은 /legacy 아래로 남겨뒀다 — SPA가 안 뜨는 환경에서도
+# 다이제스트를 볼 수 있어야 하고, 메일 HTML 렌더와 같은 함수를 쓰기 때문이다.
+from web.api import router as api_router  # noqa: E402
+
+app.include_router(api_router)
+_STATIC = Path(__file__).parent / "static"
+if _STATIC.exists():
+    app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 CFG = load_config()
 LABELS = {ax: spec.get("label", ax) for ax, spec in CFG["axes"].items()}
 PAGE = int(CFG.get("web", {}).get("page_size", 50))
@@ -76,8 +91,9 @@ def page(title: str, body: str) -> HTMLResponse:
         f"<!doctype html><html lang=ko><meta charset=utf-8>"
         f"<meta name=viewport content='width=device-width,initial-scale=1'>"
         f"<title>{E(title)}</title><style>{CSS}</style><body><div class=wrap>"
-        f"<nav><b>📡 트렌드 레이더</b><a href='/'>최신</a><a href='/search'>검색</a>"
-        f"<a href='/weeks'>회차</a></nav>{body}</div></body></html>")
+        f"<nav><b>📡 트렌드 레이더</b><a href='/'>새 화면</a>"
+        f"<a href='/legacy'>최신</a><a href='/legacy/search'>검색</a>"
+        f"<a href='/legacy/weeks'>회차</a></nav>{body}</div></body></html>")
 
 
 def _parse_date(s: str) -> datetime | None:
@@ -111,7 +127,7 @@ def rows_table(rows: list[Any], axes: dict[int, list[str]]) -> str:
         out.append(
             f"<tr><td class=n>{E(str(r.published_at)[:10] if r.published_at else '-')}</td>"
             f"<td><a href='{E(r.url or '#')}' target=_blank rel=noopener>{E(r.title or '')}</a>"
-            f" <a href='/item/{r.id}' class=mut>·상세</a>{ins}</td>"
+            f" <a href='/legacy/item/{r.id}' class=mut>·상세</a>{ins}</td>"
             f"<td class=ax>{E(ax)}</td>"
             f"<td class=n>{r.cross_score:.1f}</td>"
             f"<td class=n>{E(r.source)}</td></tr>")
@@ -119,6 +135,15 @@ def rows_table(rows: list[Any], axes: dict[int, list[str]]) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
+def spa():
+    """SPA 진입점. 정적 파일이 없으면 예전 화면으로 넘긴다."""
+    index = _STATIC / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    return home()
+
+
+@app.get("/legacy", response_class=HTMLResponse)
 def home():
     with get_engine().connect() as conn:
         week = conn.execute(select(func.max(digests.c.week))).scalar_one_or_none()
@@ -131,7 +156,7 @@ def home():
     return digest_view(week)
 
 
-@app.get("/digest/{week}", response_class=HTMLResponse)
+@app.get("/legacy/digest/{week}", response_class=HTMLResponse)
 def digest_view(week: str):
     d = build(week, CFG)
     if not d["crossing"] and not any(d["by_axis"].values()):
@@ -140,7 +165,7 @@ def digest_view(week: str):
     return page(f"{week} 다이제스트", render_html(d, mail=False))
 
 
-@app.get("/weeks", response_class=HTMLResponse)
+@app.get("/legacy/weeks", response_class=HTMLResponse)
 def weeks():
     with get_engine().connect() as conn:
         rows = conn.execute(
@@ -151,7 +176,7 @@ def weeks():
     body = ["<h2>회차 아카이브</h2><div class=tblwrap><table>"
             "<tr><th>주차</th><th>통과 항목</th></tr>"]
     for w, n in rows:
-        body.append(f"<tr><td><a href='/digest/{E(w)}'>{E(w)}</a></td>"
+        body.append(f"<tr><td><a href='/legacy/digest/{E(w)}'>{E(w)}</a></td>"
                     f"<td class=n>{n:,}건</td></tr>")
     return page("회차", "".join(body) + "</table></div>")
 
@@ -182,7 +207,7 @@ def _search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
     return and_(*conds) if conds else None
 
 
-@app.get("/search", response_class=HTMLResponse)
+@app.get("/legacy/search", response_class=HTMLResponse)
 def search(q: str = Query("", description="제목·요약 검색어"),
            axis: str = Query("", description="축"),
            since: str = Query(""), until: str = Query(""),
@@ -278,7 +303,7 @@ def search_csv(q: str = Query(""), axis: str = Query(""),
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
-@app.get("/item/{item_id}", response_class=HTMLResponse)
+@app.get("/legacy/item/{item_id}", response_class=HTMLResponse)
 def item_view(item_id: int):
     with get_engine().connect() as conn:
         r = conn.execute(select(items).where(items.c.id == item_id)).first()

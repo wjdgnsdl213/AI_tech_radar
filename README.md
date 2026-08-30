@@ -54,7 +54,8 @@ python -c "import torch; print(torch.cuda.is_available())"
 | 해설 | `python -m src.insight` | L1 항목 해설 / L2 주간 흐름 |
 | 다이제스트 | `python -m src.digest` | 구성 결정 → `digests` |
 | 메일 | `python -m src.mailer --dry-run` | 짧게 발송 |
-| 웹 | `uvicorn web.server:app` | 아카이브 + 검색 + CSV 내보내기 |
+| 연관어 | `python -m src.graph --out reports/` | 브릿지 노드 = 과제 후보 |
+| 웹 | `uvicorn web.server:app` | SPA 5탭 + JSON API |
 | 테스트 | `pytest tests/ -q` | 핵심 판정 로직 22개 |
 | 배치 | `python -m src.run_pipeline --daily` / `--weekly` | 위를 순서대로 |
 
@@ -136,6 +137,25 @@ ISO 주차 연산, n-gram 조각 판정)을 덮는다. 값이 흔들려도 파�
 
 ---
 
+## 웹 화면
+
+```
+uvicorn web.server:app --port 8000
+```
+
+| 탭 | 내용 |
+|---|---|
+| 📡 이번 주 | AI 요약(L2) + 칩 필터[전체·교집합·AI·빅데이터·소상공인] + 항목 |
+| 🔍 검색 | 키워드·축·기간 + 기간 프리셋 → 표 → **CSV** (S4) |
+| 🕸️ 연관어 네트워크 | 축 삼각형 배치. **가운데=브릿지=과제 후보** |
+| 📈 급상승 | 비중 기준 급상승 + 주차별 추이 |
+| 📅 회차 | 주차 목록 → 클릭하면 그 주 다이제스트 |
+
+화면은 `web/static/`의 SPA가 그리고 서버는 `web/api.py`가 JSON만 냅니다.
+**항목 선정·점수·브릿지는 전부 `src/*.py`가 정한 걸 그대로 씁니다** — 화면에서 다시
+고르면 메일·CSV와 갈라지기 때문입니다.
+예전 서버 렌더 화면은 `/legacy` 아래에 남겨뒀습니다.
+
 ## DB
 
 SQLAlchemy Core만 쓴다. 드라이버 직접 호출·방언 전용 SQL을 쓰지 않아서
@@ -151,7 +171,7 @@ SQLAlchemy Core만 쓴다. 드라이버 직접 호출·방언 전용 SQL을 쓰�
 |---|---|
 | `items` | 수집 항목. 처리 단계가 컬럼을 채워 나간다 |
 | `item_axes` | 항목 × 축 (다대다) |
-| `item_keywords` | 항목 × 키워드 × 주차 — 급상승 계산·재활용용 (PLAN §3-B) |
+| `item_keywords` | 항목 × 키워드 × 주차 — 급상승·연관어 계산용 (PLAN §3-B) |
 | `digests` | 주간 다이제스트 (`lead`=L2, `body`=구성) |
 
 `published_at`(발행일)과 `collected_at`(수집일)은 반드시 분리한다 — 백필 데이터는
