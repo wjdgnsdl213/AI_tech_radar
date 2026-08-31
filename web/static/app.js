@@ -74,7 +74,11 @@ document.body.addEventListener('click', e => {
   const b = e.target.closest('[data-tab]');
   if (!b) return;
   e.preventDefault();
-  showTab(b.dataset.tab);
+  const want = b.dataset.tab;
+  // 교차·기관·급상승은 이제 '분석' 안의 탭이다. 홈 카드의 '전체 보기'처럼
+  // 예전 이름으로 부르는 곳이 여럿이라, 이름을 바꾸는 대신 여기서 넘겨준다.
+  if (SUB_LOADERS[want]) { showTab('analysis'); showSub(want); return; }
+  showTab(want);
 });
 
 /* 상단 검색 = 기사 검색. 어느 화면에 있든 여기서 바로 들어간다. */
@@ -136,6 +140,15 @@ async function loadDigest(week) {
   DIGEST = await api('/api/digest', { week: week || '' });
   if (DIGEST.lead) { $('#lead').textContent = DIGEST.lead; $('#lead-card').hidden = false; }
   else $('#lead-card').hidden = true;
+  /* 주간 과제 후보 — 흐름 요약 바로 아래.
+     흐름은 "무슨 일이 있었나", 이건 "그래서 눈여겨볼 게 무엇인가"다.
+     관찰(사실)과 함의(해석)를 줄로 갈라 어디까지가 자료인지 보이게 한다. */
+  $('#week-tasks').innerHTML = (DIGEST.tasks || []).map(t => `<div class="wtask">
+      <div class="wtask-h">${esc(t.title || '')}</div>
+      <div class="wtask-r"><span class="wtask-k">관찰</span><span>${esc(t.fact || '')}</span></div>
+      <div class="wtask-r"><span class="wtask-k">함의</span><span>${esc(t.mean || '')}</span></div>
+      <div class="wtask-r"><span class="wtask-k">확인</span><span>${esc(t.ask || '')}</span></div>
+    </div>`).join('');
   renderDigest();
   if ($('#week-select').options.length === 0) loadWeekOptions(DIGEST.week);
   else $('#week-select').value = DIGEST.week;
@@ -275,6 +288,11 @@ async function loadEgo(kw, hops) {
   }
   EGO = g;
   $('#graph-tools').hidden = false;
+  // 색이 무엇을 뜻하는지 화면에 적어둔다 — 색만 칠해두고 설명이 없으면
+  // 보는 사람은 그냥 알록달록한 점으로 읽는다.
+  $('#graph-legend').innerHTML = Object.entries(AXES || {})
+    .map(([k, v]) => `<b><i style="background:var(--ax-${k})"></i>${esc(v.label || k)}</b>`)
+    .join('') + '<b class="mut">점 크기 = 기사 수</b>';
   $('#ego-hops').value = hops;
   $('#hop-label').textContent = RANGE_LABEL[hops] || hops;
   const far = g.nodes.filter(n => n.hop >= 2).length;
@@ -284,8 +302,6 @@ async function loadEgo(kw, hops) {
   selectNode(g.center);
 }
 
-/* 배치는 물리 시뮬레이션이 아니라 홉별 동심원이다.
-   중심에서 멀수록 관계가 먼 말이라는 게 거리로 보이고, 결정적이라 다시 그려도 같다. */
 /** 라벨 배경(알약)을 그리려면 글자 폭이 필요한데 SVG는 그리기 전엔 못 잰다.
  *  한글·전각은 한 칸, ASCII는 대략 0.56칸으로 어림한다. */
 function textW(s, fs) {
@@ -294,138 +310,167 @@ function textW(s, fs) {
   return u * fs;
 }
 
-let LAYOUT = null;      // {pos, home, rad, inc, el} — 노드를 끌어 옮기려면 좌표를 들고 있어야 한다
 
-/** 노드 반지름 = 기사 건수. 중심도 예외 없다.
+/** 노드 반지름 = 기사 건수.
  *
  *  ★ 로그를 쓴다. 건수가 3건에서 15,000건까지 네 자릿수를 넘나들기 때문이다.
- *     제곱근 척도로 가장 큰 값에 맞춰 정규화했더니 링 노드들이 전부 뭉개졌다
+ *     제곱근 척도로 최댓값에 맞춰 정규화했더니 링 노드들이 전부 뭉개졌다
  *     — 'AI모델' 1홉에서 중심 324건이 척도를 잡아먹어 링 11종이 7.2~8.6px에
  *     들어갔다. 로그로 바꾸면 같은 경우가 13.1~18.1px로 벌어진다.
  *
- *  ★ 중심을 고정 크기(26)로 두던 걸 없앤다. 중심이 항상 큰 게 아니었다 —
- *     'Claude'(873건)를 검색하면 링에 2,096건짜리가 있다. 고정값은 덜 흔한
- *     말을 더 크게 그려서 크기가 뜻하는 바를 거짓으로 만든다.
+ *  ★ 중심을 고정 크기로 두지 않는다. 중심이 항상 큰 게 아니었다 —
+ *     'Claude'(873건)를 검색하면 링에 2,096건짜리가 있다.
+ */
+const RADIUS = df => Math.min(26, Math.max(7, 5 + 2.7 * Math.log(Math.max(df, 1))));
+
+let LAYOUT = null;      // {pos, home, rad, inc, el} — 노드를 끌어 옮기려면 좌표를 들고 있어야 한다
+
+/* ── 배치: 힘 기반 (Obsidian 방식) ────────────────────────────────
+ * 동심원 배치를 버렸다. 원은 규칙적이라 읽기 쉬울 것 같지만, 실제로는
+ *   · 모든 노드가 중심에서 같은 거리에 서서 "무엇이 가까운지"가 안 보이고
+ *   · 선이 전부 중심을 향해 방사형으로 뻗어 살처럼 보이고
+ *   · 라벨이 원을 따라 줄지어 서서 서로를 가린다
+ * 힘 기반은 관계가 강한 것끼리 저절로 뭉쳐서, 배치 자체가 정보가 된다.
  *
- *  ★ 홉이 깊다고 줄이던 것도 없앤다. 크기는 건수만 뜻해야 한다.
- *     먼 홉이라는 건 거리와 투명도가 이미 말해준다. */
-const RADIUS = df => Math.min(32, Math.max(9, 7 + 3.4 * Math.log(Math.max(df, 1))));
+ * 물리 엔진을 쓰지 않는다. 반발(모든 쌍) + 인력(간선) + 중심 수렴을 정해진
+ * 횟수만큼 돌린다. 난수 씨앗을 키워드로 고정해 **같은 검색은 같은 그림**이 된다
+ * — 새로고침마다 모양이 바뀌면 어제 본 것과 비교할 수 없다.
+ */
+function layout(g, rad) {
+  const N = g.nodes.length;
+  const W = 1000, H = 700, cx = W / 2, cy = H / 2;
+  let seed = 0;
+  for (const ch of g.center) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+
+  const idx = new Map(g.nodes.map((n, i) => [n.keyword, i]));
+  const P = g.nodes.map((n, i) => {
+    if (n.center) return { x: cx, y: cy, vx: 0, vy: 0 };
+    // 초기 위치는 링이지만 시작점일 뿐이다 — 힘이 곧 재배치한다
+    const a = (i / N) * Math.PI * 2 + rnd() * .6;
+    const r = 150 + rnd() * 180;
+    return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, vx: 0, vy: 0 };
+  });
+
+  const links = [];
+  for (const e of g.edges || []) {
+    const a = idx.get(e.source), b = idx.get(e.target);
+    if (a !== undefined && b !== undefined) links.push([a, b, e.npmi]);
+  }
+
+  const STEPS = 260;
+  for (let step = 0; step < STEPS; step++) {
+    const cool = 1 - step / STEPS;
+    // 반발 — 노드가 서로 밀어낸다. 크기가 클수록 더 넓은 자리를 차지한다.
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        let dx = P[j].x - P[i].x, dy = P[j].y - P[i].y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) { dx = rnd() - .5; dy = rnd() - .5; d2 = 1; }
+        const d = Math.sqrt(d2);
+        const want = rad[g.nodes[i].keyword] + rad[g.nodes[j].keyword] + 54;
+        const f = (want * want * 2.4) / d2;
+        const ux = dx / d, uy = dy / d;
+        P[i].vx -= ux * f; P[i].vy -= uy * f;
+        P[j].vx += ux * f; P[j].vy += uy * f;
+      }
+    }
+    // 인력 — 이어진 것끼리 당긴다. 관계가 강할수록(NPMI) 더 가깝게.
+    for (const [a, b, w] of links) {
+      const dx = P[b].x - P[a].x, dy = P[b].y - P[a].y;
+      const d = Math.hypot(dx, dy) || 1;
+      const rest = 150 - 60 * Math.min(1, w);
+      const f = (d - rest) * 0.012 * (0.4 + w);
+      const ux = dx / d, uy = dy / d;
+      P[a].vx += ux * f; P[a].vy += uy * f;
+      P[b].vx -= ux * f; P[b].vy -= uy * f;
+    }
+    // 중심으로 약하게 모아 화면 밖으로 흩어지지 않게 한다
+    for (let i = 0; i < N; i++) {
+      P[i].vx += (cx - P[i].x) * 0.0016;
+      P[i].vy += (cy - P[i].y) * 0.0016;
+      if (g.nodes[i].center) { P[i].vx *= .25; P[i].vy *= .25; }
+      P[i].x += P[i].vx * cool * .55;
+      P[i].y += P[i].vy * cool * .55;
+      P[i].vx *= .82; P[i].vy *= .82;
+    }
+  }
+
+  const pos = {};
+  g.nodes.forEach((n, i) => (pos[n.keyword] = [P[i].x, P[i].y]));
+  return pos;
+}
 
 function drawEgo(g) {
-  const byHop = {};
-  g.nodes.forEach(n => (byHop[n.hop] = byHop[n.hop] || []).push(n));
+  const maxDf = Math.max(...g.nodes.map(n => n.df || 1));
   const rad = {}, fsz = {};
   g.nodes.forEach(n => {
     rad[n.keyword] = RADIUS(n.df);
-    fsz[n.keyword] = n.center ? 15 : Math.max(11, 13 - n.hop);
+    fsz[n.keyword] = n.center ? 15 : Math.max(11.5, 14 - (n.df ? 0 : 1));
   });
 
-  /* ★ 한 홉을 원 하나에 다 세우지 않는다.
-     둘레는 반지름에 비례하는데 노드 수는 홉마다 확 늘어서, 24개짜리 홉을
-     한 원에 세우면 반지름이 367px까지 튄다. 그러면 이웃 노드끼리는 여전히
-     붙어 있으면서 원과 원 사이만 휑해진다 — "너무 떨어져 있다"의 정체다.
-     12개씩 나눠 여러 겹으로 돌리면 같은 개수를 절반 반지름에 담는다.
-     건수가 큰 것부터 안쪽에 둬서 중요한 게 중심 가까이 오게 한다. */
-  const RING_MAX = 12;
-  const bands = [];
-  Object.keys(byHop).filter(h => +h > 0).map(Number).sort()
-    .forEach(h => {
-      const arr = byHop[h].slice().sort((x, y) => (y.df || 0) - (x.df || 0));
-      const subs = Math.max(1, Math.ceil(arr.length / RING_MAX));
-      const per = Math.ceil(arr.length / subs);
-      for (let i = 0; i < subs; i++)
-        bands.push({ hop: h, nodes: arr.slice(i * per, (i + 1) * per) });
-    });
+  const pos = layout(g, rad);
+  // 배치가 끝난 뒤 실제 범위에 맞춰 화면을 잡는다 — 미리 정하면 여백이 남거나 잘린다
+  const xs = Object.values(pos).map(p => p[0]), ys = Object.values(pos).map(p => p[1]);
+  const pad = 90;
+  const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad;
+  const W = Math.max(560, Math.max(...xs) + pad - x0);
+  const H = Math.max(420, Math.max(...ys) + pad - y0);
+  Object.keys(pos).forEach(k => { pos[k][0] -= x0; pos[k][1] -= y0; });
 
-  /* 간격을 상수로 박지 않고 **실제 크기에서 계산**한다.
-     노드가 커지거나 라벨이 길어지면 그만큼만 벌어진다 — 상수로 두면
-     최악의 경우에 맞춰야 해서 평소에 늘 휑하다. */
-  let prev = 0, prevR = rad[g.center], prevFs = fsz[g.center];
-  bands.forEach(b => {
-    const maxR = Math.max(...b.nodes.map(n => rad[n.keyword]));
-    const maxFs = Math.max(...b.nodes.map(n => fsz[n.keyword]));
-    // 둘레가 라벨들의 실제 폭 합을 담을 만큼은 되어야 한다
-    const need = b.nodes.reduce((s, n) => s + textW(n.keyword, fsz[n.keyword]) + 16, 0)
-      / (2 * Math.PI);
-    /* 두 겹 사이에 꼭 필요한 거리 = 안쪽 원의 반지름 + 그 아래 라벨 높이
-       + 바깥 원의 반지름. 여기에 숨통 8px만 더한다.
-       배수(×1.45)로 잡았더니 노드가 커질수록 필요 이상으로 밀어내서,
-       모처럼 크기를 건수에 맞췄더니 그림이 도로 휑해졌다. */
-    const clearance = prevR + prevFs * 1.35 + maxR + 8;
-    b.r = Math.max(prev + clearance, 118, need);
-    prev = b.r;
-    prevR = maxR;
-    prevFs = maxFs;
-  });
+  const out = [`<svg viewBox="0 0 ${W.toFixed(0)} ${H.toFixed(0)}"
+    xmlns="http://www.w3.org/2000/svg">`];
 
-  const R = bands.length ? bands[bands.length - 1].r : 160;
-  const W = Math.round(Math.max(900, R * 2 + 190));
-  const H = Math.round(Math.max(620, R * 1.72 + 190));
-  const cx = W / 2, cy = H / 2;
-
-  const pos = { [g.center]: [cx, cy] };
-  bands.forEach((b, bi) => {
-    b.nodes.forEach((n, i) => {
-      // 겹마다 시작 각을 반 칸씩 어긋내 안팎이 일직선으로 서지 않게 한다
-      const t = -Math.PI / 2 + (i + (bi % 2) * .5) * 2 * Math.PI / b.nodes.length;
-      // 세로를 눌러 타원으로 — 가로가 긴 화면을 쓰면서 위아래 여백을 줄인다
-      pos[n.keyword] = [cx + b.r * Math.cos(t), cy + b.r * Math.sin(t) * .86];
-    });
-  });
-
-  const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
-  /* 선에 양끝 키워드를 적어둔다 — 노드를 끌 때 이 선들만 골라 다시 잇는다.
-     ★ 직선 대신 완만한 곡선을 쓴다. 방사형 배치에서 직선만 쓰면 중심에서 뻗은
-       살처럼 보여 어느 선이 어디로 가는지 눈으로 못 따라간다. 살짝 휘면
-       겹친 선끼리도 갈라져 보인다. */
+  /* ★ 그리는 순서가 곧 겹치는 순서다: 선 → 노드 → 라벨.
+     라벨을 노드와 같이 그리면 옆 노드의 선이 글자 위로 지나간다. 라벨만
+     맨 마지막 층에 모아 두면 무엇 위에도 얹히지 않는다. */
+  out.push('<g class="edges">');
   (g.edges || []).forEach(e2 => {
-    const a2 = pos[e2.source], b2 = pos[e2.target];
-    if (!a2 || !b2) return;
-    const mid = e2.source === g.center || e2.target === g.center;
-    const dx = b2[0] - a2[0], dy = b2[1] - a2[1];
-    out.push(`<path class="gedge${mid ? ' mid' : ''}"
-      data-s="${esc(e2.source)}" data-t="${esc(e2.target)}"
-      d="M${a2[0].toFixed(1)} ${a2[1].toFixed(1)} Q${((a2[0] + b2[0]) / 2 - dy * .09).toFixed(1)} ${((a2[1] + b2[1]) / 2 + dx * .09).toFixed(1)} ${b2[0].toFixed(1)} ${b2[1].toFixed(1)}"
-      stroke-opacity="${(0.10 + e2.npmi * (mid ? .55 : .30)).toFixed(3)}"
-      stroke-width="${((mid ? 1.6 : 1.0) + e2.npmi * 1.1).toFixed(2)}"/>`);
+    const a = pos[e2.source], b = pos[e2.target];
+    if (!a || !b) return;
+    // 직선이다. 곡선은 방사형 배치를 감추려던 임시방편이었는데, 힘 배치에서는
+    // 선이 이미 사방으로 흩어져서 휘게 할 이유가 없다.
+    out.push(`<line class="gedge" data-s="${esc(e2.source)}" data-t="${esc(e2.target)}"
+      x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}"
+      x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"
+      stroke-opacity="${(0.10 + e2.npmi * 0.42).toFixed(3)}"
+      stroke-width="${(0.8 + e2.npmi * 1.1).toFixed(2)}"/>`);
   });
+  out.push('</g><g class="dots">');
   g.nodes.forEach(n => {
-    const [x, y] = pos[n.keyword], r = rad[n.keyword], fs = fsz[n.keyword];
-    const far = n.hop >= 2;
-    /* 색은 축(AI·빅데이터·소상공인)을 뜻한다. 전부 진한 파랑으로 칠하면 그 뜻이
-       안 보이고 화면도 무겁다. 옅은 채움 + 같은 색 테두리로 바꾸고, 흰 링을
-       둘러 선 위에 얹혀도 노드 경계가 살아 있게 한다. */
-    const c = `var(--ax-${n.axis || 'ai'})`;
-    const ly = y + r + fs + 4;
-    const tw = textW(n.keyword, fs);
-    out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}${far ? ' far' : ''}"
+    const [x, y] = pos[n.keyword], r = rad[n.keyword];
+    out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}"
       data-node="${esc(n.keyword)}">
-      <title>${esc(n.keyword)} · ${n.df}건${n.center ? ' · 중심' : far ? ' · 2단계' : ''}</title>
-      <circle class="halo" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r + 3).toFixed(1)}"/>
-      <circle class="dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
-        fill="${c}" stroke="${c}"/>
-      ${n.center ? `<circle class="ring" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r + 6).toFixed(1)}" stroke="${c}"/>` : ''}
-      <rect class="lbl-bg" x="${(x - tw / 2 - 6).toFixed(1)}" y="${(ly - fs * .88).toFixed(1)}"
-        width="${(tw + 12).toFixed(1)}" height="${(fs * 1.3).toFixed(1)}" rx="5"/>
-      <text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle"
-        class="glabel${n.center ? ' glabel-bridge' : ''}"
-        font-size="${fs}">${esc(n.keyword)}</text>
+      <title>${esc(n.keyword)} · ${n.df}건</title>
+      <circle class="dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}"
+        r="${r.toFixed(1)}" fill="var(--ax-${n.axis || 'ai'})"/>
     </g>`);
   });
+  out.push('</g><g class="labels">');
+  g.nodes.forEach(n => {
+    const [x, y] = pos[n.keyword], r = rad[n.keyword], fs = fsz[n.keyword];
+    out.push(`<text class="glabel${n.center ? ' glabel-c' : ''}"
+      data-label="${esc(n.keyword)}"
+      x="${x.toFixed(1)}" y="${(y + r + fs + 3).toFixed(1)}" text-anchor="middle"
+      font-size="${fs}">${esc(n.keyword)}</text>`);
+  });
+  out.push('</g>');
   out.push('</svg>');
   $('#graph-svg').innerHTML = out.join('');
 
   /* 끌어 옮길 때 만질 것들을 미리 모아둔다.
      노드 요소도 같이 들고 있는다 — 키워드로 셀렉터를 만들면 따옴표·괄호가
      든 키워드에서 깨져서 CSS.escape가 필요해지는데, 참조를 쥐면 그럴 일이 없다. */
-  const inc = {}, el = {};
+  const inc = {}, el = {}, lab = {};
   $$('#graph-svg .gnode').forEach(g2 => (el[g2.dataset.node] = g2));
+  // 라벨은 별도 층에 있으므로 노드를 끌 때 같이 옮겨야 한다
+  $$('#graph-svg .glabel').forEach(x => (lab[x.dataset.label] = x));
   // 간선이 곡선(path)이라 끌 때 d를 다시 만든다 — 양끝과 제어점을 함께 옮긴다
-  $$('#graph-svg path.gedge').forEach(l => {
-    (inc[l.dataset.s] = inc[l.dataset.s] || []).push([l, 's']);
-    (inc[l.dataset.t] = inc[l.dataset.t] || []).push([l, 't']);
+  $$('#graph-svg line.gedge').forEach(l => {
+    (inc[l.dataset.s] = inc[l.dataset.s] || []).push([l, '1']);
+    (inc[l.dataset.t] = inc[l.dataset.t] || []).push([l, '2']);
   });
-  LAYOUT = { pos, home: JSON.parse(JSON.stringify(pos)), rad, inc, el };
+  LAYOUT = { pos, home: JSON.parse(JSON.stringify(pos)), rad, inc, el, lab };
 
   // 전체가 한눈에 들어오는 상태에서 시작하고, 파고드는 건 사용자가 한다
   BASE = { x: 0, y: 0, w: W, h: H };
@@ -438,16 +483,13 @@ function drawEgo(g) {
 function moveNode(kw, x, y) {
   if (!LAYOUT) return;
   LAYOUT.pos[kw] = [x, y];
-  const h = LAYOUT.home[kw], g = LAYOUT.el[kw];
-  if (g) g.setAttribute('transform', `translate(${(x - h[0]).toFixed(1)} ${(y - h[1]).toFixed(1)})`);
-  (LAYOUT.inc[kw] || []).forEach(([el]) => {
-    const a = LAYOUT.pos[el.dataset.s], b = LAYOUT.pos[el.dataset.t];
-    if (!a || !b) return;
-    const dx = b[0] - a[0], dy = b[1] - a[1];
-    el.setAttribute('d', `M${a[0].toFixed(1)} ${a[1].toFixed(1)} `
-      + `Q${((a[0] + b[0]) / 2 - dy * .09).toFixed(1)} `
-      + `${((a[1] + b[1]) / 2 + dx * .09).toFixed(1)} `
-      + `${b[0].toFixed(1)} ${b[1].toFixed(1)}`);
+  const h = LAYOUT.home[kw], g = LAYOUT.el[kw], lb = LAYOUT.lab[kw];
+  const tr = `translate(${(x - h[0]).toFixed(1)} ${(y - h[1]).toFixed(1)})`;
+  if (g) g.setAttribute('transform', tr);
+  if (lb) lb.setAttribute('transform', tr);   // 라벨은 별도 층이라 따로 옮긴다
+  (LAYOUT.inc[kw] || []).forEach(([el, end]) => {
+    el.setAttribute('x' + end, x.toFixed(1));
+    el.setAttribute('y' + end, y.toFixed(1));
   });
 }
 
@@ -575,7 +617,12 @@ function selectNode(kw) {
     g.classList.toggle('sel', me);
     g.classList.toggle('dim', !me && !near.has(g.dataset.node));
   });
-  $$('#graph-svg path.gedge').forEach(l => {
+  $$('#graph-svg .glabel').forEach(x => {
+    const me = x.dataset.label === kw;
+    x.classList.toggle('sel', me);
+    x.classList.toggle('dim', !me && !near.has(x.dataset.label));
+  });
+  $$('#graph-svg line.gedge').forEach(l => {
     const hot = l.dataset.s === kw || l.dataset.t === kw;
     l.classList.toggle('hot', hot);
     l.classList.toggle('dim', !hot);
@@ -1116,18 +1163,50 @@ async function loadOrgs() {
   const max = Math.max(1, ...r.rows.flatMap(x => x.series.map(s => s.n)));
   $('#orgs-body').innerHTML = `<div class="tblwrap"><table>
       <tr><th>기관</th><th>등장</th><th>주차</th>
-        <th>${wk.map(x => x.label.replace(/^\d+년 /, '').replace('주차', '')).join('</th><th>')}</th></tr>` +
+        <th>${wk.map(x => x.label.replace(/^\d+년 /, '')).join('</th><th>')}</th></tr>` +
     r.rows.map(x => `<tr>
       <td><a href="#" data-kw="${esc(x.keyword)}"><b>${esc(x.keyword)}</b></a></td>
       <td class="n">${x.total}건</td><td class="n">${x.weeks}주</td>
-      ${x.series.map(s => `<td class="n"><span class="spark"
-        style="opacity:${(0.12 + 0.88 * s.n / max).toFixed(2)}"
-        title="${esc(s.label)} ${s.n}건">${s.n || ''}</span></td>`).join('')}
+      ${x.series.map(s => `<td class="n">${s.n ? `<button class="spark"
+        style="opacity:${(0.3 + 0.7 * s.n / max).toFixed(2)}"
+        data-orgw="${esc(x.keyword)}|${esc(s.week)}"
+        title="${esc(s.label)} ${s.n}건 — 눌러서 기사 보기">${s.n}</button>` : ''}</td>`).join('')}
     </tr>`).join('') + '</table></div>';
 }
 
+/* 기관 표의 주차 칸을 누르면 그 주 기사를 서랍에 띄운다.
+   숫자만 보여주고 끝나면 "왜 그 주에 늘었나"를 확인할 방법이 없다. */
+document.body.addEventListener('click', async e => {
+  const b = e.target.closest('[data-orgw]');
+  if (!b) return;
+  const [kw, week] = b.dataset.orgw.split('|');
+  $('#drawer').hidden = false;
+  $('#drawer-body').innerHTML = '<div class="empty">불러오는 중…</div>';
+  const r = await api('/api/org_items', { kw, week, limit: 40 });
+  const wl = (r.week || '').replace(/^(\d{4})-W(\d+)$/, '$1-W$2');
+  $('#drawer-body').innerHTML = `
+    <h2 style="font-size:19px;margin:0 30px 6px 0">${esc(kw)}</h2>
+    <div class="mut">${esc(wl)} · 이 주 ${r.items.length}건 (전체 ${num(r.total)}건)</div>
+    <div class="items" style="padding:0;box-shadow:none;margin:12px 0 0">
+      ${r.items.map(itemHTML).join('') || '<div class="empty">기사가 없습니다.</div>'}</div>`;
+});
+
+/* ── 분석: 교차 · 기관 · 급상승을 한 메뉴 안의 탭으로 ──────────────
+ * 메뉴 항목이 여덟 개까지 늘자 무엇이 어디 있는지 찾기 어려워졌다. 이 셋은
+ * 전부 "쌓인 데이터를 각도만 바꿔 보는" 화면이라 한 자리에 묶는 게 맞다.
+ * 검색은 본문 맨 위 검색창이 이미 모든 화면에서 닿으므로 메뉴에서 뺐다. */
+const SUB_LOADERS = { cross: loadCross, orgs: loadOrgs, trend: loadTrend };
+const subLoaded = new Set();
+
+function showSub(name) {
+  $$('.subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
+  $$('.subpanel').forEach(p => p.classList.toggle('active', p.id === 'sub-' + name));
+  if (!subLoaded.has(name)) { subLoaded.add(name); (SUB_LOADERS[name] || (() => {}))(); }
+}
+$$('.subtab').forEach(b => (b.onclick = () => showSub(b.dataset.sub)));
+
 const LOADERS = {
-  cross: loadCross, orgs: loadOrgs,
+  analysis: () => showSub('cross'),
   news: loadNews,
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,

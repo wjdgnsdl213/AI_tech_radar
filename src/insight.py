@@ -592,6 +592,100 @@ def run_tasks(cfg: dict[str, Any], month: str, material: str) -> list[dict[str, 
     return tasks
 
 
+def run_week_tasks(cfg: dict[str, Any], week: str | None = None) -> list[dict[str, str]]:
+    """주간 과제 후보. 재료는 **그 주 교차 항목 + 법령**이다.
+
+    ★ 월간과 재료가 다르다.
+      월간은 주간 요약들을 겹쳐 "여러 주에 걸쳐 이어진 것"을 본다. 한 주치는
+      그럴 두께가 없다. 대신 **축이 겹친 기사**(2축 이상)만 골라 넣는다 —
+      이 도구의 전제가 "팀의 업무는 교집합에 있다"이므로, 한 주 안에서 눈여겨볼
+      것은 거기에 있다.
+      후보는 1~2개만 뽑는다. 한 주에 셋씩 나오면 그건 후보가 아니라 목록이다.
+    """
+    icfg = cfg["insight"]
+    model = icfg.get("l2_model")
+    engine = get_engine()
+    with engine.connect() as conn:
+        if not week:
+            week = conn.execute(select(func.max(items.c.published_week))
+                                .where(items.c.kept.is_(True))).scalar_one_or_none()
+        if not week:
+            return []
+        rows = conn.execute(
+            select(items.c.id, items.c.title, items.c.insight)
+            .where(items.c.kept.is_(True), items.c.published_week == week)
+            .order_by(items.c.cross_score.desc()).limit(40)).all()
+        amap: dict[int, list[str]] = {}
+        for i, a in conn.execute(select(item_axes.c.item_id, item_axes.c.axis)
+                                 .where(item_axes.c.item_id.in_([r.id for r in rows] or [0]))):
+            amap.setdefault(i, []).append(a)
+        reg_srcs = [n for n, sc in (cfg.get("sources") or {}).items()
+                    if isinstance(sc, dict) and sc.get("regulatory")]
+        regs = conn.execute(
+            select(items.c.title, items.c.insight)
+            .where(items.c.source.in_(reg_srcs or ["_"]),
+                   items.c.published_week == week)).all()
+
+    labels = {ax: s.get("label", ax) for ax, s in cfg["axes"].items()}
+    crossed = [(r, sorted(amap.get(r.id, []))) for r in rows]
+    crossed = [(r, ax) for r, ax in crossed if len(ax) >= 2]
+    if len(crossed) < 3 and not regs:
+        print("  ⏭ 주간 과제 후보 건너뜀 (교차 항목이 적다)")
+        return []
+
+    NL = chr(10)
+    parts = [f"[{week} 교차 항목 — 축이 둘 이상 걸린 기사]"]
+    for r, ax in crossed[:20]:
+        tag = "+".join(labels.get(a, a) for a in ax)
+        parts.append(f"- [{tag}] {r.title}")
+        if r.insight:
+            parts.append("  " + r.insight.replace(NL, " / "))
+    if regs:
+        parts.append(NL + "[이 주 법령·규제]")
+        for x in regs:
+            parts.append(f"- {x.title}")
+            if x.insight:
+                parts.append("  " + x.insight.replace(NL, " / "))
+    material = NL.join(parts)
+
+    client = build_client()
+    if client is None:
+        return []
+    import anthropic
+    try:
+        msg = client.messages.create(
+            model=model, max_tokens=2500, thinking={"type": "adaptive"},
+            system=_system_blocks(
+                TASK_RULES.replace("3~4개", "1~2개")
+                          .replace("한 달치 자료(주간 요약·상위 기사 제목·법령 변경)",
+                                   "한 주치 교차 항목과 법령 변경"),
+                load_team_profile(icfg.get("team_profile_path", ""))),
+            messages=[{"role": "user", "content": material}])
+    except anthropic.APIError as exc:
+        print(f"  ⚠ 주간 과제 후보 실패: {type(exc).__name__}: {exc}")
+        return []
+    tasks = _parse_tasks(_text_of(msg))[:2]
+    print(f"  주간 과제 후보 {len(tasks)}개")
+    for t in tasks:
+        print(f"    · {t.get('title', '')}")
+    if tasks:
+        with engine.begin() as conn:
+            exists = conn.execute(select(digests.c.week)
+                                  .where(digests.c.week == week)).first()
+            if exists:
+                cur = conn.execute(select(digests.c.body)
+                                   .where(digests.c.week == week)).scalar_one()
+                body = dict(cur) if isinstance(cur, dict) else {}
+                body["tasks"] = tasks
+                conn.execute(digests.update().where(digests.c.week == week)
+                             .values(body=body))
+            else:
+                conn.execute(digests.insert().values(
+                    week=week, body={"tasks": tasks},
+                    generated_at=datetime.now(timezone.utc)))
+    return tasks
+
+
 def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     """한 달치 흐름을 만들어 digests(week='YYYY-MM')에 저장한다.
 
@@ -745,6 +839,8 @@ def main() -> None:
     if do_l2:
         print(f"\n{'=' * 62}\nL2 — 이번 주 흐름\n{'=' * 62}")
         run_l2(cfg, args)
+        # 주간 과제 후보 — 재료는 그 주 교차 항목이라 L2와 층위가 다르다
+        run_week_tasks(cfg, args.week)
 
     if do_l3:
         print('\n' + '=' * 62 + '\n' + 'L3 — 월간 리뷰' + '\n' + '=' * 62)

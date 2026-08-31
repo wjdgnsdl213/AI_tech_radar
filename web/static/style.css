@@ -169,10 +169,6 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .graph-card{padding:8px;background:var(--card)}
 #graph-svg svg{width:100%;height:auto;display:block}
 .gnode{cursor:pointer}
-.gnode text{font-size:13.5px;pointer-events:none;font-weight:500;
-  paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
-.glabel-bridge{font-weight:700}
-
 /* ── 키워드 팝업 ── */
 .modal{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center}
 .modal-bg{position:absolute;inset:0;background:rgba(15,23,42,.45)}
@@ -236,15 +232,11 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .graph-map.grabbing .gnode{cursor:grabbing}
 /* 라벨 밑에 깔리는 흰 알약 — 선·다른 노드 위에 겹쳐도 글자가 죽지 않는다.
    라벨을 전부 노드 아래로 통일하면서 겹칠 확률이 늘어 같이 들어왔다. */
-.lbl-bg{fill:#fff;fill-opacity:.82}
-.gnode.sel .lbl-bg{fill:#eff6ff;fill-opacity:.95}
-
 /* ── 선택 강조 ─────────────────────────────────────────────────
    크기를 건수에 맞추고 나니 비슷한 크기가 많아져 테두리만으로는 어디를
    골랐는지 못 찾는다. 색은 축(AI·빅데이터·소상공인)을 뜻하므로 건드리지
    않고, 관계없는 것을 물러나게 해서 고른 쪽을 드러낸다. */
 .gnode.sel text{font-weight:700;fill:var(--blue)}
-.gnode.dim{opacity:.18}
 /* ══════════════════════════════════════════════════════════════════
    껍데기 — 좌측 한 기둥(로고·메뉴·회차) + 본문
    상단 바를 없앴다. 가로줄이 둘이면 화면 위쪽을 껍데기가 두 줄이나 먹는데,
@@ -457,33 +449,60 @@ td.rank{width:auto;text-align:center;padding-right:0}
 /* ── 연관어 지도 ────────────────────────────────────────────────
    파란 원에 글자만 얹힌 모양을 걷어낸다. 색은 축(AI·빅데이터·소상공인)을
    뜻하므로 옅게 채우고 같은 색 테두리를 둘러 뜻은 남기되 무게를 덜었다. */
-#graph-svg path.gedge{fill:none;stroke:#8fa3bd;stroke-linecap:round;
-  transition:stroke-opacity .12s,stroke-width .12s}
-#graph-svg path.gedge.hot{stroke:var(--blue) !important;
-  stroke-opacity:.9 !important;stroke-width:2.4 !important}
-#graph-svg path.gedge.dim{stroke-opacity:.04 !important}
-
 /* 흰 링 — 선 위에 노드가 얹혀도 경계가 살아 있게 한다 */
-.gnode .halo{fill:#fff;stroke:none}
-.gnode .dot{fill-opacity:.16;stroke-width:2}
-.gnode .ring{fill:none;stroke-width:1.4;stroke-opacity:.34}
-.gnode.far .dot{fill-opacity:.09;stroke-opacity:.55;stroke-dasharray:3 2.5}
-.gnode.far .glabel{opacity:.72}
-
-.gnode:hover .dot{fill-opacity:.3}
-.gnode:hover .glabel{fill:var(--blue)}
-.gnode.sel .dot{fill-opacity:.4;stroke-width:3}
-.gnode.sel .halo{fill:#fff;stroke:var(--blue);stroke-width:2.5;stroke-opacity:.55}
-.gnode.sel .glabel{font-weight:800;fill:var(--blue)}
-.gnode.dim{opacity:.14}
-
-.glabel{fill:#1e293b;font-weight:600;pointer-events:none;
-  paint-order:stroke;stroke:#fff;stroke-width:2.5px;stroke-linejoin:round}
-.glabel-bridge{font-weight:800}
-.lbl-bg{fill:#fff;fill-opacity:.72}
-.gnode.sel .lbl-bg{fill:#eff6ff;fill-opacity:.95}
-
 /* 기관 표의 주차 칸 — 숫자 진하기로 흐름을 보여준다 */
-.spark{display:inline-block;min-width:22px;padding:2px 5px;border-radius:4px;
-  background:var(--blue);color:#fff;font-size:12.5px;font-weight:700}
-.spark:empty{background:none}
+/* 주차 칸 — 누르면 그 주 기사를 연다 */
+.spark{display:inline-block;min-width:26px;padding:3px 7px;border-radius:5px;
+  background:var(--blue);color:#fff;font-size:13px;font-weight:700;
+  border:0;cursor:pointer;font-family:inherit}
+.spark:hover{background:var(--blue-dark);opacity:1 !important}
+.health th,.orgs th{white-space:nowrap}
+
+/* ── 연관어 지도 (Obsidian 방식) ──────────────────────────────────
+   힘 기반 배치라 관계가 강한 것끼리 저절로 뭉친다. 그리는 순서가 곧 겹치는
+   순서다: 선 → 노드 → 라벨. 라벨을 맨 위 층에 모아야 옆 노드의 선이 글자를
+   가로지르지 않는다. */
+#graph-svg .gedge{stroke:#94a3b8;stroke-linecap:round;
+  transition:stroke-opacity .12s,stroke-width .12s,stroke .12s}
+#graph-svg .gedge.hot{stroke:var(--blue) !important;
+  stroke-opacity:.85 !important;stroke-width:1.9 !important}
+#graph-svg .gedge.dim{stroke-opacity:.035 !important}
+
+/* 노드는 작고 꽉 찬 점이다. 색은 주제 축을 뜻한다(범례 참고). */
+.gnode{cursor:grab}
+.graph-map.grabbing .gnode{cursor:grabbing}
+.gnode .dot{stroke:#fff;stroke-width:1.6;transition:opacity .12s}
+.gnode:hover .dot{stroke:var(--blue);stroke-width:2.4}
+.gnode.sel .dot{stroke:var(--blue);stroke-width:3}
+.gnode.dim{opacity:.16}
+
+.glabel{fill:#334155;font-weight:600;pointer-events:none;
+  paint-order:stroke;stroke:var(--card);stroke-width:3.5px;stroke-linejoin:round;
+  transition:opacity .12s}
+.glabel-c{font-weight:800;fill:#0f172a}
+.glabel.sel{fill:var(--blue);font-weight:800}
+.glabel.dim{opacity:.14}
+
+/* 색 범례 — 색이 무엇을 뜻하는지 화면에 적어둔다 */
+.legend{display:flex;align-items:center;gap:13px;flex-wrap:wrap;font-size:13px;
+  color:var(--mut)}
+.legend b{display:inline-flex;align-items:center;gap:5px;font-weight:500}
+.legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+/* 분석 안쪽 탭 */
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.subtab{background:none;border:0;border-bottom:2px solid transparent;
+  padding:10px 16px;font-size:15.5px;font-weight:600;color:var(--mut);
+  cursor:pointer;font-family:inherit;margin-bottom:-1px}
+.subtab:hover{color:var(--ink)}
+.subtab.active{color:var(--blue-dark);border-bottom-color:var(--blue)}
+.subpanel{display:none}
+.subpanel.active{display:block}
+
+/* 주간 과제 후보 — 다이제스트 맨 위 */
+.wtask{border:1px solid var(--blue-line);background:var(--blue-soft);
+  border-radius:10px;padding:14px 17px;margin:0 0 10px}
+.wtask-h{font-size:15.5px;font-weight:800;color:var(--blue-dark);margin-bottom:7px}
+.wtask-r{display:flex;gap:9px;margin:4px 0;font-size:14px;line-height:1.65}
+.wtask-k{flex:none;width:56px;font-weight:700;color:var(--mut);font-size:12.5px;
+  padding-top:2px}

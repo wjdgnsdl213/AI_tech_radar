@@ -124,9 +124,13 @@ def digest(week: str = Query("")) -> dict[str, Any]:
                          "items": d["regulatory"]})
     for ax, ps in d["by_axis"].items():
         sections.append({"key": ax, "label": LABELS.get(ax, ax), "items": ps})
+    with get_engine().connect() as c:
+        body = c.execute(select(digests.c.body)
+                         .where(digests.c.week == week)).scalar_one_or_none()
+    tasks = (body or {}).get("tasks", []) if isinstance(body, dict) else []
     return {
         "week": week, "week_label": week_label(week),
-        "lead": d.get("lead"), "total_kept": d["total_kept"],
+        "lead": d.get("lead"), "tasks": tasks, "total_kept": d["total_kept"],
         "sections": sections, "trending": d.get("trending", []),
         "empty": not d["crossing"] and not any(d["by_axis"].values()),
     }
@@ -485,7 +489,7 @@ def _ego(kw: str, hops: int, per_hop: int,
 
 
 @router.get("/cross")
-def cross(min_axes: int = Query(2), weeks: int = Query(8),
+def cross(axes: int = Query(2), weeks: int = Query(8),
           limit: int = Query(60)) -> dict[str, Any]:
     """축이 겹치는 기사만 모은다.
 
@@ -520,12 +524,19 @@ def cross(min_axes: int = Query(2), weeks: int = Query(8),
     labels = {ax: s.get("label", ax) for ax, s in CFG["axes"].items()}
     out, combo = [], Counter()
     per_week: dict[str, Counter] = {}
+    # 조합 분포는 축 개수와 무관하게 전체를 센다 — 옆 패널은 "전체에서 어떤
+    # 조합이 얼마나 되나"를 보여주는 자리라, 지금 고른 축 수에 따라 바뀌면 안 된다.
+    for r in rows:
+        ax_all = sorted(amap.get(r.id, []))
+        if len(ax_all) >= 2:
+            combo["+".join(labels.get(a, a) for a in ax_all)] += 1
     for r in rows:
         ax = sorted(amap.get(r.id, []))
-        if len(ax) < min_axes:
+        # ★ '이상'이 아니라 '정확히 N축'이다. 2축에 3축을 포함하면 같은 기사가
+        #   2축 목록과 3축 목록에 모두 나와, 무엇이 순수한 2축인지 알 수 없다.
+        if len(ax) != axes:
             continue
         key = "+".join(labels.get(a, a) for a in ax)
-        combo[key] += 1
         per_week.setdefault(r.published_week, Counter())[key] += 1
         if len(out) < limit:
             out.append({"id": r.id, "title": r.title or "", "url": r.url or "",
@@ -533,9 +544,9 @@ def cross(min_axes: int = Query(2), weeks: int = Query(8),
                         "published": str(r.published_at)[:10] if r.published_at else "",
                         "week": r.published_week,
                         "cross_score": r.cross_score, "insight": r.insight or None})
-    total = sum(combo.values())
+    total = sum(sum(v.values()) for v in per_week.values())
     return {
-        "rows": out, "total": total, "min_axes": min_axes,
+        "rows": out, "total": total, "axes": axes,
         "combos": [{"combo": k, "n": v} for k, v in combo.most_common()],
         "weeks": [{"week": w, "label": week_label(w),
                    "n": sum(per_week.get(w, Counter()).values())}
@@ -600,6 +611,38 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
     out.sort(key=lambda r: (-r["weeks"], -r["total"]))
     return {"rows": out[:limit],
             "weeks": [{"week": w, "label": week_label(w)} for w in sorted(span)]}
+
+
+@router.get("/org_items")
+def org_items(kw: str = Query(...), week: str = Query(""),
+              limit: int = Query(40)) -> dict[str, Any]:
+    """기관 표의 주차 칸을 눌렀을 때 그 주의 기사를 돌려준다.
+
+    keyword 인덱스에서 문서 id를 얻고 본 DB에서 기사를 읽는다 — 두 DB가 갈려
+    있어서(item_keywords는 keywords.db) 조인을 못 한다.
+    """
+    from src.extract import item_keywords
+
+    with kw_engine().connect() as c:
+        q = select(item_keywords.c.item_id).where(item_keywords.c.keyword == kw)
+        if week:
+            q = q.where(item_keywords.c.week == week)
+        ids = [i for (i,) in c.execute(q.distinct())]
+    if not ids:
+        return {"keyword": kw, "week": week, "items": [], "total": 0}
+    with get_engine().connect() as c:
+        rows = c.execute(
+            select(items.c.id, items.c.title, items.c.url, items.c.source,
+                   items.c.published_at, items.c.insight, items.c.kept)
+            .where(items.c.id.in_(ids[:2000]))
+            .order_by(items.c.kept.desc(), items.c.published_at.desc())
+            .limit(limit)).all()
+        ax = _axes_of(c, [r.id for r in rows])
+    return {"keyword": kw, "week": week, "total": len(ids),
+            "items": [{"id": r.id, "title": r.title or "", "url": r.url or "",
+                       "source": r.source, "insight": r.insight or None,
+                       "published": str(r.published_at)[:10] if r.published_at else "",
+                       "axes": sorted(ax.get(r.id, []))} for r in rows]}
 
 
 @router.get("/regulatory")
