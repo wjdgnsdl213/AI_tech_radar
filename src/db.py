@@ -145,6 +145,35 @@ def get_engine(url: str | None = None) -> Engine:
     return _engine
 
 
+# ── 파생 인덱스 DB ───────────────────────────────────────────────────
+# item_keywords는 **전체 코퍼스**에서 뽑은 키워드 인덱스라 180만 행이다.
+# radar.db에 넣으면 46MB → 270MB가 되는데, radar.db는 git으로 관리되므로
+# 커밋할 때마다 그 크기가 통째로 이력에 쌓인다.
+#
+# 이건 임베딩 캐시와 같은 성격이다 — **원본이 아니라 파생물**이고,
+# python -m src.extract 로 80초면 다시 만든다. 그래서 별도 파일에 두고 gitignore 한다.
+# 배포 시 한 DB에 몰고 싶으면 config의 db.keywords_url을 db.url과 같게 두면 된다.
+_kw_engine: Engine | None = None
+
+
+def kw_engine(url: str | None = None) -> Engine:
+    """키워드 인덱스용 엔진. 기본은 data/keywords.db (gitignore 대상)."""
+    global _kw_engine
+    if _kw_engine is None or url is not None:
+        if url is None:
+            url = os.getenv("KEYWORDS_URL") or load_config().get("db", {}).get(
+                "keywords_url", "sqlite:///data/keywords.db")
+        if url.startswith("sqlite"):
+            path = url.split("///")[-1]
+            if path and path != ":memory:":
+                Path(path).parent.mkdir(parents=True, exist_ok=True)
+        _kw_engine = create_engine(url, future=True)
+        if url.startswith("sqlite"):
+            with _kw_engine.begin() as conn:
+                conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+    return _kw_engine
+
+
 def init_db(engine: Engine | None = None) -> None:
     engine = engine or get_engine()
     metadata.create_all(engine)
@@ -238,13 +267,40 @@ def upsert_items(records: Iterable[dict[str, Any]], engine: Engine | None = None
 
 
 def set_axes(item_id: int, axes: Iterable[str], engine: Engine | None = None) -> None:
-    """항목의 축 태그를 교체한다. score.py가 쓴다."""
+    """항목의 축 태그를 교체한다."""
     engine = engine or get_engine()
     with engine.begin() as conn:
         conn.execute(item_axes.delete().where(item_axes.c.item_id == item_id))
         rows = [{"item_id": item_id, "axis": a} for a in axes]
         if rows:
             conn.execute(item_axes.insert(), rows)
+
+
+def replace_axes_bulk(tagged: dict[int, Iterable[str]], engine: Engine | None = None) -> int:
+    """여러 항목의 축 태그를 한 트랜잭션에서 교체한다. prefilter.py가 쓴다.
+
+    set_axes를 항목마다 부르면 5만 건에 트랜잭션이 5만 개 열린다(SQLite에서 수 분).
+    여기서는 delete를 IN 절로 묶고 insert를 executemany로 한 번에 보낸다.
+
+    0축 항목도 키를 넘기면 기존 태그가 지워진다 — 키워드를 고쳐 다시 돌렸을 때
+    예전 태그가 남아 있으면 안 되기 때문이다.
+    """
+    if not tagged:
+        return 0
+    ids = list(tagged)
+    rows = [{"item_id": i, "axis": a} for i, axes in tagged.items() for a in axes]
+    with engine_or(engine).begin() as conn:
+        # 파라미터 상한(SQLite 기본 999)에 걸리지 않게 나눠서 지운다
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            conn.execute(item_axes.delete().where(item_axes.c.item_id.in_(chunk)))
+        if rows:
+            conn.execute(item_axes.insert(), rows)
+    return len(rows)
+
+
+def engine_or(engine: Engine | None) -> Engine:
+    return engine or get_engine()
 
 
 # ── 현황 ────────────────────────────────────────────────────────────

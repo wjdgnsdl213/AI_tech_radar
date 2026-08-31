@@ -19,8 +19,21 @@ sqlalchemy>=2.0
 sentence-transformers
 torch
 
+# ── 2차: 키워드 트렌드 (F8) ─────────────────────────
+# 한국어 형태소 분석. 복합어가 쪼개지므로 연속 명사를 n-gram으로 다시 붙여 쓴다
+# (src/extract.py 참조). konlpy와 달리 Java가 필요 없다.
+kiwipiepy
+
 # ── 3주차: AI 해설 + 웹 + 메일 ───────────────────────
 anthropic
+# ⚠️ anthropic SDK 1.x가 쓰는 httpx2의 Brotli 디코더는
+#    Decompressor.process(data, output_buffer_limit=...) 를 호출한다.
+#    1.0.9의 process()는 키워드 인자를 안 받아 모든 응답이 APIConnectionError로 터진다
+#    (응답 압축 해제 단계라 네트워크 문제처럼 보이지만 아니다).
+brotli>=1.1.0
 fastapi
 uvicorn
 jinja2              # 다이제스트 → HTML/메일 렌더 (한 번 생성, 두 형태)
+
+# ── 개발용 ───────────────────────────────────────────
+pytest

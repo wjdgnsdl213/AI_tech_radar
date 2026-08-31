@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 빅데이터 트렌드</title>
+<link rel="stylesheet" href="/static/style.css?v={{V}}">
+</head>
+<body>
+
+<!-- 메뉴를 상단 바에 함께 둔다 -->
+<nav class="topnav">
+  <div class="brand">📡 <b>AI 빅데이터 트렌드</b></div>
+  <div class="menu" role="tablist">
+    <button class="tab-btn active" data-tab="digest" role="tab">이번 주</button>
+    <button class="tab-btn" data-tab="search" role="tab">검색</button>
+    <button class="tab-btn" data-tab="graph"  role="tab">연관어 네트워크</button>
+    <button class="tab-btn" data-tab="trend"  role="tab">급상승</button>
+  </div>
+</nav>
+
+<main class="wrap">
+
+  <!-- ① 이번 주 -->
+  <section class="panel active" id="panel-digest">
+    <div class="page-head">
+      <h1 id="digest-title">—</h1>
+      <label class="weekpick">지난 주차
+        <select id="week-select"></select>
+      </label>
+    </div>
+
+    <div class="board">
+      <div class="col-main">
+        <div class="card lead-card" id="lead-card" hidden>
+          <div class="lead" id="lead"></div>
+        </div>
+        <div class="chip-row" id="axis-chips"></div>
+        <div id="digest-body"><div class="empty">불러오는 중…</div></div>
+      </div>
+
+      <aside class="col-side">
+        <div class="card">
+          <div class="panel-head"><h2>📈 이번 주 급상승</h2></div>
+          <div id="side-trend"><div class="empty">—</div></div>
+        </div>
+        <div class="card">
+          <div class="panel-head"><h2>🕸️ 브릿지 키워드</h2></div>
+          <div id="side-bridge"><div class="empty">—</div></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ② 검색 -->
+  <section class="panel" id="panel-search">
+    <div class="page-head"><h1>검색</h1></div>
+    <div class="card">
+      <form class="searchbar" id="search-form">
+        <input name="q" id="f-q" placeholder="키워드로 찾기" autocomplete="off">
+        <select name="axis" id="f-axis"><option value="">전체 주제</option></select>
+        <input type="date" name="since" id="f-since" aria-label="시작일">
+        <input type="date" name="until" id="f-until" aria-label="종료일">
+        <button type="submit">검색</button>
+        <a class="btn-ghost" id="f-csv" href="#">⬇ 엑셀로 내려받기</a>
+      </form>
+      <div class="preset-row" id="presets"></div>
+      <div class="mut" id="search-count"></div>
+      <div id="search-body"><div class="empty">검색을 눌러 시작하세요.</div></div>
+      <div class="pager" id="search-pager"></div>
+    </div>
+  </section>
+
+  <!-- ③ 연관어 네트워크 (검색형) -->
+  <section class="panel" id="panel-graph">
+    <div class="page-head"><h1>연관어 네트워크</h1></div>
+
+    <form class="searchbar" id="ego-form">
+      <input id="ego-q" list="ego-list" placeholder="키워드 검색" autocomplete="off">
+      <datalist id="ego-list"></datalist>
+      <button type="submit">검색</button>
+    </form>
+    <div class="board board-graph">
+      <div class="col-main">
+        <div class="card graph-card">
+          <div class="graph-tools" id="graph-tools" hidden>
+            <label class="hopctl">범위
+              <input type="range" id="ego-hops" min="1" max="3" step="1" value="1">
+              <b id="hop-label">1홉</b>
+            </label>
+            <span class="mut" id="graph-stat"></span>
+            <span class="zoomctl">
+              <button class="preset" data-zoom="-1" title="축소">−</button>
+              <b id="zoom-label">100%</b>
+              <button class="preset" data-zoom="1" title="확대">+</button>
+              <button class="preset" data-zoom="0">전체</button>
+              <button class="preset" data-relayout>배치 되돌리기</button>
+            </span>
+            <span class="mut hint">휠 = 확대 · 빈곳 끌기 = 이동 · 노드 끌기 = 옮기기 · 클릭 = 기사 · 더블클릭 = 다시 그리기</span>
+          </div>
+          <div id="graph-svg" class="graph-map"><div class="empty">키워드를 검색해 보세요.</div></div>
+        </div>
+      </div>
+      <aside class="col-side">
+        <div class="card" id="kw-card" hidden>
+          <div class="panel-head">
+            <h2 id="kw-title">—</h2><span class="mut" id="kw-count"></span>
+          </div>
+          <div class="chip-row" id="kw-related"></div>
+          <div class="scroll-list" id="kw-body"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ④ 급상승 -->
+  <section class="panel" id="panel-trend">
+    <div class="page-head"><h1>급상승 키워드</h1>
+      <span class="mut" id="trend-week"></span></div>
+    <div class="card">
+      <div id="trend-body"><div class="empty">불러오는 중…</div></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="modal" id="kwmodal" hidden>
+  <div class="modal-bg" data-mclose></div>
+  <div class="modal-box">
+    <button class="drawer-x" data-mclose>✕</button>
+    <div class="panel-head"><h2 id="m-title">—</h2><span class="mut" id="m-sub"></span></div>
+    <div class="modal-grid">
+      <div>
+        <div class="sub-head"><span class="mut">주차별 언급 추이</span>
+          <span id="m-demo"></span></div>
+        <div id="m-chart"></div>
+      </div>
+      <div><div class="sub-head"><span class="mut">함께 나온 키워드</span></div>
+        <div id="m-net"></div></div>
+    </div>
+    <div class="sub-head" style="margin-top:16px">
+      <span class="mut">기사 목록</span><span class="mut" id="m-count"></span></div>
+    <!-- 스크롤 컨테이너: 팝업 전체가 길어지면 차트가 화면 밖으로 밀려나
+         "추이를 보려고 연 팝업인데 추이가 안 보이는" 상태가 된다. 목록만 구른다. -->
+    <div class="scroll-list" id="m-foot"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer" hidden>
+  <div class="drawer-bg" data-close></div>
+  <aside class="drawer-panel"><button class="drawer-x" data-close>✕</button>
+    <div id="drawer-body"></div></aside>
+</div>
+
+<script src="/static/app.js?v={{V}}"></script>
+</body>
+</html>

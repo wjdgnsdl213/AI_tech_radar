@@ -8,36 +8,77 @@ db:
   #   사내 DB  oracle+oracledb://...  /  mysql+pymysql://...
   url: sqlite:///data/radar.db
 
+  # 키워드 인덱스는 별도 파일에 둔다.
+  # 전체 코퍼스(6.4만 건)에서 뽑은 180만 행이라 본 DB에 넣으면 51MB → 271MB가 되는데,
+  # radar.db는 git으로 관리되므로 커밋마다 그 크기가 이력에 통째로 쌓인다.
+  # 임베딩 캐시와 같은 성격이다 — 원본이 아니라 파생물이고 80초면 다시 만든다
+  # (python -m src.extract). 그래서 gitignore 대상 파일로 분리했다.
+  # 배포 시 한 DB에 몰고 싶으면 이 값을 위 url과 같게 두면 된다.
+  keywords_url: sqlite:///data/keywords.db
+
 # ── 3축 정의 ────────────────────────────────────────────────────────
 # 교차 점수(score.py)의 기준. 항목이 걸치는 축 수가 많을수록 상위 노출된다.
 # 여기 키워드는 ②키워드 prefilter에도 함께 쓰인다(무료 단계).
+# ⚠️ 한글·영문을 반드시 함께 넣는다.
+#   초판은 한글 위주(영문 AI 7 / 빅데이터 9 / 소상공인 0개)라 영어 소스가 거의 안 걸렸다.
+#   실측(59,084건): 빅데이터 축 0.9%, 3축 교집합 53건(0.1%) — 교차 점수가 무의미해진다.
+#   HN이 전부 영어이므로 영문 키워드가 없으면 그 소스는 통째로 0축이 된다.
+#
+# 매칭 규칙 (src/prefilter.py):
+#   · 영문 키워드 — 앞뒤가 영숫자가 아닐 때만 매칭. 'AI'가 'SAID'에 안 걸리고
+#     'AI가'처럼 조사가 붙어도 잡힌다. 대소문자 무시
+#   · 4글자 이상 한글 — 양쪽 공백을 지우고 비교. '데이터플랫폼'으로 적어두면
+#     기사의 '데이터 플랫폼'도 잡힌다(sobiz 기사에 '인공 지능'처럼 벌어진 표기가 많다)
+#   · 4글자 미만 한글 — 원문 그대로만. 공백을 지우면 단어 경계를 넘어 오탐이 난다
+#     (실측: '관점 포함'→점포, '더 이상 권장'→상권)
+#
+# 동음이의어에 주의한다. 짧은 영문 약어일수록 위험하다 — SMB(소상공인/파일공유
+# 프로토콜)는 이 이유로 뺐다. 새 키워드를 넣은 뒤에는 반드시 재측정한다:
+#   python -m src.prefilter --dry-run
 axes:
   ai:
     label: AI
     keywords:
-      - AI, 인공지능, LLM, 생성형
-      - 머신러닝, 딥러닝, 학습모델
+      - AI, 인공지능, LLM, 생성형, 초거대
+      - 머신러닝, 딥러닝, 학습모델, 학습데이터, 추론
       - RAG, 임베딩, 벡터, 파인튜닝
       - 챗봇, 에이전트, 프롬프트
-      - GPT, Claude, Gemini, Llama
-      - 이상탐지, 수요예측, 시계열
+      - GPT, Claude, Gemini, Llama, OpenAI, Anthropic, Mistral, Copilot
+      - 이상탐지, 수요예측, 시계열, 추천시스템
+      # ── 영문 ──
+      - machine learning, deep learning, neural network, transformer
+      - foundation model, generative AI, fine-tuning, inference
+      - MLOps, AI agent, prompt engineering, chatbot
+      - computer vision, anomaly detection, forecasting, recommendation system
   bigdata:
     label: 빅데이터
     keywords:
-      - 빅데이터, 데이터플랫폼, 데이터레이크, 웨어하우스
-      - 데이터파이프라인, ETL, ELT, 오케스트레이션
+      - 빅데이터, 데이터플랫폼, 데이터레이크, 웨어하우스, 데이터베이스
+      - 데이터파이프라인, ETL, ELT, 오케스트레이션, 데이터인프라
       - Airflow, dbt, Spark, Kafka, DuckDB, Iceberg, Trino
-      - 공공데이터, 데이터개방, 데이터표준
+      - 공공데이터, 데이터개방, 데이터표준, 정보공개, 데이터산업
       - 개인정보, 가명정보, 익명처리, 재식별
-      - 데이터거버넌스, 마이데이터, 데이터결합
+      - 데이터거버넌스, 마이데이터, 데이터결합, 데이터품질, 데이터활용
+      # ── 영문 ──
+      - data engineering, data platform, data pipeline, data infrastructure
+      - data warehouse, data lake, lakehouse, database, analytics
+      - SQL, BigQuery, Snowflake, Redshift, Postgres, PostgreSQL
+      - Hadoop, Flink, Presto, Parquet, OLAP, ClickHouse, Elasticsearch
+      - data governance, data quality, data catalog, open data
+      - privacy, anonymization, GDPR
   smallbiz:
     label: 소상공인
     keywords:
-      - 소상공인, 자영업, 소기업, 상권
-      - 전통시장, 골목상권, 프랜차이즈
+      - 소상공인, 자영업, 소기업, 상권, 점포, 소매업
+      - 전통시장, 골목상권, 프랜차이즈, 상인회, 소상공인연합회
       - 중기부, 중소벤처기업부, 소진공, 소상공인시장진흥공단
       - 상권분석, 매출데이터, 카드매출
       - 폐업, 창업, 자금지원, 정책자금
+      # ── 영문 ──
+      # SMB는 뺐다 — Server Message Block(파일 공유 프로토콜)과 동음이의어라
+      # 기술 소스에서 오탐이 난다 (예: 'Apple이 Time Machine을 다시 망가뜨림')
+      - small business, small merchant, local business
+      - storefront, franchise, point of sale, merchant
 
 # 교차 점수 가중치 — 팀 성격(a 분석·c 인프라·d 기획)에 맞춰 조정한다.
 # 축 수가 많을수록 급격히 가중된다(교집합 우선 원칙).
@@ -54,6 +95,8 @@ sources:
   # Hacker News — (c) 인프라·운영 사례. Algolia API, 무인증, 2007년부터 전체 아카이브.
   hackernews:
     enabled: true
+    interval_days: 1          # 매일 전방 수집 (백필은 backfill.py가 따로 담당)
+    max_pages: 5              # 일일 전방 수집의 쿼리당 페이지 상한
     api_url: https://hn.algolia.com/api/v1/search_by_date
     hits_per_page: 100
     request_interval: 0.3     # Algolia는 관대하지만 예의상 간격을 둔다
@@ -61,23 +104,36 @@ sources:
     retry_backoff: 2.0
     min_points: 30            # 이 점수 미만 스토리는 수집 단계에서 제외 (볼륨 대응)
     backfill_years: 3
-    queries:                  # 쿼리별로 별도 백필(체크포인트도 쿼리 단위)
-      - data engineering
-      - data platform
-      - data pipeline
-      - analytics
-      - LLM production
-      - RAG
-      - vector database
-      - duckdb
-      - iceberg
-      - airflow
-      - dbt
-      - small business software
+    # ── 수집 전략: 쿼리를 쓰지 않고 points 컷만 건다 ──
+    #
+    # 원래는 아래 queries로 좁혔는데, 실측 결과 이 방식이 동작하지 않았다(2026-08-30):
+    #   · 짧은 단어(RAG)           → Algolia가 쿼리를 버리고 224건 반환. 대부분 무관
+    #   · 다단어(data engineering) → 제목 완전일치라 30일간 0건
+    # 어댑터에 removeWordsIfNoResults=none 등을 못박아 쿼리 자체는 고쳤지만
+    # (src/sources/hackernews.py 참조), 쿼리 방식은 **무엇을 놓쳤는지 알 수 없다**는
+    # 문제가 남는다. 반면 볼륨은 points 컷만으로 충분히 잡힌다:
+    #   points>=20  연 37,000건 / >=30  연 31,000건 / >=50  연 24,000건
+    # PLAN §8이 이미 ②키워드 prefilter → ③임베딩 필터의 2단 방어를 설계해뒀으므로,
+    # 수집 단계에서는 넓게 받고 뒤에서 거르는 쪽이 커버리지 구멍이 없다.
+    #
+    # ⚠️ 기존 백필분 10,070건은 이 버그가 있던 시기 수집분이라 오염돼 있다.
+    #    재수집 여부는 미결정 (HANDOFF.md 참조).
+    #
+    # 쿼리 방식으로 되돌리려면 아래 목록의 주석을 풀면 된다(어댑터는 양쪽 다 지원).
+    queries: []
+    # queries:
+    #   - data engineering
+    #   - analytics
+    #   - RAG
+    #   - duckdb
+    #   - iceberg
+    #   - airflow
+    #   - dbt
 
   # GeekNews — (a)(c) 국내 실무 정보. Atom 피드는 최근 20~30건만 준다.
   geeknews:
     enabled: true
+    interval_days: 1          # RSS 전방 수집 + 과거분 예산 소진이 매일 이뤄져야 한다
     rss_url: https://news.hada.io/rss/news
     topic_url: https://news.hada.io/topic?id={id}
     # 백필: topic id가 순차라 최신 id에서 역방향으로 훑는다.
@@ -121,25 +177,75 @@ sources:
     max_retries: 2
     retry_backoff: 5.0
 
-  # 네이버 뉴스 — 소상공인 축. API가 최근분만 주므로 과거는 import_sobiz로 채운다.
+  # 네이버 뉴스 — 소상공인·AI·빅데이터·규제를 한 소스로 훑는다.
+  #
+  # ★ 이 소스는 백필이 불가능하다 → 매일 돌리는 게 전제다.
+  #   API에 기간 파라미터가 없고 start ≤ 1000까지만 페이징된다. 즉 최신순 앞에서부터
+  #   쿼리당 1,000건이 한계다. **오늘 안 받으면 오늘 기사는 영영 못 받는다.**
+  #   과거분은 import_sobiz로 한 번 채워뒀다(2026-08-25까지).
+  #
+  # 쿼리가 곧 수집 주제 범위다. 쿼리를 늘리면 커버리지가 늘고 대신 노이즈도 는다
+  # (노이즈는 뒤의 prefilter·filter가 걷어낸다 — 여기서 좁힐 필요는 없다).
   naver_news:
     enabled: true
+    interval_days: 1           # 매일. 뉴스는 하루만 걸러도 구멍이 난다
     api_url: https://openapi.naver.com/v1/search/news.json
-    weeks: 4
-    max_per_query: 1000
-    sort: date
+    sort: date                 # 최신순 — since보다 오래된 기사가 나오면 그 쿼리를 끊는다
+    max_pages: 10              # 쿼리당 상한(= start 1000 / display 100)
     request_interval: 0.11     # 초당 10회 제한 준수
     max_retries: 3
     retry_backoff: 2.0
+    # regulatory 플래그는 붙이지 않는다. 규제 알림(F7)의 판정은 **소스 기반**이라
+    # 개인정보위 같은 1차 출처에서 온 항목만 규제로 본다. 아래 규제 쿼리는
+    # "규제 관련 뉴스를 축적"하는 용도이지 알림 판정 대상이 아니다.
+    regulatory: false
     queries:
+      # ── 소상공인 축 (우리가 푸는 문제) ──
       - 소상공인 데이터
       - 소상공인 AI
       - 상권분석
       - 소상공인 디지털 전환
       - 스마트상점
       - 소상공인 정책자금
+      - 전통시장 활성화
+      # ── AI 축 (우리가 쓰는 기술) ──
+      - 공공기관 AI 도입
+      - 생성형 AI 활용
+      - 인공지능 정책
+      - AI 활용 사례
+      # ── 빅데이터 축 (우리가 다루는 기반) ──
       - 공공데이터 개방
+      - 데이터 플랫폼 구축
+      - 빅데이터 활용
+      - 마이데이터
+      - 데이터 분석 사업
+      # ── 규제·제도 (뉴스 경로. 1차 출처는 별도 어댑터로 붙일 예정) ──
       - 가명정보 결합
+      - 개인정보보호법 개정
+      - 개인정보위 가이드라인
+      - AI 기본법
+
+  # ── 규제 1차 출처 (F7 규제 알림) — 어댑터 미구현. 붙일 때 enabled를 켠다 ──
+  # 규제 판정은 **소스 기반**이다: 여기 소스에서 온 항목은 제목과 무관하게 전부
+  # 규제로 표시된다(collect.py의 _stamp_regulatory). 키워드 판정은 "규제 샌드박스
+  # 선정 기업" 같은 오탐이 많아 쓰지 않는다.
+  #
+  # pipc:                     # 개인정보보호위원회 — 고시·가이드라인·행정예고
+  #   enabled: false
+  #   regulatory: true        # ★ 이 한 줄이 규제 알림 대상 여부를 결정한다
+  #   interval_days: 1
+  # assembly:                 # 국회 의안정보 — 법안 발의·통과
+  #   enabled: false
+  #   regulatory: true
+  #   interval_days: 3        # 매일 볼 만큼 자주 안 바뀐다
+
+# ── 일일 수집 엔진 (collect.py) ──────────────────────────────────────
+# 소스를 순회하며 매일 1회 실행한다. 소스별로 try/except가 감싸져 있어
+# 하나가 죽어도 나머지는 계속 돌고, 실패가 있으면 종료 코드 1로 알린다.
+collect:
+  # 전방 수집 기간(일). 하루 걸러도 구멍이 안 나게 여유를 둔다.
+  # 소스별로 sources.<name>.days 로 덮어쓸 수 있다.
+  days: 3
 
 # ── sobiz 프로젝트 DB 임포트 ─────────────────────────────────────────
 # 네이버 뉴스 API는 백필이 안 되지만, sobiz가 주간 배치로 누적한 news_articles가 있다.
@@ -165,19 +271,37 @@ prefilter:
 filter:
   model: BAAI/bge-m3          # 한·영 혼재라 다국어 모델. ko-sroberta는 쓰지 않는다
   seed_path: seeds/seed_sentences.txt
-  # 시드 centroid 코사인 컷. 600건 표본 진단 결과:
-  #   0.50 → 37.7% 통과 (경계선 대역이 전부 무관 항목이라 과다)
-  #   0.55 → 11.3% 통과 ← 채택
-  #   0.60 →  3.8% 통과 (너무 빡빡)
-  # 수동 라벨 50건으로 precision 측정한 뒤 재튜닝한다(목표 ≥ 0.85).
-  threshold: 0.55
-  dedup_threshold: 0.92       # 소스 간 중복(같은 뉴스가 HN·GeekNews에 동시 등장) 제거
+  # 부정 시드 — '우리 팀 일이 아닌 것'. relevance = 양성유사도 - 부정유사도.
+  # 없으면 양성 centroid만 쓴다(그 경우 threshold는 코사인 눈금).
+  negative_seed_path: seeds/negative_sentences.txt
+  # ★ 컷 눈금이 바뀌었다 — 이제 relevance는 코사인이 아니라 **대비 점수**다.
+  #      relevance = sim(양성 centroid) - sim(부정 centroid)
+  #    범위는 대략 -0.14 ~ +0.14이고 0 근처에 몰린다. 예전 0.55 같은 값을 넣으면
+  #    아무것도 통과하지 못한다.
+  #
+  # 왜 바꿨나 (라벨 50건 실측, 2026-08-30):
+  #   양성 centroid만 쓸 때 precision 0.240. 오통과 19건 중 17건이 `ai` 축 단독으로
+  #   걸린 일반 AI 뉴스였고(엔비디아 M&A, 코딩 도구, 개발자 잡담), 그 코사인이
+  #   0.55~0.60이라 정답(0.576~0.659)과 구간이 통째로 겹쳤다. 임계값으로는 못 가른다.
+  #   부정 centroid를 빼자 관련 평균 +0.043 / 무관 평균 -0.010으로 갈라졌다.
+  #
+  # 라벨 50건 기준 임계값별 (관련 6건뿐이라 표본이 얇다 — 사람 라벨로 재조정 필요):
+  #   0.00  precision 0.263 / recall 0.833 / 전체 18,063건
+  #   0.02  precision 0.400 / recall 0.667 / 전체  8,100건
+  #   0.03  precision 0.600 / recall 0.500 / 전체  4,660건  ← 채택
+  #   0.04  precision 0.667 / recall 0.333 / 전체  2,503건
+  #   0.05  precision 1.000 / recall 0.333 / 전체  1,316건  (정답 2건 기준이라 무의미)
+  # 목표 0.85에는 아직 못 미친다. 시드를 팀 실제 내용으로 바꾸는 게 다음 레버다.
+  threshold: 0.03
+  dedup_threshold: 0.85
   batch_size: 64
 
 # ── AI 해설 (3주차) ─────────────────────────────────────────────────
 insight:
   enabled: true
-  l1_model: claude-haiku-4-5-20251001   # 항목 해설 (주 200~300건)
+  # ⚠️ 모델 ID에 날짜 접미사를 붙이지 않는다. 'claude-haiku-4-5-20251001'처럼
+  #    적으면 안 되고, 아래 문자열이 그 자체로 완전한 ID다.
+  l1_model: claude-haiku-4-5            # 항목 해설 (주 200~300건). 싸고 빠른 게 중요
   l2_model: claude-sonnet-5             # 주간 요약
   l3_model: claude-sonnet-5             # 월간 데이터 해석 (2차)
   l1_max_items: 300           # 비용 상한 — 교차 점수 상위부터 이 개수만 해설
@@ -185,6 +309,33 @@ insight:
   team_profile_path: seeds/team_profile.md   # "우리 팀이 누구인지" — 해설 프롬프트에 주입
   # LLM 장애 시에도 다이제스트는 나가야 한다
   fail_open: true
+
+# ── 급상승 키워드 (F8) ──────────────────────────────────────────────
+# 급상승 점수 = 이번 주 문서 빈도 / (직전 N주 평균 + 1)
+#   +1이 없으면 신규 키워드에서 0으로 나누고, 1회짜리가 무한대 점수로 최상단을 먹는다.
+#   min_weekly_freq는 그래도 남는 노이즈(오탈자·인명)를 자르는 하한이다.
+trend:
+  compare_weeks: 4       # 직전 몇 주와 비교할까
+  min_weekly_freq: 5     # 이번 주 이 횟수 미만은 후보에서 뺀다
+  top_n: 15              # 다이제스트 📈 섹션에 노출할 수
+
+# ── 연관어 그래프 · 브릿지 노드 (F9) ────────────────────────────────
+# 브릿지 = 두 축 클러스터를 잇는 키워드 = 팀이 봐야 할 과제 후보.
+#
+# 왜 NPMI인가: "세 축에 고루 나오는 키워드"로 잡으면 상위가 전부 일반명사가 된다
+# (실측: 정보 257건, 개인 151건, 보호 67건…). 어디에나 나오니 당연히 고루 걸린다.
+# NPMI는 '우연히 같이 나올 확률보다 얼마나 더 자주 붙는가'를 재므로 그런 말은
+# 누구와도 0 근처가 된다. 결합의 특이성을 본다.
+#
+# 검증: 대조군이 정확히 갈린다 — 매출증대·대출·할인·촉진은 브릿지 0.00(소상공인 전속),
+#       공공데이터는 0.86(AI+소상공인). PLAN §5가 예시로 든 '가명정보'와 같은 성격이다.
+graph:
+  min_df: 15         # 이 문서 수 미만 키워드는 노드로 안 넣는다
+  min_cooc: 5        # 이 횟수 미만 동시 등장은 간선으로 안 친다
+  npmi_cut: 0.25     # 이 값 미만 간선은 버린다
+  max_nodes: 400     # 노드 상한 (간선이 제곱으로 는다)
+  min_degree: 8      # 브릿지 후보의 최소 연결 수.
+                     #   차수 4~6에서는 간선 하나에 비율이 0.2씩 튀어 순위가 무의미해진다
 
 # ── 다이제스트 (3주차) ───────────────────────────────────────────────
 digest:

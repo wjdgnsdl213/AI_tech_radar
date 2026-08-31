@@ -15,6 +15,8 @@ echo ============================================================ >> "logs\colle
 echo [START] %date% %time% >> "logs\collect.log"
 
 REM 가상환경을 쓴다면 아래를 .venv\Scripts\python.exe 로 교체
-python -m src.collect >> "logs\collect.log" 2>&1
+REM 수집만이 아니라 처리(prefilter/filter/score)까지 돌린다.
+REM 처리는 신규분만 하므로 몇 분이면 끝나고, 매일 돌려야 주간 다이제스트가 바로 나온다.
+python -m src.run_pipeline --daily >> "logs\collect.log" 2>&1
 
 echo [END] %date% %time% (exit=%errorlevel%) >> "logs\collect.log"

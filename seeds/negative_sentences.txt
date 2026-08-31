@@ -1,0 +1,63 @@
+# 부정 시드 — "우리 팀 일이 아닌 것"의 프로파일
+#
+# 왜 필요한가 (실측 근거, 2026-08-30):
+#   라벨 50건 측정에서 precision 0.240이 나왔다. 오통과 19건 중 17건이 `ai` 축
+#   단독으로 걸린 항목이었다 — 엔비디아 M&A, 개발자 잡담, 코딩 도구 릴리스 같은 것들.
+#   양성 시드만 쓰면 이런 항목도 코사인 0.55~0.60이 나와서 정답과 구간이 겹친다
+#   (정답 0.576~0.659 / 무관 0.392~0.599). 임계값을 어디에 둬도 갈라지지 않는다.
+#
+#   그래서 "무관한 것"의 centroid를 따로 만들고
+#       관련도 = 양성 centroid 유사도 − 부정 centroid 유사도
+#   로 점수를 매긴다. 양쪽에 다 가까운 일반적인 AI 뉴스는 점수가 0 근처로 눌린다.
+#
+# 이 목록은 PLAN.md의 팀 정의에서 나온 것이지 특정 표본에 맞춘 게 아니다:
+#   "(b) AI 서비스 개발(모델 학습·서빙)이 주력이 아니다. arXiv·최신 모델 릴리스는
+#    (b) 팀에게 필수지만 (a·c·d) 팀에겐 대부분 노이즈다."  — PLAN §6
+#
+# 한글·영문을 함께 넣는다. HN이 영어, GeekNews·네이버가 한글이다.
+# '#' 주석과 빈 줄은 무시된다.
+
+# ── 모델 개발·연구 (팀 주력이 아님) ──────────────────────
+새로운 언어모델이 공개됐고 벤치마크 점수가 기존 모델을 앞섰다
+모델을 더 적은 비용으로 학습시키는 방법을 실험했다
+파라미터 수와 추론 속도를 비교한 기술 벤치마크 결과
+A new open-weights model beats previous benchmarks on coding tasks
+Training a language model from scratch on a small GPU budget
+Comparing inference latency across model architectures
+
+# ── 개발자 도구·프레임워크 릴리스 ────────────────────────
+개발자를 위한 새로운 코딩 도구와 에디터 확장이 출시됐다
+자바스크립트 프레임워크의 새 버전이 릴리스됐다
+오픈소스 라이브러리의 API가 변경되어 마이그레이션이 필요하다
+Show HN: I built a side project web app over the weekend
+A new CLI tool for developers to speed up local workflows
+Open-source UI framework release notes and breaking changes
+
+# ── 업계 동향·투자·인사 (사례가 아니라 가십) ──────────────
+AI 기업이 대규모 투자를 유치했고 기업가치가 상승했다
+빅테크 기업의 인수합병과 경영진 교체 소식
+스타트업 창업자가 회사를 떠나 새 회사를 차렸다
+Tech company raises funding round at a higher valuation
+Big tech acquisition rumors and executive hires
+
+# ── 개발자 담론·에세이 ──────────────────────────────────
+소프트웨어 개발 문화와 생산성에 대한 개인 의견 에세이
+프로그래밍 언어 선택을 둘러싼 커뮤니티 논쟁
+Why software engineering is getting worse, a personal essay
+
+# ── 도메인 무관 (게임·소비자·엔터) ───────────────────────
+게임 엔진과 그래픽 렌더링 기술
+스마트폰과 전자기기 신제품 출시 소식
+자율주행차와 전기차 소프트웨어 업데이트
+연예·스포츠·문화 소식
+
+# ── 정치·행정 일반 (데이터·소상공인 정책이 아닌 것) ────────
+정당 논평과 선거 국면 분석
+장관 인사와 내각 개편
+지방의회 의정활동과 의원 발언
+국방·외교 현안
+
+# ── 거시경제·부동산·교통 (소상공인 데이터 업무가 아닌 것) ──
+기준금리와 환율 등 거시경제 지표 전망
+부동산 시세와 아파트 분양 소식
+도로·철도·항만 등 교통 인프라 건설 사업
