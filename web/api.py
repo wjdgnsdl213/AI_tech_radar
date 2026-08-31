@@ -511,6 +511,41 @@ def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
     return {"items": out, "total": total, "sources": srcs}
 
 
+@router.get("/monthly")
+def monthly(month: str = Query("")) -> dict[str, Any]:
+    """월간 리뷰. digests에 week='YYYY-MM' 키로 저장돼 있다.
+
+    ★ 고를 수 있는 달은 **리뷰가 실제로 만들어진 달**만 낸다.
+      코퍼스에는 2019년치 GeekNews 백필까지 있어서 기사 기준으로 뽑으면
+      84개월이 나오는데, 그중 대부분은 리뷰가 없어 골라도 빈 화면이 된다.
+    """
+    from src.insight import _week_month
+    with get_engine().connect() as c:
+        # 'YYYY-MM' 형태(7자)만 월간이다. 주차 키는 'YYYY-Www'로 8자다.
+        months = sorted(
+            (w for (w,) in c.execute(select(digests.c.week))
+             if w and len(w) == 7 and w[4] == "-"), reverse=True)
+        if not month:
+            month = months[0] if months else ""
+        row = c.execute(select(digests.c.lead, digests.c.generated_at)
+                        .where(digests.c.week == month)).first() if month else None
+        weeks = [w for (w,) in c.execute(select(items.c.published_week).distinct()
+                                         .where(items.c.kept.is_(True))) if w]
+        mine = [w for w in weeks if _week_month(w) == month]
+        n = c.execute(select(func.count()).select_from(items).where(
+            items.c.kept.is_(True),
+            items.c.published_week.in_(mine or ["_"]))).scalar_one() if month else 0
+
+    def label(x: str) -> str:
+        return f"{x[:4]}년 {int(x[5:])}월" if len(x) == 7 else x
+
+    return {"month": month, "label": label(month) if month else "",
+            "months": [{"month": x, "label": label(x)} for x in months],
+            "lead": row[0] if row else None,
+            "generated": str(row[1])[:16] if row and row[1] else "",
+            "weeks": len(mine), "kept": n}
+
+
 @router.get("/home")
 def home() -> dict[str, Any]:
     """메인 화면이 쓰는 것들을 **한 번에** 낸다.

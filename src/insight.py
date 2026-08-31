@@ -129,6 +129,17 @@ L2_RULES = """\
 - 머리말·맺음말·마크다운을 붙이지 않는다."""
 
 
+def _text_of(msg) -> str:
+    """응답에서 **텍스트 블록**만 골라낸다.
+
+    content[0]을 그대로 쓰면 안 된다. Sonnet 5처럼 적응형 사고를 쓰는 모델은
+    첫 블록이 ThinkingBlock이라 .text가 없어서 AttributeError로 죽는다
+    (실측: L3에서 터졌다). L1·L2는 원래 type=="text"만 골라 쓰고 있었는데,
+    같은 로직이 세 군데로 흩어지면 새로 추가하는 쪽이 또 틀린다. 하나로 모은다.
+    """
+    return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
+
+
 def load_team_profile(path: str) -> str:
     p = Path(path)
     if not p.exists():
@@ -319,7 +330,7 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
         stats["in"] += resp.usage.input_tokens
         stats["out"] += resp.usage.output_tokens
         stats["cached"] += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
+        text = _text_of(resp)
         if not text or text.startswith("내용 부족") or text.startswith("관련 낮음"):
             # '내용 부족' = 제목 말고는 아무것도 없는 항목. 지면에 올려도 읽을 게 없다.
             # ⚠️ 예전 '관련 낮음'은 팀 무관 판정이었고 필터가 놓친 것을 짚어주는
@@ -446,7 +457,7 @@ def run_l2(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     if resp.stop_reason == "refusal":
         print("  ⚠ 모델이 응답을 거부했습니다")
         return None
-    lead = "".join(b.text for b in resp.content if b.type == "text").strip()
+    lead = _text_of(resp)
 
     with engine.begin() as conn:
         exists = conn.execute(select(digests.c.week).where(digests.c.week == week)).first()
@@ -464,6 +475,155 @@ def run_l2(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     return lead
 
 
+L3_RULES = """\
+당신은 사내 AI·빅데이터팀의 **월간 리뷰**를 쓰는 편집자다.
+한 달치 주간 요약과 상위 항목을 읽고 그 달의 흐름을 정리한다.
+
+주간 요약과 다른 점:
+- 주간은 "이번 주에 무슨 일이 있었나"다. 월간은 **"여러 주에 걸쳐 무엇이
+  이어졌나"**다. 한 주에만 나온 단발 사건은 흐름이 아니다.
+- 여러 주에 반복해 나온 주제, 점점 커진 주제, 사라진 주제를 짚는다.
+  이건 주어진 자료를 묶는 일이지 없는 사실을 만드는 게 아니다.
+
+출력 형식:
+- 각 줄은 `· `로 시작한다. **4~6줄.**
+- 줄 하나는 70~100자.
+- 마지막 한 줄은 규제·법령 동향이 자료에 있을 때만 그것을 다룬다.
+
+반드시 지킬 것:
+- 주어진 자료에 있는 사실만 쓴다. 목록에 없는 사건·기관·수치를 끌어오지 않는다.
+- 대응 방안·권고·전망을 쓰지 않는다. 무엇이 일어났고 무엇이 이어졌는지까지만.
+- 한 줄에 한 흐름. 억지로 묶지 말고, 묶이지 않으면 가장 큰 항목을 그대로 적는다.
+- 머리말·맺음말·마크다운을 붙이지 않는다. `· ` 줄만 출력한다."""
+
+
+def _week_month(week: str) -> str:
+    """'2026-W35' → '2026-08'. 그 주의 목요일이 속한 달로 본다.
+
+    월요일과 일요일이 다른 달에 걸치는 주가 있는데, ISO 8601은 목요일이 속한
+    해·달을 그 주의 것으로 본다. digest.week_label도 같은 기준을 쓴다.
+    """
+    from datetime import date
+    try:
+        y, w = week.split("-W")
+        d = date.fromisocalendar(int(y), int(w), 4)
+        return f"{d.year:04d}-{d.month:02d}"
+    except Exception:
+        return ""
+
+
+def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
+    """한 달치 흐름을 만들어 digests(week='YYYY-MM')에 저장한다.
+
+    ★ 재료는 **주간 요약(L2)들**이다. 그 달 기사를 전부 다시 읽히지 않는다.
+      한 달이면 통과분만 800건이 넘어 프롬프트에 다 들어가지 않고, 넣어도
+      모델이 주간과 같은 층위의 요약을 반복한다. 이미 한 번 압축된 주간
+      요약을 재료로 쓰면 "여러 주에 걸쳐 이어진 것"이 보인다.
+
+    digests 테이블을 주차와 함께 쓴다 — 키가 '2026-08'이라 '2026-W35'와 섞일 일이
+    없고, 이 테이블은 어디서도 전수 조회하지 않고 키 하나로만 읽는다.
+    """
+    icfg = cfg["insight"]
+    model = icfg.get("l3_model", icfg["l2_model"])
+    profile = load_team_profile(icfg.get("team_profile_path", ""))
+
+    engine = get_engine()
+    month = args.month
+    with engine.connect() as conn:
+        if not month:
+            last = conn.execute(select(func.max(items.c.published_at))
+                                .where(items.c.kept.is_(True))).scalar_one_or_none()
+            if not last:
+                print("  통과 항목이 없습니다")
+                return None
+            month = f"{last.year:04d}-{last.month:02d}"
+
+        weeks = [w for (w,) in conn.execute(
+            select(items.c.published_week).distinct()
+            .where(items.c.kept.is_(True))) if w]
+        mine = sorted(w for w in weeks if _week_month(w) == month)
+        leads = []
+        for w in mine:
+            lead = conn.execute(select(digests.c.lead)
+                                .where(digests.c.week == w)).scalar_one_or_none()
+            if lead:
+                leads.append((w, lead))
+
+        rows = conn.execute(
+            select(items.c.title, items.c.published_week)
+            .where(items.c.kept.is_(True), items.c.published_week.in_(mine or ["_"]))
+            .order_by(items.c.cross_score.desc()).limit(30)).all()
+        reg_srcs = [n for n, sc in (cfg.get("sources") or {}).items()
+                    if isinstance(sc, dict) and sc.get("regulatory")]
+        regs = conn.execute(
+            select(items.c.title, items.c.published_at)
+            .where(items.c.source.in_(reg_srcs or ["_"]),
+                   items.c.published_week.in_(mine or ["_"]))
+            .order_by(items.c.published_at.desc()).limit(10)).all()
+
+    if not leads and not rows:
+        print(f"  {month} 재료가 없습니다 (주간 요약도 통과 항목도 없음)")
+        return None
+    print(f"  {month}  |  주차 {len(mine)}개 · 주간요약 {len(leads)}개 · "
+          f"상위 {len(rows)}건 · 규제 {len(regs)}건  |  모델 {model}")
+
+    NL = chr(10)
+    parts = [f"[{month} 주간 요약들]"]
+    for w, lead in leads:
+        parts.append(f"({w})" + NL + lead)
+    parts.append(NL + "[그 달 상위 항목]")
+    parts += [f"- ({r.published_week}) {r.title}" for r in rows]
+    if regs:
+        parts.append(NL + "[그 달 법령·규제]")
+        parts += [f"- {str(x.published_at)[:10]} {x.title}" for x in regs]
+    user_text = NL.join(parts)
+
+    if args.dry_run:
+        print(NL + "  ── L3 프롬프트 ──" + NL + user_text[:1200])
+        return None
+
+    client = build_client()
+    if client is None:
+        if icfg.get("fail_open", True):
+            print("  ⏭ 월간 리뷰 없이 진행합니다 (fail_open)")
+            return None
+        sys.exit("ANTHROPIC_API_KEY가 없습니다.")
+
+    import anthropic
+    try:
+        msg = client.messages.create(
+            model=model, max_tokens=int(icfg.get("l3_max_tokens", 4000)),
+            # ★ thinking을 반드시 명시한다.
+            #   빼면 사고가 상한까지 폭주해 stop_reason=max_tokens로 끝나고
+            #   본문이 한 글자도 안 나온다(실측: 2000토큰 전량이 사고, 텍스트 0자).
+            #   adaptive를 명시하면 스스로 멈춘다(end_turn, 1,276토큰).
+            #   max_tokens는 사고 + 출력을 합친 상한이라는 점도 같이 기억할 것.
+            thinking={"type": "adaptive"},
+            system=_system_blocks(L3_RULES, profile),
+            messages=[{"role": "user", "content": user_text}])
+    except anthropic.APIError as exc:
+        print(f"  ⚠ 월간 리뷰 실패: {type(exc).__name__}: {exc}")
+        return None
+    text = _text_of(msg)
+    print(NL + f"  ── {month} 월간 리뷰 ──" + NL + text + NL)
+
+    with engine.begin() as conn:
+        exists = conn.execute(select(digests.c.week)
+                              .where(digests.c.week == month)).first()
+        if exists:
+            conn.execute(digests.update().where(digests.c.week == month)
+                         .values(lead=text, generated_at=datetime.now(timezone.utc)))
+        else:
+            conn.execute(digests.insert().values(
+                week=month, lead=text, body={"kind": "monthly", "weeks": mine},
+                generated_at=datetime.now(timezone.utc)))
+    u = msg.usage
+    inp, out = PRICING.get(model, (1.0, 5.0))
+    print(f"  토큰 입력 {u.input_tokens:,} / 출력 {u.output_tokens:,}"
+          f"  ≈ ${(u.input_tokens * inp + u.output_tokens * out) / 1_000_000:.4f}")
+    return text
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="AI 해설 (L1 항목 / L2 주간)")
     parser.add_argument("--l1", action="store_true", help="항목 해설만")
@@ -471,6 +631,8 @@ def main() -> None:
     parser.add_argument("--week", default=None, help="L2 주차 (예: 2026-W35)")
     parser.add_argument("--limit", type=int, default=0, help="L1 처리 상한 (테스트용)")
     parser.add_argument("--workers", type=int, default=4, help="L1 동시 호출 수")
+    parser.add_argument("--l3", action="store_true", help="월간 리뷰만")
+    parser.add_argument("--month", default=None, help="L3 대상 월 (예: 2026-08)")
     parser.add_argument("--reg", action="store_true",
                         help="법령·규제 항목에 요약을 붙인다 (규제 전용 프롬프트)")
     parser.add_argument("--regenerate", action="store_true",
@@ -486,8 +648,9 @@ def main() -> None:
 
     # --reg는 법령 항목만 다루므로 L1 전용이다. 주간 흐름(L2)은 뉴스 기반이라
     # 여기서 같이 돌면 규제 실행마다 주간 요약이 덮어써진다.
-    do_l1 = args.l1 or args.reg or not args.l2
-    do_l2 = args.l2 or not (args.l1 or args.reg)
+    do_l1 = args.l1 or args.reg or not (args.l2 or args.l3)
+    do_l2 = args.l2 or not (args.l1 or args.reg or args.l3)
+    do_l3 = args.l3
 
     if do_l1:
         print(f"{'=' * 62}\nL1 — 항목 해설\n{'=' * 62}")
@@ -495,6 +658,10 @@ def main() -> None:
     if do_l2:
         print(f"\n{'=' * 62}\nL2 — 이번 주 흐름\n{'=' * 62}")
         run_l2(cfg, args)
+
+    if do_l3:
+        print('\n' + '=' * 62 + '\n' + 'L3 — 월간 리뷰' + '\n' + '=' * 62)
+        run_l3(cfg, args)
 
     print("\n  다음: python -m src.digest")
 

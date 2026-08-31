@@ -39,6 +39,55 @@ def _recipients(arg: str | None) -> list[str]:
     return [a.strip() for a in raw.split(",") if a.strip()]
 
 
+def send(subject: str, text: str, html: str, to: list[str] | None = None) -> bool:
+    """메일 한 통을 보낸다. 보냈으면 True, 설정이 없어 건너뛰면 False.
+
+    ★ 미설정은 **실패가 아니라 건너뜀**이다 — 예외를 올리지 않고 False를 준다.
+      메일은 선택 기능이라, 여기서 실패로 처리하면 주간 배치가 매주 실패로
+      기록되고 그러면 작업 스케줄러의 실패 표시를 늘 무시하게 된다.
+
+    다이제스트 발송과 키워드 알림이 같은 경로를 쓴다 — SMTP 분기(465=SSL /
+    그 외=STARTTLS)와 본문 조립 순서를 두 곳에 두면 한쪽만 고치게 된다.
+    """
+    host = os.getenv("SMTP_HOST")
+    to = to or _recipients(None)
+    if not host or not to:
+        print("SMTP_HOST 또는 MAIL_TO가 .env에 없습니다 - 메일 발송을 건너뜁니다.")
+        return False
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((SERVICE_NAME,
+                              os.getenv("MAIL_FROM") or os.getenv("SMTP_USER", "")))
+    msg["To"] = ", ".join(to)
+    msg["Date"] = formatdate(localtime=True)
+    # 텍스트를 먼저 넣고 HTML을 대안으로 붙인다 - 순서가 반대면 텍스트만 보인다
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+
+    port = int(os.getenv("SMTP_PORT", "587"))
+    user, pw = os.getenv("SMTP_USER"), os.getenv("SMTP_PASSWORD")
+    try:
+        # 465는 처음부터 SSL, 그 외(587 등)는 평문 연결 후 STARTTLS로 올린다
+        if port == 465:
+            server = smtplib.SMTP_SSL(host, port, timeout=30)
+        else:
+            server = smtplib.SMTP(host, port, timeout=30)
+            server.starttls()
+        with server:
+            if user and pw:
+                server.login(user, pw)
+            server.send_message(msg)
+    except smtplib.SMTPException as exc:
+        print(f"메일 발송 실패: {type(exc).__name__}: {exc}")
+        return False
+    except OSError as exc:
+        print(f"SMTP 서버에 연결하지 못했습니다: {exc}")
+        return False
+    print(f"발송 완료 — 수신자 {len(to)}명 · {subject}")
+    return True
+
+
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description="주간 다이제스트 메일 발송 (짧게)")
@@ -81,47 +130,8 @@ def main() -> None:
         print(f"\n--- HTML {len(html):,}자 생성됨 (실제 발송 시 이쪽이 본문) ---")
         return
 
-    host = os.getenv("SMTP_HOST")
-    to = _recipients(args.to)
-    if not host or not to:
-        # * 미설정은 **실패가 아니라 건너뜀**이다 - 종료 코드 0으로 끝낸다.
-        #   메일은 아직 안 쓰기로 한 선택 기능인데, 여기서 1을 돌려주면 주간 배치가
-        #   매주 실패로 기록된다. 그러면 작업 스케줄러의 실패 표시를 늘 무시하게 되고,
-        #   정작 진짜 실패가 났을 때 묻힌다.
-        print("SMTP_HOST 또는 MAIL_TO가 .env에 없습니다 - 메일 발송을 건너뜁니다.")
-        print("  내용만 보려면 --dry-run 을 쓰세요.")
+    if not send(subject, text, html, _recipients(args.to)):
         return
-
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = formataddr((SERVICE_NAME,
-                              os.getenv("MAIL_FROM") or os.getenv("SMTP_USER", "")))
-    msg["To"] = ", ".join(to)
-    msg["Date"] = formatdate(localtime=True)
-    # 텍스트를 먼저 넣고 HTML을 대안으로 붙인다 — 순서가 반대면 텍스트만 보인다
-    msg.set_content(text)
-    msg.add_alternative(html, subtype="html")
-
-    port = int(os.getenv("SMTP_PORT", "587"))
-    user, pw = os.getenv("SMTP_USER"), os.getenv("SMTP_PASSWORD")
-    try:
-        # 465는 처음부터 SSL, 그 외(587 등)는 평문 연결 후 STARTTLS로 올린다
-        if port == 465:
-            server = smtplib.SMTP_SSL(host, port, timeout=30)
-        else:
-            server = smtplib.SMTP(host, port, timeout=30)
-            server.starttls()
-        with server:
-            if user and pw:
-                server.login(user, pw)
-            server.send_message(msg)
-    except smtplib.SMTPException as exc:
-        sys.exit(f"메일 발송 실패: {type(exc).__name__}: {exc}")
-    except OSError as exc:
-        sys.exit(f"SMTP 서버에 연결하지 못했습니다: {exc}")
-
-    print(f"발송 완료 — {week}  수신자 {len(to)}명")
-    print(f"  {subject}")
 
 
 if __name__ == "__main__":

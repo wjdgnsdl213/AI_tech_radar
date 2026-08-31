@@ -997,7 +997,26 @@ document.body.addEventListener('click', async e => {
   $('#reg-body').innerHTML = regHTML(r.items || [], false);
 });
 
+/* ── 월간 리뷰 (L3) ──────────────────────────────────────────────
+ * 주간은 "이번 주에 무슨 일이 있었나", 월간은 "여러 주에 걸쳐 무엇이
+ * 이어졌나"다. 분기 보고나 사업계획에 쓰는 건 이쪽이다. */
+async function loadMonth(month) {
+  $('#month-lead').innerHTML = '<div class="empty">불러오는 중…</div>';
+  const m = await api('/api/monthly', month ? { month } : {});
+  $('#month-title').textContent = m.label ? `${m.label} 리뷰` : '월간 리뷰';
+  $('#month-sub').textContent = m.weeks
+    ? `${m.weeks}개 주차 · 통과 ${num(m.kept)}건` : '';
+  $('#month-select').innerHTML = (m.months || [])
+    .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
+      ${esc(x.label)}</option>`).join('')
+    || '<option>아직 없음</option>';
+  $('#month-lead').textContent = m.lead ||
+    '아직 이 달의 리뷰가 없습니다. 주간 요약이 쌓이면 만들어집니다.';
+}
+$('#month-select').onchange = e => loadMonth(e.target.value);
+
 const LOADERS = {
+  month: () => loadMonth(),
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
 };
