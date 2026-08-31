@@ -586,6 +586,54 @@ def home() -> dict[str, Any]:
     }
 
 
+@router.get("/newsletter")
+def newsletter(week: str = Query("")) -> dict[str, Any]:
+    """뉴스레터 상태와 **실제로 나갈 메일 그대로**의 미리보기.
+
+    ★ 지금까지는 메일이 어떻게 생겼는지 확인하려면 CLI를 돌려야 했다.
+      보내기 전에 눈으로 볼 수 없는 발송물은 언젠가 이상한 채로 나간다.
+      digest.render_html(mail=True)를 그대로 부른다 — 미리보기용 코드를 따로
+      두면 실제 메일과 갈라진다.
+
+    ★ 수신자·키워드는 **읽기 전용**이다.
+      이 화면에는 로그인이 없다. 같은 망에 있는 누구나 열 수 있는 화면에서
+      수신자를 고칠 수 있으면 안 된다. 바꾸는 건 .env와 config.yaml에서 한다.
+    """
+    import os
+
+    from src.digest import SERVICE_NAME, build, latest_week, render_html
+
+    with get_engine().connect() as c:
+        week = week or latest_week(c) or ""
+    preview, subject = "", ""
+    if week:
+        d = build(week, CFG)
+        preview = render_html(d, mail=True, web_url=os.getenv("WEB_BASE_URL") or None)
+        # mailer가 만드는 제목과 같은 형식이어야 미리보기의 뜻이 있다
+        subject = f"[{SERVICE_NAME}] {week_label(week)} — 교집합 {len(d['crossing'])}건"
+
+    to = [x.strip() for x in (os.getenv("MAIL_TO") or "").replace(";", ",").split(",")
+          if x.strip()]
+    acfg = CFG.get("alerts") or {}
+    return {
+        "week": week, "week_label": week_label(week) if week else "",
+        "subject": subject, "preview": preview,
+        "smtp": {
+            "configured": bool(os.getenv("SMTP_HOST")) and bool(to),
+            "host": os.getenv("SMTP_HOST") or "",
+            "port": os.getenv("SMTP_PORT") or "587",
+            "from": os.getenv("MAIL_FROM") or os.getenv("SMTP_USER") or "",
+            "to": to,
+        },
+        "alerts": {
+            "enabled": bool(acfg.get("enabled", True)),
+            "days": int(acfg.get("days", 7)),
+            "keywords": [k for k in (acfg.get("keywords") or []) if str(k).strip()],
+        },
+        "schedule": {"digest": "매주 월요일 07:30", "alert": "매일 06:00"},
+    }
+
+
 @router.get("/cache")
 def cache_info() -> dict[str, Any]:
     """캐시가 실제로 듣고 있는지 확인용. 안 맞으면 여기부터 본다."""

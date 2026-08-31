@@ -260,9 +260,12 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
    상단 바를 없앴다. 가로줄이 둘이면 화면 위쪽을 껍데기가 두 줄이나 먹는데,
    그 자리는 내용을 보여줄 자리다. 로고·메뉴·회차를 한 기둥에 모은다.
    ══════════════════════════════════════════════════════════════════ */
-:root{ --nav-w:252px; --nav-w-fold:72px; --page-max:1560px; }
+:root{ --nav-w:252px; --nav-w-fold:72px; --page-max:1560px;
+  /* 지금 메뉴 폭. 접힘 상태에서 바뀐다 — 본문 여백 계산이 이 하나만 보게 한다 */
+  --nav-cur:var(--nav-w); }
 
 .shell{display:flex;min-height:100vh}
+.shell.fold{--nav-cur:var(--nav-w-fold)}
 
 .sidenav{position:fixed;top:0;bottom:0;left:0;width:var(--nav-w);
   background:var(--card);border-right:1px solid var(--line);
@@ -306,13 +309,20 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .sidenav.fold .nav-item span,
 .sidenav.fold .nav-foot{display:none}
 .sidenav.fold .nav-head{padding:6px 13px 30px}
-.shell.fold .wrap{margin-left:var(--nav-w-fold)}
+
 
 /* ★ 본문을 가운데로 모은다.
    메뉴가 왼쪽에 고정되어 있으면 남은 폭 전체에 내용이 깔려서 왼쪽으로 쏠려
    보인다. 안쪽에 최대 폭을 두고 auto 여백으로 가운데 정렬한다. */
-.wrap{flex:1;margin-left:var(--nav-w);padding:26px 32px 64px;min-width:0;
-  transition:margin-left .16s}
+/* ★ 본문을 **화면 기준** 가운데에 놓는다.
+   왼쪽에 메뉴만큼 여백을 주고 오른쪽에도 같은 폭을 padding으로 주면, 본문 상자의
+   중심이 정확히 50vw가 된다 — 메뉴를 접든 펴든(--nav-cur가 바뀌든) 그대로다.
+   transform:translateX로 당기는 방법도 있지만 쓰면 안 된다: transform은 그 안의
+   position:fixed 기준을 바꿔버려서, 스크롤 컨테이너를 피해 fixed로 빼둔
+   설명 말풍선이 다시 엉뚱한 곳에 뜬다. */
+.wrap{flex:1;margin-left:var(--nav-cur);min-width:0;
+  padding:26px 32px 64px;padding-right:calc(32px + var(--nav-cur));
+  transition:margin-left .16s,padding-right .16s}
 .inner{max-width:var(--page-max);margin:0 auto}
 
 /* 검색 — 본문 맨 위 가운데 */
@@ -374,6 +384,7 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
   .sidenav{transform:translateX(-100%);transition:transform .18s;
     box-shadow:0 0 24px rgba(15,23,42,.16);width:var(--nav-w)}
   .sidenav.open{transform:none}
+  /* 좁은 화면에서는 메뉴가 겹쳐 뜨므로 좌우 보정이 필요 없다 */
   .wrap,.shell.fold .wrap{margin-left:0;padding:16px 14px 52px}
   .navscrim.open{display:block;position:fixed;inset:0;
     background:rgba(15,23,42,.32);z-index:39}
@@ -428,3 +439,9 @@ td.rank{width:auto;text-align:center;padding-right:0}
   box-shadow:0 1px 3px rgba(37,99,235,.28)}
 .btn-src:hover{background:var(--blue-dark);text-decoration:none;color:#fff}
 .btn-src span{font-size:14px;opacity:.9}
+
+/* 메일 미리보기 — 실제 발송 HTML을 그대로 띄운다 */
+#nl-frame{width:100%;height:min(72vh,860px);border:1px solid var(--line);
+  border-radius:8px;background:#fff;display:block}
+#panel-news .hrow{font-size:14.5px}
+#panel-news .hrow .n{text-align:right;max-width:60%}

@@ -1007,8 +1007,6 @@ async function loadMonth(month) {
   if (!m.lead) { $('#home-month').hidden = true; return; }
   $('#home-month').hidden = false;
   $('#month-title').textContent = `🗓️ ${m.label} 리뷰`;
-  $('#month-sub').textContent = m.weeks
-    ? `${m.weeks}개 주차 · 통과 ${num(m.kept)}건` : '';
   $('#month-select').innerHTML = (m.months || [])
     .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
       ${esc(x.label)}</option>`).join('');
@@ -1016,7 +1014,46 @@ async function loadMonth(month) {
 }
 $('#month-select').onchange = e => loadMonth(e.target.value);
 
+/* ── 뉴스레터 ────────────────────────────────────────────────────
+ * 보내기 전에 눈으로 볼 수 없는 발송물은 언젠가 이상한 채로 나간다.
+ * 실제 메일 HTML을 그대로 iframe에 띄운다 — sandbox를 비워 스크립트를 막고,
+ * 페이지 CSS와도 섞이지 않게 한다(메일은 인라인 스타일만 쓴다).
+ * 수신자·키워드는 읽기 전용이다. 이 화면에는 로그인이 없어서, 같은 망의
+ * 누구나 수신자를 고칠 수 있으면 안 된다. */
+async function loadNews() {
+  const n = await api('/api/newsletter');
+  $('#nl-week').textContent = n.week_label || '';
+  $('#nl-subject').textContent = n.subject || '';
+  const f = $('#nl-frame');
+  f.srcdoc = n.preview || '<p style="font-family:sans-serif;color:#64748b">'
+    + '보낼 내용이 아직 없습니다.</p>';
+
+  const s = n.smtp;
+  $('#nl-smtp').innerHTML = `
+    <div class="hrow"><span>상태</span><span class="n">
+      ${s.configured ? '<b style="color:#15803d">설정됨</b>'
+                     : '<b style="color:#b91c1c">미설정 — 발송 안 됨</b>'}</span></div>
+    <div class="hrow"><span>서버</span><span class="n">${esc(s.host || '—')}:${esc(s.port)}</span></div>
+    <div class="hrow"><span>보내는 사람</span><span class="n">${esc(s.from || '—')}</span></div>
+    <div class="hrow"><span>받는 사람</span><span class="n">${
+      s.to.length ? s.to.map(esc).join('<br>') : '—'}</span></div>
+    <div class="hrow"><span>발송 시각</span><span class="n">${esc(n.schedule.digest)}</span></div>
+    ${s.configured ? '' : `<div class="mut" style="margin-top:10px">
+      .env의 SMTP_HOST · SMTP_USER · SMTP_PASSWORD · MAIL_TO를 채우면 발송됩니다.</div>`}`;
+
+  const a = n.alerts;
+  $('#nl-alerts').innerHTML = `
+    <div class="hrow"><span>상태</span><span class="n">${a.enabled ? '켜짐' : '꺼짐'}</span></div>
+    <div class="hrow"><span>범위</span><span class="n">최근 ${a.days}일</span></div>
+    <div class="hrow"><span>발송 시각</span><span class="n">${esc(n.schedule.alert)}</span></div>
+    <div class="chip-row" style="margin-top:12px">
+      ${a.keywords.map(k => `<span class="chip">${esc(k)}</span>`).join('')
+        || '<span class="mut">등록된 키워드가 없습니다</span>'}</div>
+    <div class="mut" style="margin-top:10px">config.yaml의 alerts.keywords에서 바꿉니다.</div>`;
+}
+
 const LOADERS = {
+  news: loadNews,
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
 };
