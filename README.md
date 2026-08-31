@@ -13,16 +13,39 @@
 
 ---
 
-## 빠른 시작
+## 빠른 시작 (새 PC)
 
 ```bash
 git clone https://github.com/wjdgnsdl213/AI_tech_radar.git
 cd AI_tech_radar
-pip install -r requirements.txt
+pip install -r requirements.txt          # 약 3GB (torch 포함)
 
-cp .env.example .env      # 키를 채운다 (아래 표 참고)
-python -m src.db --summary
+cp .env.example .env                     # 키를 채운다 (아래 표 참고)
+python -m src.db --summary               # 82,000건 넘게 뜨면 DB 연결 OK
+python -m uvicorn web.server:app --port 8000
 ```
+
+기사 DB는 Supabase에 있어서 clone + `.env`만으로 바로 붙는다.
+`.env`에 최소한 **`DATABASE_URL`** 하나는 있어야 한다.
+
+### ⚠️ clone만으로는 비어 있는 화면이 있다
+
+`data/keywords.db`(키워드 인덱스, 약 270MB)는 저장소에 넣지 않는다 —
+본 DB에서 언제든 다시 만들 수 있는 파생물이고, git으로 주고받기엔 크다.
+이게 없으면 **급상승 · 연관어 · 기관** 세 화면이 빈 채로 뜬다.
+(오류는 안 난다 — 나머지 화면은 그대로 동작한다. 실측으로 확인했다.)
+
+```bash
+python -m src.extract --scope all --min-df 2    # 약 6분. 한 번만 하면 된다
+```
+
+| clone 직후 | 상태 |
+|---|---|
+| 홈 · 이번 주 · 법령·규제 · 교차 · 검색 | ✅ 바로 됨 |
+| 급상승 · 연관어 · 기관 | ⬜ `src.extract` 후 |
+| 수집 (`src.collect`) | 🔑 네이버·법제처 키 필요 |
+| AI 해설 (`src.insight`) | 🔑 `ANTHROPIC_API_KEY` 필요 |
+| 필터 재실행 (`src.filter`) | ⏳ 모델 최초 다운로드 약 2GB |
 
 GPU가 있으면 **CUDA 빌드 torch를 따로** 설치한다. 임베딩이 유일한 병목이다.
 
@@ -30,6 +53,12 @@ GPU가 있으면 **CUDA 빌드 torch를 따로** 설치한다. 임베딩이 유�
 pip uninstall -y torch
 pip install torch --index-url https://download.pytorch.org/whl/cu126
 python -c "import torch; print(torch.cuda.is_available())"
+```
+
+작업 스케줄러 등록(선택):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scriptsegister_tasks.ps1
 ```
 
 ---
