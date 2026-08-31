@@ -217,8 +217,17 @@ async function loadEgo(kw, hops) {
 
 /* 배치는 물리 시뮬레이션이 아니라 홉별 동심원이다.
    중심에서 멀수록 관계가 먼 말이라는 게 거리로 보이고, 결정적이라 다시 그려도 같다. */
+/** 라벨 배경(알약)을 그리려면 글자 폭이 필요한데 SVG는 그리기 전엔 못 잰다.
+ *  한글·전각은 한 칸, ASCII는 대략 0.56칸으로 어림한다. */
+function textW(s, fs) {
+  let u = 0;
+  for (const c of s) u += c.charCodeAt(0) < 128 ? .56 : 1;
+  return u * fs;
+}
+
+let LAYOUT = null;      // {pos, home, rad, inc} — 노드를 끌어 옮기려면 좌표를 들고 있어야 한다
+
 function drawEgo(g) {
-  const maxHop = Math.max(...g.nodes.map(n => n.hop));
   const byHop = {};
   g.nodes.forEach(n => (byHop[n.hop] = byHop[n.hop] || []).push(n));
 
@@ -227,11 +236,10 @@ function drawEgo(g) {
      라벨이 서로 겹친다. 한 노드가 차지할 호 길이(LANE)를 정해두고
      둘레가 그만큼 나오도록 반지름을 역산하면, 몇 개가 오든 간격이 유지된다.
 
-     LANE을 108 → 84로 줄였다. 넓게 벌리면 겹침은 줄지만 전체를 한 화면에
-     맞추느라 그림이 축소돼 글씨가 도로 작아졌고(3홉에서 가로 2940px),
-     중심에서 가지만 길게 뻗은 별 모양이 됐다. 이제 확대·이동이 되므로
-     촘촘한 '지도'로 두고 읽을 곳을 확대하는 쪽이 낫다. */
-  const LANE = 84;                        // 라벨 하나가 쓸 호 길이(px)
+     LANE 84 → 96. 라벨을 위아래 지그재그로 놓아 간격을 벌던 걸 없앴기 때문이다
+     (같은 홉인데 어떤 건 위, 어떤 건 아래라 읽는 순서가 안 잡혔다).
+     한 줄로 세우면 그만큼 가로로 더 벌려야 한다. */
+  const LANE = 96;
   const rings = Object.keys(byHop).filter(h => +h > 0).map(Number).sort();
   const radii = {};
   let prev = 0;
@@ -242,57 +250,98 @@ function drawEgo(g) {
   });
   const R = rings.length ? radii[rings[rings.length - 1]] : 160;
   const W = Math.round(Math.max(900, R * 2 + 190));
-  const H = Math.round(Math.max(620, R * 1.72 + 170));
+  const H = Math.round(Math.max(620, R * 1.72 + 190));
   const cx = W / 2, cy = H / 2;
 
-  const pos = { [g.center]: [cx, cy] }, lane = {};
+  const pos = { [g.center]: [cx, cy] };
   rings.forEach(h => {
     const arr = byHop[h], r = radii[h];
     arr.forEach((n, i) => {
       const t = -Math.PI / 2 + (i + (h % 2) * .5) * 2 * Math.PI / arr.length;
       // 세로를 눌러 타원으로 — 가로가 긴 화면을 쓰면서 위아래 여백을 줄인다
       pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .86];
-      // 라벨을 위/아래로 번갈아 놓아 이웃끼리 같은 높이에 서지 않게 한다
-      lane[n.keyword] = i % 2 ? 1 : -1;
     });
   });
 
   const maxDf = Math.max(...g.nodes.map(n => n.df || 1));
+  const rad = {};
+  g.nodes.forEach(n => {
+    rad[n.keyword] = n.center ? 26
+      : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
+  });
+
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
+  // 선에 양끝 키워드를 적어둔다 — 노드를 끌 때 이 선들만 골라 다시 잇는다
   (g.edges || []).forEach(e2 => {
-    const a = pos[e2.source], b = pos[e2.target];
-    if (!a || !b) return;
+    const a2 = pos[e2.source], b2 = pos[e2.target];
+    if (!a2 || !b2) return;
     const mid = e2.source === g.center || e2.target === g.center;
-    out.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}"
-      x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="#94a3b8"
+    out.push(`<line data-s="${esc(e2.source)}" data-t="${esc(e2.target)}"
+      x1="${a2[0].toFixed(1)}" y1="${a2[1].toFixed(1)}"
+      x2="${b2[0].toFixed(1)}" y2="${b2[1].toFixed(1)}" stroke="#94a3b8"
       stroke-opacity="${(e2.npmi * (mid ? .5 : .16)).toFixed(3)}"
       stroke-width="${mid ? 1.5 : 1}"/>`);
   });
   g.nodes.forEach(n => {
-    const [x, y] = pos[n.keyword];
-    const r = n.center ? 26
-      : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
+    const [x, y] = pos[n.keyword], r = rad[n.keyword];
     const fade = n.center ? 1 : Math.max(.4, 1 - (n.hop - 1) * .28);
-    const up = (lane[n.keyword] || -1) < 0;
-    const ly = n.center ? y + r + 17 : (up ? y - r - 7 : y + r + 14);
+    const fs = n.center ? 15 : Math.max(11, 13 - n.hop);
+    /* ★ 라벨은 예외 없이 노드 **아래**에 붙인다.
+       전에는 이웃끼리 높이를 어긋내려고 위/아래를 번갈아 놨는데, 겹침은
+       조금 줄었지만 같은 원 위의 말들이 들쭉날쭉해서 훑어 읽기가 더 나빴다.
+       대신 흰 알약을 깔아 선 위에 겹쳐도 글자가 죽지 않게 한다. */
+    const ly = y + r + fs + 2;
+    const tw = textW(n.keyword, fs);
     out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}"
       data-node="${esc(n.keyword)}">
       <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · ${n.hop}홉`}</title>
       <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
         fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${fade.toFixed(2)}"/>
+      <rect class="lbl-bg" x="${(x - tw / 2 - 5).toFixed(1)}" y="${(ly - fs * .85).toFixed(1)}"
+        width="${(tw + 10).toFixed(1)}" height="${(fs * 1.22).toFixed(1)}" rx="4"/>
       <text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle"
         class="glabel${n.center ? ' glabel-bridge' : ''}" fill="#334155"
-        font-size="${n.center ? 15 : Math.max(10.5, 13 - n.hop)}"
-        opacity="${n.center ? 1 : Math.max(.62, 1 - (n.hop - 1) * .2)}"
+        font-size="${fs}"
+        opacity="${n.center ? 1 : Math.max(.72, 1 - (n.hop - 1) * .16)}"
         >${esc(n.keyword)}</text>
     </g>`);
   });
   out.push('</svg>');
   $('#graph-svg').innerHTML = out.join('');
+
+  /* 끌어 옮길 때 만질 것들을 미리 모아둔다.
+     노드 요소도 같이 들고 있는다 — 키워드로 셀렉터를 만들면 따옴표·괄호가
+     든 키워드에서 깨져서 CSS.escape가 필요해지는데, 참조를 쥐면 그럴 일이 없다. */
+  const inc = {}, el = {};
+  $$('#graph-svg .gnode').forEach(g2 => (el[g2.dataset.node] = g2));
+  $$('#graph-svg line').forEach(l => {
+    (inc[l.dataset.s] = inc[l.dataset.s] || []).push([l, '1']);
+    (inc[l.dataset.t] = inc[l.dataset.t] || []).push([l, '2']);
+  });
+  LAYOUT = { pos, home: JSON.parse(JSON.stringify(pos)), rad, inc, el };
+
   // 전체가 한눈에 들어오는 상태에서 시작하고, 파고드는 건 사용자가 한다
   BASE = { x: 0, y: 0, w: W, h: H };
   VIEW = { ...BASE };
   applyView();
+}
+
+/** 노드 하나를 옮긴다. 다시 그리지 않고 해당 요소와 붙은 선만 만진다 —
+ *  전체를 다시 그리면 끌고 있는 동안 버벅이고 선택 상태도 잃는다. */
+function moveNode(kw, x, y) {
+  if (!LAYOUT) return;
+  LAYOUT.pos[kw] = [x, y];
+  const h = LAYOUT.home[kw], g = LAYOUT.el[kw];
+  if (g) g.setAttribute('transform', `translate(${(x - h[0]).toFixed(1)} ${(y - h[1]).toFixed(1)})`);
+  (LAYOUT.inc[kw] || []).forEach(([el, end]) => {
+    el.setAttribute('x' + end, x.toFixed(1));
+    el.setAttribute('y' + end, y.toFixed(1));
+  });
+}
+
+function resetLayout() {
+  if (!LAYOUT) return;
+  Object.keys(LAYOUT.home).forEach(kw => moveNode(kw, ...LAYOUT.home[kw]));
 }
 
 /* ── 지도 조작 ──────────────────────────────────────────────────
@@ -331,29 +380,56 @@ MAP.addEventListener('wheel', e => {
     (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
 }, { passive: false });
 
-let drag = null, moved = 0;
+/* ★ setPointerCapture를 쓰면 안 된다.
+   포인터를 캡처하면 그 뒤의 click·dblclick이 **캡처한 요소로 재타겟**된다.
+   즉 e.target이 늘 #graph-svg(div)가 되어 closest('[data-node]')가 null이고,
+   노드 클릭·더블클릭이 통째로 죽는다 (실측: 지도를 넣은 뒤 노드 선택 불가).
+   대신 window에서 이동/뗌을 듣는다 — 포인터가 요소 밖으로 나가도 따라온다. */
+let pan = null, nodeDrag = null, moved = 0;
+
+function onPointerMove(e) {
+  const d = nodeDrag || pan;
+  if (!d) return;
+  const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+  moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
+  const kx = VIEW.w / d.r.width, ky = VIEW.h / d.r.height;
+  if (nodeDrag) {
+    if (moved < 3) return;          // 클릭할 때의 미세한 흔들림까지 이동으로 치지 않는다
+    moveNode(nodeDrag.kw, nodeDrag.p0[0] + dx * kx, nodeDrag.p0[1] + dy * ky);
+  } else {
+    VIEW.x = pan.vx - dx * kx;
+    VIEW.y = pan.vy - dy * ky;
+    applyView();
+  }
+}
+
+function onPointerUp() {
+  pan = nodeDrag = null;
+  MAP.classList.remove('grabbing');
+  window.removeEventListener('pointermove', onPointerMove);
+  window.removeEventListener('pointerup', onPointerUp);
+}
+
 MAP.addEventListener('pointerdown', e => {
   if (!VIEW || e.button) return;
-  drag = { x: e.clientX, y: e.clientY, vx: VIEW.x, vy: VIEW.y };
-  moved = 0;
-  MAP.setPointerCapture(e.pointerId);
-  MAP.classList.add('grabbing');
-});
-MAP.addEventListener('pointermove', e => {
-  if (!drag) return;
   const r = MAP.getBoundingClientRect();
-  if (!r.width || !r.height) return;   // 숨은 탭 등 — 나누면 viewBox가 Infinity가 된다
-  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  moved = Math.max(moved, Math.abs(dx) + Math.abs(dy));
-  VIEW.x = drag.vx - dx * VIEW.w / r.width;
-  VIEW.y = drag.vy - dy * VIEW.h / r.height;
-  applyView();
+  if (!r.width || !r.height) return;
+  moved = 0;
+  const g = e.target.closest('[data-node]');
+  if (g && LAYOUT) {
+    // 노드를 잡았으면 지도가 아니라 그 노드가 움직인다
+    const kw = g.dataset.node;
+    nodeDrag = { kw, sx: e.clientX, sy: e.clientY, p0: [...LAYOUT.pos[kw]], r };
+  } else {
+    pan = { sx: e.clientX, sy: e.clientY, vx: VIEW.x, vy: VIEW.y, r };
+    MAP.classList.add('grabbing');
+  }
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
 });
-const endDrag = () => { drag = null; MAP.classList.remove('grabbing'); };
-MAP.addEventListener('pointerup', endDrag);
-MAP.addEventListener('pointercancel', endDrag);
 
 $('#graph-tools').addEventListener('click', e => {
+  if (e.target.closest('[data-relayout]')) { resetLayout(); return; }
   const b = e.target.closest('[data-zoom]');
   if (!b || !VIEW) return;
   const d = +b.dataset.zoom;

@@ -249,3 +249,21 @@ def test_js_hidden_targets_exist_in_html():
     ids = set(re.findall(r'id="([^"]+)"', html))
     used = set(re.findall(r"\$\('#([A-Za-z0-9_-]+)'\)\.hidden", js))
     assert used <= ids, f"HTML에 없는 id를 숨기려 한다: {sorted(used - ids)}"
+
+
+def test_graph_does_not_capture_pointer():
+    """연관어 지도에서 setPointerCapture를 쓰면 안 된다.
+
+    포인터를 캡처하면 그 뒤의 click·dblclick이 **캡처한 요소로 재타겟**된다.
+    e.target이 항상 컨테이너(div#graph-svg)가 되어 closest('[data-node]')가
+    null이 되고, 노드 클릭·더블클릭이 통째로 죽는다. 확대·이동을 넣으면서
+    실제로 이렇게 깨졌다 — 끌기는 멀쩡히 동작해서 눈치채기 어려웠다.
+
+    드래그 중 포인터가 요소 밖으로 나가는 건 window 리스너로 해결한다.
+    """
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    # 호출만 본다 — "쓰면 안 된다"고 적어둔 주석까지 잡으면 안 된다
+    assert not re.search(r"\.setPointerCapture\s*\(", js), (
+        "setPointerCapture 호출이 다시 들어왔다 — 노드 클릭/더블클릭이 죽는다. "
+        "window에 pointermove/pointerup을 붙여서 처리할 것"
+    )
