@@ -456,6 +456,92 @@ def _ego(kw: str, hops: int, per_hop: int,
             "docs": len(sets.get(center, ()))}
 
 
+@router.get("/regulatory")
+def regulatory(limit: int = Query(60), weeks: int = Query(0)) -> dict[str, Any]:
+    """규제 1차 출처에서 온 항목 (HTTP 경로). 실제 조회는 _regulatory에 있다."""
+    return _regulatory(limit, weeks)
+
+
+def _regulatory(limit: int, weeks: int) -> dict[str, Any]:
+    """규제 1차 출처에서 온 항목. 관련도 필터를 태우지 않는다.
+
+    ★ 라우트 함수를 다른 라우트에서 직접 부르지 않는다.
+      FastAPI가 값을 채워주는 건 HTTP 요청으로 들어올 때뿐이라, 파이썬 함수로
+      부르면 안 넘긴 인자가 Query 객체 그대로 남는다. Query는 truthy라 조건문을
+      통과해 버리고, 결국 `Query() - 1` 같은 데서 터진다(실측: /api/home 500).
+      캐시 예열에서도 같은 함정에 걸렸다. 그래서 조회 로직은 순수 함수로 뺀다.
+
+    판정은 **소스 기반**이다 — config에서 regulatory: true인 소스에서 왔으면
+    제목과 무관하게 전부 규제로 본다. "규제가 확정되기 전에 안다"가 목적인데
+    필터가 걸러버리면 알 방법이 없다.
+    """
+    srcs = [n for n, sc in (CFG.get("sources") or {}).items()
+            if isinstance(sc, dict) and sc.get("regulatory")]
+    if not srcs:
+        return {"items": [], "total": 0, "sources": []}
+    with get_engine().connect() as c:
+        q = (select(items.c.id, items.c.title, items.c.summary, items.c.url,
+                    items.c.source, items.c.published_at, items.c.meta)
+             .where(items.c.source.in_(srcs))
+             .order_by(items.c.published_at.desc()))
+        if weeks:
+            cur = c.execute(select(func.max(items.c.published_week))).scalar_one_or_none()
+            if cur:
+                from src.trend import prev_weeks
+                q = q.where(items.c.published_week.in_([cur, *prev_weeks(cur, weeks - 1)]))
+        rows = c.execute(q.limit(limit)).all()
+        total = c.execute(select(func.count()).select_from(items)
+                          .where(items.c.source.in_(srcs))).scalar_one()
+    out = []
+    for r in rows:
+        m = r.meta if isinstance(r.meta, dict) else {}
+        out.append({"id": r.id, "title": r.title or "", "summary": r.summary or "",
+                    "url": r.url or "", "source": r.source,
+                    "published": str(r.published_at)[:10] if r.published_at else "",
+                    "dept": m.get("부처", ""), "kind": m.get("종류", ""),
+                    "revision": m.get("제개정", ""), "effective": m.get("시행일자", "")})
+    return {"items": out, "total": total, "sources": srcs}
+
+
+@router.get("/home")
+def home() -> dict[str, Any]:
+    """메인 화면이 쓰는 것들을 **한 번에** 낸다.
+
+    원격 DB(Supabase)라 왕복 하나가 곧 지연이다. 화면을 열 때마다 5~6번 부르면
+    체감이 확 나빠져서, 홈이 필요한 만큼만 모아 한 응답으로 돌려준다.
+    """
+    from src.digest import latest_week
+
+    with get_engine().connect() as c:
+        week = latest_week(c) or ""
+        # 소스별 수집 현황 — 수집기가 조용히 멈춘 걸 알아채는 유일한 화면이다.
+        #   스케줄러가 "성공"으로 보고하면서 실제로는 아무것도 안 받는 상황이
+        #   가능하므로(잠금 버그가 실제로 그랬다) 여기서 눈에 보이게 둔다.
+        health = [
+            {"source": s, "total": n,
+             "latest": str(p)[:10] if p else "", "collected": str(cl)[:10] if cl else ""}
+            for s, n, p, cl in c.execute(
+                select(items.c.source, func.count(), func.max(items.c.published_at),
+                       func.max(items.c.collected_at))
+                .group_by(items.c.source).order_by(func.count().desc()))
+        ]
+    # 인자를 전부 명시한다 — 위 _regulatory의 주석 참고
+    d = digest(week=week) if week else {"sections": [], "lead": None, "total_kept": 0}
+    sec = {s["key"]: s["items"] for s in d.get("sections", [])}
+    try:
+        tr = trend(week="", top=10)
+    except Exception:
+        tr = {"rows": [], "week_label": ""}
+    return {
+        "week": week, "week_label": week_label(week) if week else "",
+        "lead": d.get("lead"), "total_kept": d.get("total_kept", 0),
+        "crossing": sec.get("crossing", [])[:5],
+        "regulatory": _regulatory(6, 0)["items"],
+        "trending": (tr.get("rows") or [])[:10],
+        "health": health,
+    }
+
+
 @router.get("/cache")
 def cache_info() -> dict[str, Any]:
     """캐시가 실제로 듣고 있는지 확인용. 안 맞으면 여기부터 본다."""

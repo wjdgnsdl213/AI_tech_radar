@@ -8,26 +8,72 @@
 </head>
 <body>
 
-<!-- 메뉴를 상단 바에 함께 둔다 -->
-<nav class="topnav">
-  <div class="brand">📡 <b>AI 빅데이터 트렌드</b></div>
-  <div class="menu" role="tablist">
-    <button class="tab-btn active" data-tab="digest" role="tab">이번 주</button>
-    <button class="tab-btn" data-tab="search" role="tab">검색</button>
-    <button class="tab-btn" data-tab="graph"  role="tab">연관어 네트워크</button>
-    <button class="tab-btn" data-tab="trend"  role="tab">급상승</button>
+<!-- ── 상단 바 ──────────────────────────────────────────────────
+     로고(→ 홈) + 전역 검색. 검색은 어느 화면에 있든 항상 닿을 수 있어야 한다. -->
+<header class="topbar">
+  <button class="hamburger" id="nav-toggle" aria-label="메뉴 열기">☰</button>
+  <a class="brand" href="#home" data-tab="home">📡 <b>AI 빅데이터 트렌드</b></a>
+  <form class="topsearch" id="top-form" role="search">
+    <input id="top-q" type="search" placeholder="기사·키워드 검색" autocomplete="off"
+           aria-label="검색">
+    <button type="submit" aria-label="검색 실행">🔍</button>
+  </form>
+</header>
+
+<!-- ── 좌측 메뉴 ────────────────────────────────────────────────── -->
+<div class="shell">
+<aside class="sidenav" id="sidenav">
+  <nav role="tablist">
+    <button class="nav-item active" data-tab="home"   role="tab"><i>🏠</i><span>홈</span></button>
+    <button class="nav-item" data-tab="digest" role="tab"><i>📰</i><span>이번 주</span></button>
+    <button class="nav-item" data-tab="reg"    role="tab"><i>⚠️</i><span>법령·규제</span></button>
+    <button class="nav-item" data-tab="trend"  role="tab"><i>📈</i><span>급상승</span></button>
+    <button class="nav-item" data-tab="graph"  role="tab"><i>🕸️</i><span>연관어 네트워크</span></button>
+    <button class="nav-item" data-tab="search" role="tab"><i>🔎</i><span>검색</span></button>
+  </nav>
+  <div class="nav-foot">
+    <label class="navweek">지난 회차
+      <select id="week-select"></select>
+    </label>
   </div>
-</nav>
+</aside>
+<div class="navscrim" id="navscrim"></div>
 
 <main class="wrap">
 
+  <!-- ⓪ 홈 — 한 화면에서 "이번 주에 무슨 일이 있었나"가 끝나야 한다 -->
+  <section class="panel active" id="panel-home">
+    <div class="page-head"><h1 id="home-title">—</h1>
+      <span class="mut" id="home-sub"></span></div>
+    <div class="card lead-card" id="home-lead" hidden><div class="lead" id="home-lead-t"></div></div>
+    <div class="home-grid">
+      <div class="card">
+        <div class="panel-head"><h2>📈 급상승 키워드</h2>
+          <button class="linkish" data-tab="trend">전체 보기</button></div>
+        <div id="home-trend"><div class="empty">불러오는 중…</div></div>
+      </div>
+      <div class="card">
+        <div class="panel-head"><h2>⚠️ 법령·규제</h2>
+          <button class="linkish" data-tab="reg">전체 보기</button></div>
+        <div id="home-reg"><div class="empty">불러오는 중…</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="panel-head"><h2>🔥 이번 주 핵심</h2>
+        <button class="linkish" data-tab="digest">다이제스트 전체</button></div>
+      <div id="home-cross"><div class="empty">불러오는 중…</div></div>
+    </div>
+    <div class="card">
+      <div class="panel-head"><h2>🗂️ 수집 현황</h2>
+        <span class="mut">수집기가 멈추면 여기서 먼저 보인다</span></div>
+      <div id="home-health"></div>
+    </div>
+  </section>
+
   <!-- ① 이번 주 -->
-  <section class="panel active" id="panel-digest">
+  <section class="panel" id="panel-digest">
     <div class="page-head">
       <h1 id="digest-title">—</h1>
-      <label class="weekpick">지난 주차
-        <select id="week-select"></select>
-      </label>
     </div>
 
     <div class="board">
@@ -113,6 +159,17 @@
     </div>
   </section>
 
+  <!-- ③-b 법령·규제 -->
+  <section class="panel" id="panel-reg">
+    <div class="page-head"><h1>법령·규제</h1>
+      <span class="mut" id="reg-sub"></span></div>
+    <div class="card">
+      <div class="panel-head"><h2>1차 출처에서 직접 받은 항목</h2>
+        <span class="mut">관련도 필터를 거치지 않는다</span></div>
+      <div id="reg-body"><div class="empty">불러오는 중…</div></div>
+    </div>
+  </section>
+
   <!-- ④ 급상승 -->
   <section class="panel" id="panel-trend">
     <div class="page-head"><h1>급상승 키워드</h1>
@@ -123,6 +180,7 @@
   </section>
 
 </main>
+</div><!-- /.shell -->
 
 <div class="modal" id="kwmodal" hidden>
   <div class="modal-bg" data-mclose></div>

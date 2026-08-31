@@ -30,17 +30,43 @@ const tags = ax => (ax || []).map(a =>
 /* ── 탭 ── */
 const loaded = new Set();
 function showTab(name) {
-  $$('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
   location.hash = name;
+  closeNav();
+  window.scrollTo(0, 0);        // 화면을 갈아탔는데 스크롤이 중간에 남아 있으면 길을 잃는다
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
 }
-$$('.tab-btn').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
-/* ── 항목 카드 ── */
-/* 제목을 누르면 상세가 열리고, 원문은 그 안에서 또는 옆의 링크로 간다.
-   목록에서는 AI 해설을 접어둔다 — 20건이 늘어서면 해설이 목록을 밀어내
-   무엇이 있는지 훑는 일 자체가 어려워진다. */
+/* 좁은 화면에서만 열고 닫는다. 넓은 화면에서는 늘 붙어 있다. */
+function closeNav() {
+  $('#sidenav').classList.remove('open');
+  $('#navscrim').classList.remove('open');
+}
+$('#nav-toggle').onclick = () => {
+  $('#sidenav').classList.toggle('open');
+  $('#navscrim').classList.toggle('open');
+};
+$('#navscrim').onclick = closeNav;
+
+// 메뉴·로고·"전체 보기" 버튼이 전부 같은 경로를 탄다
+document.body.addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]');
+  if (!b) return;
+  e.preventDefault();
+  showTab(b.dataset.tab);
+});
+
+/* 상단 검색 = 기사 검색. 어느 화면에 있든 여기서 바로 들어간다. */
+$('#top-form').onsubmit = e => {
+  e.preventDefault();
+  const q = $('#top-q').value.trim();
+  showTab('search');
+  if (!loaded.has('search')) { loaded.add('search'); initSearch(); }
+  $('#f-q').value = q;      // 검색 패널의 입력창 id는 f-q 다
+  runSearch();
+};
+
 function itemHTML(p) {
   return `<div class="item">
     <div class="item-t">
@@ -765,7 +791,76 @@ document.addEventListener('keydown', e => {
 });
 
 /* ── 시작 ── */
+/* ── ⓪ 홈 ────────────────────────────────────────────────────────
+ * "이번 주에 무슨 일이 있었나"가 이 한 화면에서 끝나야 한다.
+ * 원격 DB라 왕복 하나가 곧 지연이므로 /api/home 한 번으로 다 받는다. */
+async function loadHome() {
+  const h = await api('/api/home');
+  $('#home-title').textContent = h.week_label || '—';
+  $('#home-sub').textContent = h.total_kept ? `이번 주 통과 ${num(h.total_kept)}건` : '';
+  if (h.lead) {
+    $('#home-lead').hidden = false;
+    $('#home-lead-t').textContent = h.lead;   // 줄바꿈은 .lead의 white-space가 살린다
+  }
+
+  $('#home-trend').innerHTML = (h.trending || []).length
+    ? h.trending.map(r => `<div class="hrow">
+        <span class="k" data-kwpop="${esc(r.keyword)}">${esc(r.keyword)}</span>
+        ${r.is_new ? '<span class="new">신규</span>' : ''}
+        <span class="n">${r.count}건 · ${r.score.toFixed(1)}배</span></div>`).join('')
+    : '<div class="empty">데이터가 없습니다.</div>';
+
+  $('#home-reg').innerHTML = regHTML(h.regulatory || [], true);
+  $('#home-cross').innerHTML = (h.crossing || []).length
+    ? `<div class="items" style="padding:0;border:0;margin:0">
+        ${h.crossing.map(itemHTML).join('')}</div>`
+    : '<div class="empty">항목이 없습니다.</div>';
+
+  // 수집 현황 — 마지막 수집이 3일 넘게 밀리면 빨갛게. 수집은 소급되지 않으므로
+  // 멈춘 걸 늦게 알수록 손실이 그대로 쌓인다.
+  const today = new Date();
+  $('#home-health').innerHTML = `<table class="health">
+    <tr><th>소스</th><th>누적</th><th>최근 발행</th><th>최근 수집</th></tr>` +
+    (h.health || []).map(s => {
+      const d = s.collected ? Math.round((today - new Date(s.collected)) / 86400000) : 999;
+      return `<tr><td><b>${esc(s.source)}</b></td><td>${num(s.total)}건</td>
+        <td>${esc(s.latest || '—')}</td>
+        <td class="${d > 3 ? 'stale' : ''}">${esc(s.collected || '—')}
+          ${d > 3 ? ` (${d}일 전)` : ''}</td></tr>`;
+    }).join('') + '</table>';
+}
+
+/* ── ③-b 법령·규제 ───────────────────────────────────────────────
+ * 제목만으로는 성격을 알 수 없다 — 어느 부처가, 무슨 종류를, 제정인지
+ * 개정인지, 언제 시행하는지가 판단에 필요한 정보다. 배지로 같이 보여준다. */
+function regHTML(rows, compact) {
+  if (!rows.length) return '<div class="empty">항목이 없습니다.</div>';
+  const today = new Date();
+  return rows.map(r => {
+    const days = r.published ? Math.round((today - new Date(r.published)) / 86400000) : 999;
+    return `<div class="reg-item">
+      <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+      <div class="reg-meta">
+        ${days <= 14 ? '<span class="rbadge new">최신</span>' : ''}
+        ${r.dept ? `<span class="rbadge dept">${esc(r.dept)}</span>` : ''}
+        ${r.kind ? `<span class="rbadge">${esc(r.kind)}</span>` : ''}
+        ${r.revision ? `<span class="rbadge">${esc(r.revision)}</span>` : ''}
+        <span>발령 ${esc(r.published || '—')}</span>
+        ${!compact && r.effective ? `<span>· 시행 ${esc(fmtYmd(r.effective))}</span>` : ''}
+      </div></div>`;
+  }).join('');
+}
+const fmtYmd = s => (s && s.length === 8)
+  ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : (s || '');
+
+async function loadReg() {
+  const r = await api('/api/regulatory', { limit: 100 });
+  $('#reg-sub').textContent = r.total ? `누적 ${num(r.total)}건` : '';
+  $('#reg-body').innerHTML = regHTML(r.items || [], false);
+}
+
 const LOADERS = {
+  home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
 };
 
@@ -780,6 +875,6 @@ const LOADERS = {
   // 메일의 '전체 보기'가 ?week=2026-W35#digest 로 들어온다
   const wanted = new URLSearchParams(location.search).get('week');
   if (wanted) { loaded.add('digest'); await loadDigest(wanted); }
-  const tab = (location.hash || '#digest').slice(1);
-  showTab(LOADERS[tab] ? tab : 'digest');
+  const tab = (location.hash || '#home').slice(1);
+  showTab(LOADERS[tab] ? tab : 'home');
 })();

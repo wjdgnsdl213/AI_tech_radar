@@ -39,22 +39,13 @@ a:hover{text-decoration:underline}
 .empty{padding:36px 8px;text-align:center;color:var(--mut-2);font-size:14px}
 
 /* ── 상단: 브랜드 좌 · 메뉴 가운데 ── */
-.topnav{background:var(--card);border-bottom:1px solid var(--line);
-  display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch;
-  padding:0 24px;position:sticky;top:0;z-index:30}
-.topnav .brand{display:flex;align-items:center;font-size:15.5px;white-space:nowrap;
-  padding:13px 0;color:var(--ink);font-weight:700;letter-spacing:-.3px}
-.menu{display:flex;gap:4px;justify-content:center}
-.tab-btn{border:0;background:transparent;color:var(--mut);padding:0 20px;
-  font-size:14.5px;font-weight:500;cursor:pointer;font-family:inherit;
-  border-bottom:2px solid transparent;transition:color .12s}
-.tab-btn:hover{color:var(--ink)}
-.tab-btn.active{color:var(--blue);font-weight:700;border-bottom-color:var(--blue)}
+
+
 
 .wrap{max-width:1680px;margin:0 auto;padding:24px 26px 76px}
 .page-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:18px}
 .page-head h1{font-size:22px;margin:0;letter-spacing:-.6px;font-weight:700}
-.weekpick{margin-left:auto;font-size:13px;color:var(--mut);display:flex;align-items:center;gap:8px}
+
 .panel{display:none}
 .panel.active{display:block}
 
@@ -210,11 +201,9 @@ td.n{white-space:nowrap;color:var(--mut);font-size:12.5px;font-variant-numeric:t
 .drawer-x:hover{background:var(--line)}
 
 @media(max-width:820px){
-  .topnav{grid-template-columns:1fr;padding:0 14px}
-  .menu{justify-content:flex-start;overflow-x:auto;border-top:1px solid var(--line-soft)}
-  .tab-btn{padding:11px 14px;font-size:13.5px}
+
   .wrap{padding:18px 12px 60px}
-  .weekpick{margin-left:0;width:100%}
+
 }
 
 /* ── 기사 목록 스크롤 컨테이너 ─────────────────────────────────────
@@ -265,3 +254,102 @@ td.n{white-space:nowrap;color:var(--mut);font-size:12.5px;font-variant-numeric:t
 #graph-svg line.hot{stroke:var(--blue) !important;stroke-opacity:.85 !important;
   stroke-width:2.4 !important}
 #graph-svg line.dim{stroke-opacity:.05 !important}
+
+/* ══════════════════════════════════════════════════════════════════
+   Kaggle 형태의 껍데기 — 상단 바(로고+검색) + 좌측 고정 메뉴
+   메뉴를 위에 가로로 두면 항목이 늘 때마다 자리를 다투는데, 옆에 세우면
+   그냥 아래로 늘어난다. 규제·회차처럼 앞으로 붙을 것들을 생각한 배치다.
+   ══════════════════════════════════════════════════════════════════ */
+:root{ --nav-w:212px; --top-h:56px; }
+
+.topbar{position:fixed;top:0;left:0;right:0;height:var(--top-h);z-index:50;
+  display:flex;align-items:center;gap:14px;padding:0 16px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.topbar .brand{display:flex;align-items:center;gap:7px;font-size:15px;
+  color:var(--ink);text-decoration:none;white-space:nowrap}
+.topbar .brand:hover b{color:var(--blue)}
+.hamburger{display:none;background:none;border:0;font-size:19px;color:var(--mut);
+  padding:6px 8px;cursor:pointer}
+
+/* 검색은 어느 화면에 있든 손에 닿아야 한다 — 상단에 고정한다 */
+.topsearch{flex:1;max-width:620px;display:flex;align-items:center;gap:6px;
+  background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:0 6px 0 12px}
+.topsearch:focus-within{border-color:var(--blue);background:var(--card);
+  box-shadow:0 0 0 3px rgba(32,116,222,.12)}
+.topsearch input{flex:1;border:0;background:none;padding:9px 0;font-size:14px;
+  color:var(--ink);outline:none;font-family:inherit}
+.topsearch button{background:none;border:0;font-size:14px;cursor:pointer;
+  padding:6px 8px;color:var(--mut)}
+
+.shell{display:flex;padding-top:var(--top-h);min-height:100vh}
+
+.sidenav{position:fixed;top:var(--top-h);bottom:0;left:0;width:var(--nav-w);
+  background:var(--card);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:10px 8px;overflow-y:auto;z-index:40}
+.sidenav nav{display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;
+  background:none;border:0;border-radius:8px;padding:9px 11px;cursor:pointer;
+  font-size:13.5px;color:var(--ink);text-align:left;font-family:inherit;
+  font-weight:500;line-height:1.3}
+.nav-item i{font-style:normal;font-size:15px;width:19px;text-align:center;flex:none}
+.nav-item:hover{background:var(--bg)}
+.nav-item.active{background:#e8f1fd;color:var(--blue);font-weight:700}
+.nav-foot{border-top:1px solid var(--line);padding:11px 4px 4px;margin-top:10px}
+.navweek{display:block;font-size:11.5px;color:var(--mut)}
+.navweek select{width:100%;margin-top:5px;padding:6px 7px;font-size:12.5px;
+  border:1px solid var(--line);border-radius:6px;background:var(--card);
+  color:var(--ink);font-family:inherit}
+.navscrim{display:none}
+
+.wrap{flex:1;margin-left:var(--nav-w);padding:22px 26px 60px;min-width:0}
+
+/* 홈 — 급상승과 규제를 나란히 놓는다. 둘 다 "지금 봐야 하는 것"이다 */
+.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.linkish{background:none;border:0;color:var(--blue);font-size:12.5px;cursor:pointer;
+  padding:2px 4px;font-family:inherit;font-weight:600}
+.linkish:hover{text-decoration:underline}
+
+.hrow{display:flex;align-items:baseline;gap:9px;padding:7px 2px;
+  border-bottom:1px solid var(--line);font-size:13.5px}
+.hrow:last-child{border-bottom:0}
+.hrow .k{font-weight:700;color:var(--ink);cursor:pointer}
+.hrow .k:hover{color:var(--blue);text-decoration:underline}
+.hrow .n{margin-left:auto;color:var(--mut);font-size:12px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* 법령 항목 — 부처·종류·제개정을 배지로. 제목만으론 성격을 알 수 없다 */
+.reg-item{padding:11px 2px;border-bottom:1px solid var(--line)}
+.reg-item:last-child{border-bottom:0}
+.reg-item a{color:var(--ink);font-weight:600;font-size:14px;text-decoration:none;
+  line-height:1.5}
+.reg-item a:hover{color:var(--blue);text-decoration:underline}
+.reg-meta{margin-top:5px;display:flex;flex-wrap:wrap;gap:5px;align-items:center;
+  font-size:11.5px;color:var(--mut)}
+.rbadge{background:var(--bg);border:1px solid var(--line);border-radius:4px;
+  padding:1px 6px;font-size:11px;color:var(--mut)}
+.rbadge.dept{background:#fff7ed;border-color:#fed7aa;color:#9a3412;font-weight:600}
+.rbadge.new{background:#fef2f2;border-color:#fecaca;color:#b91c1c;font-weight:700}
+
+/* 수집 현황 — 소스가 조용히 멈춘 걸 알아채는 자리 */
+.health{width:100%;border-collapse:collapse;font-size:13px}
+.health th{text-align:left;color:var(--mut);font-weight:600;font-size:11.5px;
+  padding:4px 8px 7px;border-bottom:1px solid var(--line)}
+.health td{padding:7px 8px;border-bottom:1px solid var(--line);
+  font-variant-numeric:tabular-nums}
+.health tr:last-child td{border-bottom:0}
+.health .stale{color:#b91c1c;font-weight:600}
+
+@media (max-width:1000px){
+  .home-grid{grid-template-columns:1fr}
+}
+/* 좁은 화면에서는 메뉴를 걷어내고 필요할 때만 밀어 넣는다 */
+@media (max-width:820px){
+  .hamburger{display:block}
+  .sidenav{transform:translateX(-100%);transition:transform .18s;box-shadow:0 0 24px rgba(15,23,42,.16)}
+  .sidenav.open{transform:none}
+  .wrap{margin-left:0;padding:16px 14px 50px}
+  .navscrim.open{display:block;position:fixed;inset:var(--top-h) 0 0;
+    background:rgba(15,23,42,.32);z-index:39}
+  .topsearch{max-width:none}
+}
