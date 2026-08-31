@@ -181,6 +181,8 @@ def trend(week: str = Query(""), top: int = Query(20)) -> dict[str, Any]:
         r["series"] = [{"week": w, "label": week_label(w), "n": n}
                        for w, n in series(r["keyword"], axis_weeks)]
     return {"week": week, "week_label": week_label(week),
+            # 화면이 "직전 N주 평균과 비교"라고 정확히 쓸 수 있게 같이 낸다
+            "compare_weeks": back,
             "weeks": [{"week": w, "label": week_label(w)} for w in axis_weeks],
             "rows": rows}
 

@@ -172,8 +172,30 @@ const params = () => ({
   kept_only: 1,
 });
 
+/* 한 화면에 50줄은 끝까지 훑기 전에 지친다. 25줄이면 한 화면에 들어온다.
+   대신 쪽수가 늘어나므로 번호 페이지가 같이 필요하다. */
+const PAGE_SIZE = 25;
+
+/* 이전/다음만 있으면 "지금 몇 쪽인지", "몇 쪽까지 있는지"를 알 수 없고
+   뒤쪽으로 건너뛸 방법도 없다. 앞뒤 2쪽씩과 처음·끝을 항상 보여준다. */
+function renderPager(page, total, size) {
+  const last = Math.max(1, Math.ceil(total / size));
+  if (last <= 1) { $('#search-pager').innerHTML = ''; return; }
+  const nums = new Set([1, last]);
+  for (let i = page - 2; i <= page + 2; i++) if (i > 0 && i <= last) nums.add(i);
+  const sorted = [...nums].sort((a, b) => a - b);
+
+  const out = [`<button data-page="${page - 1}" ${page === 1 ? 'disabled' : ''}>←</button>`];
+  sorted.forEach((n, i) => {
+    if (i && n - sorted[i - 1] > 1) out.push('<span class="gap">…</span>');
+    out.push(`<button data-page="${n}" class="${n === page ? 'cur' : ''}">${n}</button>`);
+  });
+  out.push(`<button data-page="${page + 1}" ${page === last ? 'disabled' : ''}>→</button>`);
+  $('#search-pager').innerHTML = out.join('');
+}
+
 async function runSearch(page = 1) {
-  const p = { ...params(), page, size: 50 };
+  const p = { ...params(), page, size: PAGE_SIZE };
   $('#search-body').innerHTML = '<div class="empty">검색 중…</div>';
   // 같은 검색어가 법령·연관어에도 걸리는지 함께 찾는다 (첫 페이지에서만)
   if (page === 1) loadSearchOther((p.q || '').trim());
@@ -194,10 +216,7 @@ async function runSearch(page = 1) {
         <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
     : '<div class="empty">결과가 없습니다.</div>';
 
-  const nav = [];
-  if (page > 1) nav.push(`<button class="preset" data-page="${page - 1}">← 이전</button>`);
-  if (from + r.size < r.total) nav.push(`<button class="preset" data-page="${page + 1}">다음 →</button>`);
-  $('#search-pager').innerHTML = nav.join('');
+  renderPager(page, r.total, r.size);
   $('#f-csv').href = '/search.csv?' + new URLSearchParams(params()).toString();
 }
 $('#search-form').onsubmit = e => { e.preventDefault(); runSearch(1); };
@@ -609,6 +628,21 @@ $('#kw-related').addEventListener('click', e => {
 /* ── ④ 급상승 ── */
 let TREND = null;
 
+/* 상승폭이 무엇인지 화면에서 설명한다.
+   숫자만 있으면 "38배"가 뭘 기준으로 38배인지 알 수 없다.
+   실제 계산식(src/trend.py)을 그대로 옮긴다 — 설명을 지어내면 안 된다. */
+const RISE_TIP = (weeks) => `이번 주 비중 ÷ 직전 ${weeks}주 평균 비중
+
+비중 = 그 주 통과 기사 중 이 키워드가 나온 비율.
+건수가 아니라 비중으로 재는 이유는, 수집량이 늘면
+모든 키워드가 같이 늘어서 전부 급상승으로 보이기 때문입니다.
+
+직전에 한 번도 안 나온 신규 키워드는
+상승폭이 이번 주 건수와 같아집니다.`;
+
+const infoIcon = (tip, right) =>
+  `<i class="info${right ? ' right' : ''}">?<span class="tip">${esc(tip)}</span></i>`;
+
 async function loadTrend() {
   const t = await api('/api/trend', { top: 20 });
   TREND = t.rows || [];
@@ -616,17 +650,18 @@ async function loadTrend() {
   if (!t.rows?.length) { $('#trend-body').innerHTML = '<div class="empty">데이터가 없습니다.</div>'; return; }
   const max = Math.max(...t.rows.map(r => r.score));
   $('#trend-body').innerHTML = `<div class="tblwrap"><table>
-      <tr><th>키워드</th><th>이번 주</th><th>상승폭</th><th></th></tr>` +
-    t.rows.map(r => {
-      return `<tr>
+      <tr><th style="width:44px;text-align:center">순위</th><th>키워드</th>
+        <th>이번 주</th>
+        <th>상승폭${infoIcon(RISE_TIP(t.compare_weeks || 4))}</th><th></th></tr>` +
+    t.rows.map((r, i) => `<tr>
+        <td class="rank${i < 3 ? ' top' : ''}">${i + 1}</td>
         <td><a href="#" data-kwpop="${esc(r.keyword)}"><b>${esc(r.keyword)}</b></a>
           ${r.is_new ? ' <span class="new">신규</span>' : ''}</td>
         <td class="n">${r.count}건</td>
         <td class="n">${r.score.toFixed(1)}배
           <div class="bar" style="width:${Math.round(r.score / max * 90)}px"></div></td>
         <td class="n"><button class="preset" data-kwpop="${esc(r.keyword)}">추이·연관어</button></td>
-      </tr>`;
-    }).join('') + '</table></div>';
+      </tr>`).join('') + '</table></div>';
 }
 
 /* ── 키워드 팝업 — 추이 + 연관어를 한 화면에 ──
@@ -834,7 +869,8 @@ async function loadHome() {
   }
 
   $('#home-trend').innerHTML = (h.trending || []).length
-    ? h.trending.map(r => `<div class="hrow">
+    ? h.trending.map((r, i) => `<div class="hrow">
+        <span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>
         <span class="k" data-kwpop="${esc(r.keyword)}">${esc(r.keyword)}</span>
         ${r.is_new ? '<span class="new">신규</span>' : ''}
         <span class="n">${r.count}건 · ${r.score.toFixed(1)}배</span></div>`).join('')

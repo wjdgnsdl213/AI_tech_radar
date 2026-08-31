@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import csv
+import threading
 import html as html_mod
 import io
 import sys
@@ -61,7 +62,7 @@ def _warm_cache() -> None:
     추천 목록(=문서 빈도 상위)이 곧 실제로 많이 열리는 키워드다.
     데몬 스레드에서 돌고 실패해도 서버를 멈추지 않는다. WARM_CACHE=0으로 끈다.
     """
-    from web.api import ego, suggest
+    from web.api import ego, home, suggest
     from web.cache import warm
     try:
         # ★ 인자를 전부 명시해야 한다. 라우트 함수를 파이썬 함수로 직접 부르면
@@ -73,6 +74,20 @@ def _warm_cache() -> None:
         print(f"[cache] 예열 건너뜀: {e}", flush=True)
         return
     warm(kws, ego)
+
+    # 홈은 첫 화면이다. 서버 기동 후 첫 요청은 연결 풀·TLS·모듈 임포트가 전부
+    # 처음이라 10초 넘게 걸린다(실측 10.7초 → 이후 1.5초). 첫 사용자가 그걸
+    # 뒤집어쓰지 않게 미리 한 번 부른다.
+    def _warm_home() -> None:
+        import time
+        t0 = time.time()
+        try:
+            home()
+            print(f"[cache] 홈 예열 {time.time() - t0:.1f}초", flush=True)
+        except Exception as e:
+            print(f"[cache] 홈 예열 실패: {e}", flush=True)
+
+    threading.Thread(target=_warm_home, daemon=True, name="warm-home").start()
 _STATIC = Path(__file__).parent / "static"
 if _STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
