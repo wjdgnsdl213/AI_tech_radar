@@ -143,6 +143,7 @@ async function loadDigest(week) {
   /* 주간 과제 후보 — 흐름 요약 바로 아래.
      흐름은 "무슨 일이 있었나", 이건 "그래서 눈여겨볼 게 무엇인가"다.
      관찰(사실)과 함의(해석)를 줄로 갈라 어디까지가 자료인지 보이게 한다. */
+  $('#week-tasks-wrap').hidden = !(DIGEST.tasks || []).length;
   $('#week-tasks').innerHTML = (DIGEST.tasks || []).map(t => `<div class="wtask">
       <div class="wtask-h">${esc(t.title || '')}</div>
       <div class="wtask-r"><span class="wtask-k">관찰</span><span>${esc(t.fact || '')}</span></div>
@@ -1070,7 +1071,9 @@ async function loadMonth(month) {
   const m = await api('/api/monthly', month ? { month } : {});
   if (!m.lead) { $('#home-month').hidden = true; return; }
   $('#home-month').hidden = false;
-  $('#month-title').textContent = `<svg class="ico"><use href="#i-calendar"/></svg> ${m.label} 리뷰`;
+  // textContent에 태그를 넣으면 글자 그대로 보인다 — 아이콘은 innerHTML이어야 한다
+  $('#month-title').innerHTML =
+    `<svg class="ico"><use href="#i-calendar"/></svg> ${esc(m.label)} 리뷰`;
   $('#month-select').innerHTML = (m.months || [])
     .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
       ${esc(x.label)}</option>`).join('');
@@ -1123,12 +1126,12 @@ async function loadNews() {
  * "팀의 업무는 세 축의 교집합에 있다"가 이 도구의 전제인데(CLAUDE.md),
  * 정작 교집합은 다이제스트 다섯 칸에만 보였다. 그 주에 30건이 있어도 5건만
  * 나오고 나머지는 어디에서도 볼 수 없었다. 여기서 전부 본다. */
-let CROSS_MIN = 2;
+let CROSS_AXES = 2;   // '정확히 N축'. API 파라미터 이름도 axes다.
 
 async function loadCross() {
   $('#cross-body').innerHTML = '<div class="empty">불러오는 중…</div>';
-  const r = await api('/api/cross', { min_axes: CROSS_MIN, weeks: 8, limit: 80 });
-  $('#cross-sub').textContent = `최근 8주 · ${num(r.total)}건`;
+  const r = await api('/api/cross', { axes: CROSS_AXES, weeks: 8, limit: 80 });
+  $('#cross-sub').textContent = `최근 8주 · ${CROSS_AXES}개 축이 걸린 기사 ${num(r.total)}건`;
   $('#cross-body').innerHTML = r.rows.length
     ? `<div class="items" style="padding:0;border:0;margin:0">
         ${r.rows.map(itemHTML).join('')}</div>`
@@ -1148,7 +1151,7 @@ $('#cross-axes').addEventListener('click', e => {
   const b = e.target.closest('[data-min]');
   if (!b) return;
   $$('#cross-axes .chip').forEach(c => c.classList.toggle('active', c === b));
-  CROSS_MIN = +b.dataset.min;
+  CROSS_AXES = +b.dataset.min;
   loadCross();
 });
 

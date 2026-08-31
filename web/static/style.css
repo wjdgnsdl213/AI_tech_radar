@@ -506,3 +506,12 @@ td.rank{width:auto;text-align:center;padding-right:0}
 .wtask-r{display:flex;gap:9px;margin:4px 0;font-size:14px;line-height:1.65}
 .wtask-k{flex:none;width:56px;font-weight:700;color:var(--mut);font-size:12.5px;
   padding-top:2px}
+
+/* 구역 제목 — 무엇을 보고 있는지 덩어리마다 밝힌다 */
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  margin:22px 0 10px}
+.sec-h:first-child{margin-top:0}
+.sec-h h2{font-size:17px;margin:0;font-weight:700;letter-spacing:-.2px}
+.sec-h .mut{font-size:13.5px}
+.lead-card .sec-h{margin-bottom:8px}
+#week-tasks-wrap{margin-bottom:4px}

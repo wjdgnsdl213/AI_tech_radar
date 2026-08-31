@@ -624,7 +624,11 @@ def org_items(kw: str = Query(...), week: str = Query(""),
     from src.extract import item_keywords
 
     with kw_engine().connect() as c:
-        q = select(item_keywords.c.item_id).where(item_keywords.c.keyword == kw)
+        # ★ 표와 같은 기준으로 센다. orgs 표는 kept 기사만 세는데 여기서 전체를
+        #   세면 "7건이라 눌렀더니 78건"이 된다(실측). 숫자가 다르면 둘 중
+        #   무엇이 맞는지 알 수 없어 표 자체를 못 믿게 된다.
+        q = (select(item_keywords.c.item_id)
+             .where(item_keywords.c.keyword == kw, item_keywords.c.kept.is_(True)))
         if week:
             q = q.where(item_keywords.c.week == week)
         ids = [i for (i,) in c.execute(q.distinct())]
@@ -635,7 +639,7 @@ def org_items(kw: str = Query(...), week: str = Query(""),
             select(items.c.id, items.c.title, items.c.url, items.c.source,
                    items.c.published_at, items.c.insight, items.c.kept)
             .where(items.c.id.in_(ids[:2000]))
-            .order_by(items.c.kept.desc(), items.c.published_at.desc())
+            .order_by(items.c.published_at.desc())
             .limit(limit)).all()
         ax = _axes_of(c, [r.id for r in rows])
     return {"keyword": kw, "week": week, "total": len(ids),
