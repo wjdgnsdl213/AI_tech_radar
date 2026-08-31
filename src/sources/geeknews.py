@@ -41,6 +41,12 @@ _JSONLD_DATE_RE = re.compile(r'"datePublished"\s*:\s*"([^"]+)"')
 # 글이 아니라 "없음" 신호다. 발행일이 없는 채로 적재되면 트렌드 집계에 빈 행이 낀다.
 _NOT_FOUND_TITLE = "그 뉴스를 못찾으신다면"
 
+# 과도한 요청에 대해 403/429가 아니라 200 + 익명화된 봇 체크 페이지로 응답할 때가 있다
+# (og: 메타태그 자체가 없어 title이 <title>브라우저 확인</title>로만 떨어진다).
+# 이걸 놓치면 Blocked가 터지지 않아 차단 상태로 계속 요청하며 빈 글을 실제 글처럼 적재한다.
+# (2026-08-30 실사고: 76건이 title="브라우저 확인"으로 발행일 없이 적재됨)
+_BOT_CHALLENGE_TITLE = "브라우저 확인"
+
 
 def _published_at(soup) -> str:
     """발행일을 여러 경로로 시도한다.
@@ -83,6 +89,9 @@ def parse_topic_html(html: str, url: str, tid: int, via: str) -> Item | None:
 
     title = _TITLE_SUFFIX_RE.sub(
         "", og("title") or clean_text(soup.title.string if soup.title else ""))
+    if title == _BOT_CHALLENGE_TITLE:
+        # "없는 글"과 달리 이건 서버가 우리를 거부하고 있다는 신호다 — 계속 두드리면 안 된다.
+        raise Blocked(f"봇 체크 페이지 응답 at id={tid}")
     if not title or _NOT_FOUND_TITLE in title:
         return None
 
