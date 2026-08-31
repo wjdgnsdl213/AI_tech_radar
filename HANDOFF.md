@@ -1,6 +1,6 @@
 # 다른 컴퓨터로 옮기기
 
-> 2026-08-30 기준. 옮긴 뒤 이 문서대로 하면 하던 데서 그대로 이어진다.
+> 2026-08-31 기준. 옮긴 뒤 이 문서대로 하면 하던 데서 그대로 이어진다.
 
 ---
 
@@ -12,40 +12,52 @@ cd AI_tech_radar
 pip install -r requirements.txt
 
 # 수동으로 옮길 건 .env 하나뿐이다 (git에 없음 — 의도적)
-#   USB·비밀번호 관리자·사내 메일 등으로 직접 옮긴다
+#   DATABASE_URL을 기존 컴퓨터와 "똑같이" 넣는 게 핵심 (아래 참조)
 
-python -m src.db --summary        # 이관 확인
+python -m src.db --summary        # 접속 확인 — 82,103건 안팎이 보이면 정상
 python -m src.collect             # 일일 수집 (소스 순회)
 ```
 
-**코드도 데이터도 GitHub에 있다** — 레포가 비공개라 `data/`(radar.db·raw·checkpoints)를
-함께 버전 관리한다(.gitignore 참조). **따로 옮길 건 `.env` 하나뿐이다.**
+**DB는 이제 Supabase(Postgres)에 있다 — git에는 코드만 있다.**
+`data/radar.db`는 더 이상 버전 관리하지 않는다(2026-08-31 전환, §1 참조).
+따로 옮길 건 `.env` 하나뿐이고, 그 안의 `DATABASE_URL`이 진짜 핵심이다.
 
-> ⚠️ `.env`는 절대 커밋하지 않는다. API 키·SMTP 비밀번호가 들어 있고,
+> ⚠️ `.env`는 절대 커밋하지 않는다. API 키·SMTP 비밀번호·DB 접속정보가 들어 있고,
 > 한 번 커밋하면 나중에 지워도 git 이력에 영구히 남는다.
-> 레포를 공개로 바꾸려면 `.gitignore`의 `!data/...` 예외부터 지워야 한다
-> (수집분은 GeekNews·HN 요약문이라 공개 저장소에 두면 재배포에 해당한다).
 
 ---
 
 ## 1. 무엇을 옮기고 무엇을 버리나
 
-| 대상 | 크기 | 옮기나 | 이유 |
-|---|---|---|---|
-| `src/`, `config.yaml`, `seeds/`, `*.md` | 작음 | ✅ **git** | 코드·설정 |
-| **`data/radar.db`** | 45MB | ✅ **git** | 수집 데이터. 레포가 비공개라 함께 관리 |
-| **`data/raw/*.jsonl`** | 14MB | ✅ **git** | 원본. 스키마 바뀌면 여기서 재적재 |
-| **`data/checkpoints/`** | 760KB | ✅ **git** | 백필 재개 지점 + Wayback CDX 인덱스 |
-| **`.env`** | 699B | ⚠️ **수동 복사** | API 키·SMTP 비밀번호. **커밋 금지** |
-| `data/trends.db` | 36MB | ❌ 불필요 | 구 스키마. `radar.db`로 이미 이관 완료 |
-| `logs_*.txt` | 작음 | ❌ 불필요 | 작업 로그 |
-| HuggingFace 모델 캐시 | **4.7GB** | ❌ 불필요 | 새 PC에서 자동 재다운로드(bge-m3 약 2.2GB) |
+| 대상 | 옮기나 | 이유 |
+|---|---|---|
+| `src/`, `config.yaml`, `seeds/`, `*.md` | ✅ **git** | 코드·설정 |
+| **`.env`의 `DATABASE_URL`** | ⚠️ **수동 복사(필수)** | 이게 없으면 로컬 빈 sqlite로 떨어진다 |
+| **`.env`의 나머지 키** | ⚠️ **수동 복사** | API 키·SMTP 비밀번호 |
+| `data/radar.db` | ❌ **git 추적 안 함(2026-08-31~)** | 아래 참조 |
+| `data/raw/*.jsonl`, `data/checkpoints/` | ❌ **git 추적 안 함** | 각 컴퓨터의 로컬 크롤링 이력일 뿐 |
+| `data/trends.db` | ❌ 불필요 | 구 스키마. 이미 이관 완료 |
+| HuggingFace 모델 캐시 | ❌ 불필요 | 새 PC에서 자동 재다운로드(bge-m3 약 2.2GB) |
 
-**결론: `git clone` + `.env` 수동 복사면 끝이다.**
+**결론: `git clone` + `.env`(특히 `DATABASE_URL`) 수동 복사면 끝이다.**
 
-> ⚠️ `radar.db`는 45MB 바이너리다. 커밋할 때마다 이력에 45MB가 새로 쌓이므로
-> **매일 커밋하지 않는다.** 다른 PC로 넘어갈 때만 커밋하는 게 맞다.
-> 일상적으로는 `data/raw/*.jsonl`만 커밋하고 새 PC에서 `ingest_raw`로 재생성해도 된다.
+### ⚠️ 2026-08-31: DB를 로컬 sqlite → Supabase(Postgres) 공유 DB로 전환했다
+그 전까지는 컴퓨터 두 대가 각자 로컬 `radar.db`를 만들고 git으로 주고받는 방식이었다.
+문제가 두 가지였다:
+  1. **크기** — DB가 계속 커져서 65MB까지 갔고, GitHub는 100MB에서 푸시 자체를 막는다.
+  2. **병합 충돌** — 두 컴퓨터가 각자 세션에서 동시에 DB를 바꾸면 git이 바이너리라
+     자동 병합을 못 한다. 실제로 한 번 겪었고(GeekNews Wayback 백필 커밋 vs
+     score/insight 파이프라인 커밋), 수작업으로 두 DB를 표 단위로 합쳐야 했다.
+
+지금은 두 컴퓨터가 **같은 Postgres를 실시간으로** 본다. 병합이라는 개념 자체가 없어졌다.
+`db.py`가 SQLAlchemy Core로 엔진 비종속 설계돼 있었던 덕에 `DATABASE_URL` 한 줄
+교체로 끝났다(코드 변경 없음). 기존 sqlite 데이터(82,103건, item_axes·digests
+포함)는 ID를 보존하며 전량 이전했다.
+
+**새 컴퓨터를 설정할 때 `DATABASE_URL`을 빼먹으면** `config.yaml`의 기본값
+(`sqlite:///data/radar.db`)으로 조용히 떨어져서, 그 컴퓨터만 빈 로컬 DB로
+따로 놀게 된다. 반드시 기존 컴퓨터의 `.env`에서 `DATABASE_URL` 값을 그대로
+복사해 넣을 것.
 
 ---
 
@@ -245,9 +257,9 @@ import_sobiz:
 임베딩 캐시는 gitignore 대상이다(재생성 가능하고 4만 건에 약 90MB라 커밋하면
 radar.db와 함께 레포가 급격히 무거워진다).
 
-### DB 엔진은 아직 미정
-지금은 SQLite. 배포 시 `.env`의 `DATABASE_URL` 한 줄로 PostgreSQL 등으로 교체 가능하게
-추상화(SQLAlchemy Core)해뒀다. **사내 공용 DB 서버가 있는지 확인 필요.**
+### DB 엔진 — Supabase(Postgres)로 확정 (2026-08-31)
+`.env`의 `DATABASE_URL`이 진실 소스다. 사내 DB 서버가 나중에 생기면 그때 다시
+한 줄만 바꾸면 된다(SQLAlchemy Core라 코드 변경 없음).
 
 ---
 
@@ -258,5 +270,5 @@ radar.db와 함께 레포가 급격히 무거워진다).
 | 1 | 팀 과제 목록·기술 스택 → 시드 고도화 | 범용으로 진행 가능. 첫 다이제스트 후 피드백으로 대체 |
 | 2 | 웹 배포 위치 (사내 서버?) | 3주차 |
 | 3 | 사내 SMTP 사용 가능 여부 | 3주차 |
-| 4 | 사내 공용 DB 서버 유무 | 배포 전 |
+| 4 | ~~사내 공용 DB 서버 유무~~ | ✅ 완료 — Supabase(Postgres)로 확정. 사내 DB 생기면 재검토 |
 | 5 | HN `story_text` 500자 | **현행 유지로 결정됨** |

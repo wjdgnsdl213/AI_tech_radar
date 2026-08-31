@@ -9,10 +9,12 @@ beautifulsoup4      # GeekNews 백필 시 og: 메타태그 파싱
 
 # DB — 엔진 비종속. 배포 시 DATABASE_URL만 바꾸면 교체된다.
 sqlalchemy>=2.0
-# 배포 대상이 정해지면 해당 드라이버만 추가로 설치한다:
-#   PostgreSQL  psycopg[binary]
-#   MySQL       pymysql
-#   Oracle      oracledb
+# Postgres(Supabase)로 확정 — 2026-08-31, 두 컴퓨터가 로컬 sqlite radar.db를
+# git으로 주고받다가 파일 크기·바이너리 병합 충돌을 겪은 뒤 공유 DB로 전환했다.
+psycopg[binary]
+# 다른 엔진으로 다시 바꾸면 그때 해당 드라이버로 교체:
+#   MySQL   pymysql
+#   Oracle  oracledb
 
 # ── 2주차: 필터 ─────────────────────────────────────
 # 한·영 혼재라 다국어 임베딩 모델(BAAI/bge-m3)을 쓴다. ko-sroberta는 한국어 전용이라 부적합.
