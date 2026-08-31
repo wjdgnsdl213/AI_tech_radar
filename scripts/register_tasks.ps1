@@ -34,8 +34,8 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $tasks = @(
-    @{ Name = "AI-트렌드 일간수집"; Bat = "run_daily.bat" },
-    @{ Name = "AI-트렌드 주간발행"; Bat = "run_weekly.bat" }
+    @{ Name = "SAB Trend 일간수집"; Bat = "run_daily.bat" },
+    @{ Name = "SAB Trend 주간발행"; Bat = "run_weekly.bat" }
 )
 
 if ($Remove) {
@@ -77,8 +77,8 @@ $settings = New-ScheduledTaskSettingsSet @settingArgs
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
 
 $triggers = @{
-    "AI-트렌드 일간수집" = New-ScheduledTaskTrigger -Daily -At $DailyAt
-    "AI-트렌드 주간발행" = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $WeeklyDay -At $WeeklyAt
+    "SAB Trend 일간수집" = New-ScheduledTaskTrigger -Daily -At $DailyAt
+    "SAB Trend 주간발행" = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $WeeklyDay -At $WeeklyAt
 }
 
 foreach ($t in $tasks) {
@@ -104,6 +104,6 @@ Write-Host ""
 Write-Host "  일간  매일 $DailyAt        수집 + 처리 (약 8분)"
 Write-Host "  주간  매주 $WeeklyDay $WeeklyAt  해설 + 다이제스트 + 메일"
 Write-Host ""
-Write-Host "  확인:      Get-ScheduledTask -TaskName 'AI-트렌드*' | Format-Table TaskName,State"
-Write-Host "  즉시 실행: Start-ScheduledTask -TaskName 'AI-트렌드 일간수집'"
+Write-Host "  확인:      Get-ScheduledTask -TaskName 'SAB Trend*' | Format-Table TaskName,State"
+Write-Host "  즉시 실행: Start-ScheduledTask -TaskName 'SAB Trend 일간수집'"
 Write-Host "  로그:      logs\daily_YYYYMMDD.log"
