@@ -98,15 +98,34 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
     top_crossing = int(dcfg.get("top_crossing", 5))
     labels = {ax: spec.get("label", ax) for ax, spec in cfg["axes"].items()}
 
+    # ★ 규제 알림(F7)은 **소스 기반 판정**이다 — 관련도 필터를 태우지 않는다.
+    #   개인정보위 고시가 임베딩 필터 판단으로 지면에서 빠지면 F7이 성립하지 않는다.
+    #   ("규제가 확정되기 전에 안다"가 목적인데 필터가 걸러버리면 알 방법이 없다)
+    #   그렇다고 filter.py에서 강제로 kept=True를 주면 안 된다 — kept의 뜻이
+    #   "관련도 필터를 통과했다"에서 흐려지고 precision 측정이 오염된다.
+    #   그래서 지면을 만들 때 별도 경로로 집어온다.
+    #   소스 이름으로 거르는 이유: meta는 JSON이라 엔진마다 질의 문법이 다르다.
+    reg_sources = [name for name, sc in (cfg.get("sources") or {}).items()
+                   if isinstance(sc, dict) and sc.get("regulatory")]
+
+    COLS = (items.c.id, items.c.title, items.c.summary, items.c.url,
+            items.c.source, items.c.published_at, items.c.cross_score,
+            items.c.relevance, items.c.insight, items.c.meta)
+
     engine = get_engine()
     with engine.connect() as conn:
         rows = conn.execute(
-            select(items.c.id, items.c.title, items.c.summary, items.c.url,
-                   items.c.source, items.c.published_at, items.c.cross_score,
-                   items.c.relevance, items.c.insight, items.c.meta)
+            select(*COLS)
             .where(items.c.kept.is_(True), items.c.published_week == week)
             .order_by(items.c.cross_score.desc(), items.c.relevance.desc())
         ).all()
+        reg_rows = conn.execute(
+            select(*COLS)
+            .where(items.c.source.in_(reg_sources), items.c.published_week == week)
+            .order_by(items.c.published_at.desc())
+        ).all() if reg_sources else []
+        seen_ids = {r.id for r in rows}
+        rows = list(rows) + [r for r in reg_rows if r.id not in seen_ids]
         # 축은 이 주차 항목 것만 읽는다. 조건 없이 읽으면 4만 7천 행 전수 스캔이고,
         # 웹은 페이지를 열 때마다 build()를 부르므로 요청마다 그 비용을 낸다.
         ids = [r.id for r in rows]
@@ -130,12 +149,15 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
         }
 
     packed = [pack(r) for r in rows]
-    # meta는 JSON이라 엔진마다 질의 문법이 다르다. 주차 단위는 수십~수백 건이므로
-    # 파이썬에서 거른다 — 방언 전용 SQL을 쓰지 않는다는 원칙(CLAUDE.md)도 지켜진다.
+    # 규제 판정: 소스가 우선이고, meta 스탬프는 예전 수집분을 위한 보조다.
     regulatory = [p for p, r in zip(packed, rows)
-                  if isinstance(r.meta, dict) and r.meta.get("regulatory")]
+                  if r.source in reg_sources
+                  or (isinstance(r.meta, dict) and r.meta.get("regulatory"))]
+    reg_ids = {p["id"] for p in regulatory}
 
-    used: set[int] = set()
+    # 규제는 자기 섹션에서만 보여준다 — ⚠️와 축별 지면에 같은 고시가 두 번 오르면
+    # 다섯 칸뿐인 지면이 낭비된다.
+    used: set[int] = set(reg_ids)
     titles: list[str] = []      # 지면 안에서 같은 사건이 반복되지 않게 쓰는 기록
 
     def take(p: dict[str, Any]) -> bool:

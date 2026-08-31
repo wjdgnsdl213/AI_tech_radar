@@ -308,3 +308,54 @@ def test_cache_reuses_and_evicts_and_invalidates():
     c.get_or_call("a", make("a"))
     assert calls[-1] == "a"
     assert c.info()["entries"] == 1
+
+
+# ── 수집 건수 집계 ──────────────────────────────────────────────────
+def test_insert_ignore_counts_only_new_rows():
+    """신규 건수는 실제로 삽입된 행 수여야 한다.
+
+    psycopg의 executemany는 rowcount를 -1로 준다. sqlite에서는 맞던 코드가
+    Postgres로 옮기면서 깨져 수집 로그가 "신규 -1건"이 됐다(실측). 데이터는
+    정상 적재되므로 로그만 보고는 알 수 없고, 반대로 "0건 신규"라는 진짜 신호를
+    가려버린다. Postgres 경로는 RETURNING으로 실제 삽입분만 센다.
+
+    여기서는 dialect와 무관한 계약을 지킨다 — 재삽입은 0, 새 행만 카운트.
+    """
+    from sqlalchemy import (Column, Integer, MetaData, String, Table,
+                            UniqueConstraint, create_engine)
+
+    from src.db import _insert_ignore
+
+    md = MetaData()
+    tb = Table("t", md, Column("id", Integer, primary_key=True),
+               Column("a", String(20)), Column("b", String(20)),
+               UniqueConstraint("a", "b"))
+    eng = create_engine("sqlite://")          # 메모리 — 파일도 네트워크도 쓰지 않는다
+    md.create_all(eng)
+    rows = [{"a": "x", "b": str(i)} for i in range(5)]
+    with eng.begin() as c:
+        assert _insert_ignore(c, tb, rows, ["a", "b"]) == 5
+        assert _insert_ignore(c, tb, rows, ["a", "b"]) == 0        # 전부 중복
+        assert _insert_ignore(c, tb, rows + [{"a": "y", "b": "9"}],
+                              ["a", "b"]) == 1                      # 새 것 하나만
+        assert _insert_ignore(c, tb, [], ["a", "b"]) == 0
+
+
+# ── F7 규제 알림 ────────────────────────────────────────────────────
+def test_regulatory_sources_are_declared_in_config():
+    """규제 판정은 소스 기반이다 — config에 regulatory 소스가 최소 하나 있어야 한다.
+
+    F7의 설계는 "이 소스에서 온 것은 제목과 무관하게 전부 규제"다. 그런데
+    오랫동안 regulatory: true인 소스가 하나도 없어서 기능이 배선만 되고
+    동작하지 않는 상태였다. 소스가 사라지면 조용히 그 상태로 돌아간다.
+    """
+    import yaml
+
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "config.yaml").read_text(encoding="utf-8"))
+    reg = [n for n, s in (cfg.get("sources") or {}).items()
+           if isinstance(s, dict) and s.get("regulatory")]
+    assert reg, "regulatory: true 인 소스가 없다 — 규제 알림이 영원히 비어 있게 된다"
+    for name in reg:
+        s = cfg["sources"][name]
+        assert s.get("enabled"), f"{name}이 regulatory인데 enabled가 아니다"

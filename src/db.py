@@ -218,11 +218,18 @@ def _insert_ignore(conn: Connection, table: Table, rows: Sequence[dict[str, Any]
         return 0
     name = conn.engine.dialect.name
 
+    if name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as _ins
+        stmt = _ins(table).on_conflict_do_nothing(index_elements=conflict_cols)
+        # ★ psycopg의 executemany는 rowcount를 -1로 준다. 그대로 쓰면 수집 로그가
+        #   "신규 -1건"이 된다 — sqlite에서는 맞던 코드가 Postgres로 옮기며 깨졌다.
+        #   실제로 삽입된 행만 RETURNING으로 돌려받아 센다. 충돌로 건너뛴 행은
+        #   DO NOTHING이라 아무것도 반환하지 않으므로 개수가 곧 신규 건수다.
+        res = conn.execute(stmt.returning(table.c[conflict_cols[0]]), list(rows))
+        return len(res.all())
+
     if name == "sqlite":
         from sqlalchemy.dialects.sqlite import insert as _ins
-        stmt = _ins(table).on_conflict_do_nothing(index_elements=conflict_cols)
-    elif name == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert as _ins
         stmt = _ins(table).on_conflict_do_nothing(index_elements=conflict_cols)
     elif name == "mysql":
         stmt = table.insert().prefix_with("IGNORE")

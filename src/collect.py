@@ -43,6 +43,7 @@ from src.sources.base import Item, Source
 from src.sources.geeknews import GeekNewsSource
 from src.sources.hackernews import HackerNewsSource
 from src.sources.naver_news import NaverNewsSource
+from src.sources.lawgokr import LawGoKrSource
 
 # Windows 콘솔(cp949)에서 특수문자 출력 깨짐 방지
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
@@ -260,6 +261,8 @@ REGISTRY: dict[str, Collector] = {
         HackerNewsSource, "hackernews", cfg, days),
     "naver_news": lambda cfg, days, crawl: collect_adapter(
         NaverNewsSource, "naver_news", cfg, days),
+    "law_go_kr":  lambda cfg, days, crawl: collect_adapter(
+        LawGoKrSource, "law_go_kr", cfg, days),
 }
 
 
