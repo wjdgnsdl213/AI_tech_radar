@@ -444,3 +444,7 @@ td.rank{width:auto;text-align:center;padding-right:0}
   border-radius:8px;background:#fff;display:block}
 #panel-news .hrow{font-size:14.5px}
 #panel-news .hrow .n{text-align:right;max-width:60%}
+
+/* 월간 카드 머리 — 보고서 버튼과 월 선택을 한 줄로 */
+.mrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mrow .weekpick{margin:0}

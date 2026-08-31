@@ -205,6 +205,32 @@ def spa():
     return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
+# ── 월간보고서 ──────────────────────────────────────────────────────
+# SPA 안이 아니라 별도 주소로 낸다. 인쇄가 목적이라 사이드바·메뉴가 없어야 하고,
+# 주소를 그대로 공유하면 상대도 같은 문서를 본다.
+@app.get("/report", response_class=HTMLResponse)
+def report_html(month: str = Query("")):
+    from src.report import collect, latest_month, render_html
+    m = month or latest_month()
+    if not m:
+        return HTMLResponse("<p>대상 월이 없습니다.</p>", status_code=404)
+    return HTMLResponse(render_html(collect(m, load_config()), toolbar=True),
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/report.md", response_class=PlainTextResponse)
+def report_md(month: str = Query("")):
+    from src.report import collect, latest_month, render_md
+    m = month or latest_month()
+    if not m:
+        return PlainTextResponse("대상 월이 없습니다.", status_code=404)
+    body = render_md(collect(m, load_config()))
+    # 브라우저에서 바로 내려받게 한다 — 붙여넣기용이라 파일이 편하다
+    return PlainTextResponse(body, media_type="text/markdown; charset=utf-8",
+                             headers={"Content-Disposition":
+                                      f'attachment; filename="report_{m}.md"'})
+
+
 @app.get("/legacy", response_class=HTMLResponse)
 def home():
     with get_engine().connect() as conn:

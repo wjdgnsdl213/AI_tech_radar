@@ -1011,6 +1011,9 @@ async function loadMonth(month) {
     .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
       ${esc(x.label)}</option>`).join('');
   $('#month-lead').textContent = m.lead;
+  // 보고서는 SPA 밖의 인쇄용 문서다 — 새 탭으로 연다
+  $('#rep-html').href = '/report?month=' + encodeURIComponent(m.month);
+  $('#rep-md').href = '/report.md?month=' + encodeURIComponent(m.month);
 }
 $('#month-select').onchange = e => loadMonth(e.target.value);
 
