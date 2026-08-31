@@ -8,16 +8,21 @@
   1. 이번 달 흐름          L3 월간 리뷰
   2. 법령·규제 변경         이 보고서의 고유한 값 — 다른 데서 정리해 주지 않는다
   3. 전월 대비 [예시]       ⚠ 아직 실데이터를 못 쓴다(아래)
-  4. 과제 후보 [예시]       ⚠ 아직 실데이터를 못 쓴다(아래)
+  4. 과제 후보              여러 자료를 겹쳐야 보이는 것 — 이 보고서의 값
   5. 수집·처리 현황         근거 확인용이라 맨 뒤
 
-★ 3·4가 예시인 이유 — 지어낸 게 아니라 **아직 못 쓰는** 것이다
-  3) 수집량 자체가 달마다 딴판이다. 2026-07은 과거분 임포트만, 08은 일일 수집을
-     켠 뒤다(통과 640 → 1,828). 이 상태로 증감을 쓰면 "우리가 수집을 시작한 것"이
-     "트렌드"로 보고된다. 주간 급상승에서 이미 겪은 함정이다.
-  4) 브릿지 상위가 '별도·서버·실행' 같은 일반명사다. 일반명사가 두 축에 고루
-     나오는 건 당연해서, 불용어를 보강해야 쓸 수 있다.
-  둘 다 자리와 형태만 보여주고, 문서 안에 예시임을 크게 밝힌다.
+★ 3이 아직 예시인 이유 — 지어낸 게 아니라 **못 쓰는** 것이다
+  수집량 자체가 달마다 딴판이다. 2026-07은 과거분 임포트만, 08은 일일 수집을
+  켠 뒤다(통과 640 → 1,828). 이 상태로 증감을 쓰면 "우리가 수집을 시작한 것"이
+  "트렌드"로 보고된다. 주간 급상승에서 이미 겪은 함정이다.
+  자리와 형태만 보여주고 문서 안에 예시임을 밝힌다.
+
+★ 4는 요약이 아니라 해석이다
+  앞 절들이 "무슨 일이 있었나"라면 여기는 "여러 자료를 겹치면 무엇이 보이나"다.
+  법령 변경과 기사 흐름이 같은 방향을 가리킬 때가 후보가 된다.
+  관찰(사실)과 함의(해석)를 줄로 갈라 적어서, 읽는 사람이 어디까지가 자료이고
+  어디부터가 판단인지 알 수 있게 한다. 생성은 L3가 하고(insight.run_tasks)
+  digests.body에 저장된다 — 보고서를 열 때마다 모델을 부르면 문서가 매번 달라진다.
 
 실행:
   python -m src.report                      # 최근 달, 미리보기
@@ -48,22 +53,9 @@ MOCK_DELTA = [
     ("영향평가", 2.2, 0.4, "+1.8%p"),
     ("메타버스", 0.3, 1.9, "-1.6%p"),
 ]
-MOCK_TASKS = [
-    ("공공데이터 + 상권분석", "AI·빅데이터·소상공인",
-     "공공데이터 개방 항목이 상권 분석 기사와 함께 나오는 빈도가 높음"),
-    ("가명정보 + 데이터결합", "빅데이터·소상공인",
-     "결합 절차 기사와 소상공인 지원사업 기사가 같은 주에 반복 등장"),
-    ("영향평가 + 공공기관", "AI·소상공인",
-     "AI 도입 의무 조항이 신설되며 관련 기사가 이어짐"),
-]
-
-MOCK_NOTE_3 = ("아래 수치는 예시입니다. 수집량이 달마다 크게 달라"
-               "(2026-07은 과거분 임포트만, 08은 일일 수집 시작) 지금 증감을 계산하면 "
-               "'수집을 시작한 것'이 '트렌드'로 잡힙니다. "
-               "서너 달 안정적으로 수집된 뒤 실데이터로 대체합니다.")
-MOCK_NOTE_4 = ("아래 항목은 예시입니다. 두 축을 잇는 키워드(브릿지)로 뽑는데, "
-               "현재 상위가 '별도·서버·실행' 같은 일반명사입니다. "
-               "일반명사는 어느 축에나 나오므로 불용어를 보강한 뒤 실데이터로 대체합니다.")
+MOCK_NOTE_3 = ("예시 수치입니다. 수집량이 달마다 크게 달라(2026-07은 과거분 임포트만, "
+               "08은 일일 수집 시작) 지금 증감을 계산하면 '수집을 시작한 것'이 "
+               "'트렌드'로 잡힙니다. 서너 달 안정적으로 수집된 뒤 실데이터로 바뀝니다.")
 
 
 def month_label(m: str) -> str:
@@ -86,8 +78,12 @@ def collect(month: str, cfg: dict[str, Any]) -> dict[str, Any]:
             select(items.c.published_week).distinct()) if w and _week_month(w) == month)
         wk = weeks or ["_"]
 
-        lead = c.execute(select(digests.c.lead)
-                         .where(digests.c.week == month)).scalar_one_or_none()
+        row = c.execute(select(digests.c.lead, digests.c.body)
+                        .where(digests.c.week == month)).first()
+        lead = row[0] if row else None
+        # 과제 후보는 L3가 만들어 digests.body에 넣어둔다. 보고서를 열 때마다
+        # 모델을 부르면 문서가 열 때마다 달라진다 — 보고서는 고정돼야 한다.
+        tasks = (row[1] or {}).get("tasks", []) if row and isinstance(row[1], dict) else []
 
         regs = c.execute(
             select(items.c.title, items.c.url, items.c.published_at,
@@ -123,7 +119,7 @@ def collect(month: str, cfg: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "month": month, "label": month_label(month), "weeks": weeks,
-        "lead": lead,
+        "lead": lead, "tasks": tasks,
         "regs": [{"title": r.title or "", "url": r.url or "",
                   "date": str(r.published_at)[:10] if r.published_at else "",
                   "meta": r.meta if isinstance(r.meta, dict) else {},
@@ -171,9 +167,9 @@ def render_md(d: dict[str, Any]) -> str:
         add("_이 달에 수집된 법령·규제 항목이 없습니다._")
         add("")
 
-    add("## 3. 전월 대비 주요 키워드  ⚠️ 예시")
+    add("## 3. 전월 대비 주요 키워드  〔예시〕")
     add("")
-    add(f"> **{MOCK_NOTE_3}**")
+    add(f"_{MOCK_NOTE_3}_")
     add("")
     add("| 키워드 | 이번 달 비중 | 전월 비중 | 변화 |")
     add("|---|---|---|---|")
@@ -181,15 +177,22 @@ def render_md(d: dict[str, Any]) -> str:
         add(f"| {k} | {a}% | {b}% | {delta} |")
     add("")
 
-    add("## 4. 과제 후보  ⚠️ 예시")
+    add("## 4. 과제 후보")
     add("")
-    add(f"> **{MOCK_NOTE_4}**")
-    add("")
-    add("| 후보 | 걸치는 축 | 근거 |")
-    add("|---|---|---|")
-    for k, ax, why in MOCK_TASKS:
-        add(f"| {k} | {ax} | {why} |")
-    add("")
+    if d["tasks"]:
+        add("_여러 자료가 같은 방향을 가리키는 것만 골랐습니다. "
+            "**관찰**은 자료에서 확인된 사실, **함의**는 해석입니다._")
+        add("")
+        for i, t in enumerate(d["tasks"], 1):
+            add(f"### {i}. {t.get('title', '')}")
+            add("")
+            add(f"- **관찰** {t.get('fact', '')}")
+            add(f"- **함의** {t.get('mean', '')}")
+            add(f"- **확인할 것** {t.get('ask', '')}")
+            add("")
+    else:
+        add("_이 달 자료에서는 후보를 뽑지 못했습니다._")
+        add("")
 
     add("## 5. 수집·처리 현황")
     add("")
@@ -228,8 +231,14 @@ th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-alig
 th{background:#f2f5fa;font-weight:700;white-space:nowrap}
 td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
 a{color:var(--ink);text-decoration:none}
-.mockbox{border:2px dashed var(--warn);background:#fffbeb;border-radius:8px;
-  padding:12px 15px;margin:10px 0 14px;font-size:13.5px;color:#7c2d12}
+.note{color:var(--mut);font-size:13px;margin:6px 0 10px;line-height:1.6}
+.task{border:1px solid var(--line);border-radius:8px;padding:13px 16px;margin:0 0 11px}
+.task-h{font-size:15.5px;font-weight:700;margin-bottom:8px}
+.task-r{display:flex;gap:10px;margin:5px 0;font-size:13.5px;line-height:1.65}
+.task-k{flex:none;width:62px;font-weight:700;color:var(--mut);font-size:12.5px;
+  padding-top:2px}
+.task-k.mean{color:var(--blue)}
+.task-k.ask{color:var(--warn)}
 .mocktag{display:inline-block;background:var(--warn);color:#fff;border-radius:4px;
   padding:1px 8px;font-size:12px;font-weight:700;margin-left:8px;vertical-align:middle}
 .mock table{opacity:.72}
@@ -241,7 +250,7 @@ a{color:var(--ink);text-decoration:none}
 @media print{
   body{padding:0;font-size:11.5pt;max-width:none}
   h2{page-break-after:avoid}
-  table,.mockbox{page-break-inside:avoid}
+  table,.task{page-break-inside:avoid}
   .noprint{display:none}
   a{color:#000}
 }
@@ -284,7 +293,7 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
         p.append("<p class='sub'>이 달에 수집된 법령·규제 항목이 없습니다.</p>")
 
     p.append("<h2>3. 전월 대비 주요 키워드<span class='mocktag'>예시</span></h2>")
-    p.append(f"<div class='mockbox'><b>{e(MOCK_NOTE_3)}</b></div>")
+    p.append(f"<p class='note'>{e(MOCK_NOTE_3)}</p>")
     p.append("<div class='mock'><table><tr><th>키워드</th><th>이번 달 비중</th>"
              "<th>전월 비중</th><th>변화</th></tr>")
     for k, a, b, delta in MOCK_DELTA:
@@ -292,13 +301,21 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
                  f"<td class='n'>{b}%</td><td class='n'>{e(delta)}</td></tr>")
     p.append("</table></div>")
 
-    p.append("<h2>4. 과제 후보<span class='mocktag'>예시</span></h2>")
-    p.append(f"<div class='mockbox'><b>{e(MOCK_NOTE_4)}</b></div>")
-    p.append("<div class='mock'><table><tr><th>후보</th><th>걸치는 축</th>"
-             "<th>근거</th></tr>")
-    for k, ax, why in MOCK_TASKS:
-        p.append(f"<tr><td><b>{e(k)}</b></td><td>{e(ax)}</td><td>{e(why)}</td></tr>")
-    p.append("</table></div>")
+    p.append("<h2>4. 과제 후보</h2>")
+    if d["tasks"]:
+        p.append("<p class='note'>여러 자료가 같은 방향을 가리키는 것만 골랐습니다. "
+                 "<b>관찰</b>은 자료에서 확인된 사실, <b>함의</b>는 해석입니다.</p>")
+        for i, tk in enumerate(d["tasks"], 1):
+            p.append(f"<div class='task'><div class='task-h'>{i}. "
+                     f"{e(tk.get('title', ''))}</div>"
+                     f"<div class='task-r'><span class='task-k'>관찰</span>"
+                     f"<span>{e(tk.get('fact', ''))}</span></div>"
+                     f"<div class='task-r'><span class='task-k mean'>함의</span>"
+                     f"<span>{e(tk.get('mean', ''))}</span></div>"
+                     f"<div class='task-r'><span class='task-k ask'>확인할 것</span>"
+                     f"<span>{e(tk.get('ask', ''))}</span></div></div>")
+    else:
+        p.append("<p class='sub'>이 달 자료에서는 후보를 뽑지 못했습니다.</p>")
 
     p.append("<h2>5. 수집·처리 현황</h2>")
     p.append(f"<p class='sub'>이 달 수집 {d['total']:,}건 중 필터 통과 "

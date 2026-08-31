@@ -95,7 +95,7 @@ function itemHTML(p) {
          title="원문으로 이동">원문 ↗</a>
     </div>
     <div class="item-m">${tags(p.axes)} ${esc(p.source)} · ${esc(p.published)}
-      ${p.insight ? '<span class="has-ai">💡 해설</span>' : ''}</div>
+      ${p.insight ? '<span class="has-ai"><svg class="ico"><use href="#i-bulb"/></svg> 해설</span>' : ''}</div>
   </div>`;
 }
 
@@ -210,7 +210,7 @@ async function runSearch(page = 1) {
         <td class="t"><a href="#" data-item="${p.id}">${esc(p.title)}</a>
           <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
              title="원문으로 이동">원문 ↗</a>
-          ${p.insight ? `<span class="snip">💡 ${esc(p.insight)}</span>`
+          ${p.insight ? `<span class="snip"><svg class="ico"><use href="#i-bulb"/></svg> ${esc(p.insight)}</span>`
             : (p.summary ? `<span class="snip">${esc(p.summary)}</span>` : '')}</td>
         <td>${tags(p.axes)}</td>
         <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
@@ -862,7 +862,7 @@ document.body.addEventListener('click', async e => {
       <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}</div>
       <a class="btn-src" href="${esc(d.url)}" target="_blank" rel="noopener">
         ${isLaw ? '법제처 원문 보기' : '원문 기사 보기'} <span>↗</span></a>
-      ${d.insight ? `<div class="item-i">💡 ${esc(d.insight)}</div>` : ''}
+      ${d.insight ? `<div class="item-i"><svg class="ico"><use href="#i-bulb"/></svg> ${esc(d.insight)}</div>` : ''}
       <p style="font-size:15px;margin-top:14px">${esc(d.summary || '')}</p>
       ${isLaw ? '' : `<div class="sec-title">비슷한 기사</div>
       <div class="items" style="padding:0;box-shadow:none;margin:0">
@@ -975,13 +975,13 @@ async function loadSearchOther(q) {
   try { reg = await api('/api/regulatory', { limit: 3, q }); } catch (e) { /* 무시 */ }
 
   const regCard = reg.total ? `<div class="card">
-      <div class="panel-head"><h2>⚖️ 법령·규제 ${num(reg.total)}건</h2>
+      <div class="panel-head"><h2><svg class="ico"><use href="#i-law"/></svg> 법령·규제 ${num(reg.total)}건</h2>
         <button class="linkish" data-regq="${esc(q)}">전체 보기</button></div>
       ${regHTML(reg.items, true)}</div>` : '';
 
   box.innerHTML = regCard + `<div class="card xrow">
       <span class="mut">'${esc(q)}'의 연관어 망을 그려볼 수 있습니다</span>
-      <button class="preset" data-kw="${esc(q)}">🕸️ 연관어 네트워크로 보기</button>
+      <button class="preset" data-kw="${esc(q)}"><svg class="ico"><use href="#i-graph"/></svg> 연관어 네트워크로 보기</button>
     </div>`;
 }
 // '전체 보기' → 법령 화면을 그 검색어로 연다
@@ -1006,7 +1006,7 @@ async function loadMonth(month) {
   const m = await api('/api/monthly', month ? { month } : {});
   if (!m.lead) { $('#home-month').hidden = true; return; }
   $('#home-month').hidden = false;
-  $('#month-title').textContent = `🗓️ ${m.label} 리뷰`;
+  $('#month-title').textContent = `<svg class="ico"><use href="#i-calendar"/></svg> ${m.label} 리뷰`;
   $('#month-select').innerHTML = (m.months || [])
     .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
       ${esc(x.label)}</option>`).join('');

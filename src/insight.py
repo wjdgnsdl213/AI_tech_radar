@@ -512,6 +512,86 @@ def _week_month(week: str) -> str:
         return ""
 
 
+TASK_RULES = """\
+당신은 사내 AI·빅데이터팀의 월간 리뷰에서 **'과제 후보'** 절을 쓰는 분석 담당자다.
+한 달치 자료(주간 요약·상위 기사 제목·법령 변경)를 읽고, 팀이 실제로 검토할 만한
+후보를 3~4개 뽑는다.
+
+★ 이 절은 요약이 아니다.
+  "무슨 일이 있었나"는 앞 절에서 이미 다뤘다. 여기서는 **여러 자료를 겹쳐야
+  보이는 것**을 쓴다. 한 기사만 보고 알 수 있는 건 후보가 아니다.
+  좋은 후보의 조건:
+    · 서로 다른 자료 둘 이상이 같은 방향을 가리킨다
+      (예: 법령이 의무를 신설했는데 + 지자체 사례가 이미 나오고 있다)
+    · 우리 팀 업무(소상공인 데이터 분석·AI 활용·공공데이터)와 닿는다
+    · 지금 검토할 이유가 있다 (시행일이 다가온다, 사례가 늘고 있다 등)
+
+각 후보를 아래 네 줄로 쓴다. 라벨을 그대로 쓴다:
+제목: (한 줄, 20자 안팎)
+관찰: 자료에서 실제로 확인된 것. **어떤 자료인지 밝힌다** (법령명·기관명·기사 주제).
+함의: 그래서 우리 팀에 무엇을 뜻하는지. 여기가 유일하게 해석이 허용되는 줄이다.
+확인: 팀이 다음에 확인하거나 정해야 할 것 하나. **질문 형태**로 쓴다.
+
+반드시 지킬 것:
+- '관찰'에는 주어진 자료에 있는 것만 쓴다. 없는 기관·수치·법령을 만들지 않는다.
+- '함의'는 관찰에서 곧바로 이어져야 한다. 자료에 근거가 없는 전망·단정은 쓰지 않는다.
+  "…할 것으로 보인다"보다 "…가 필요해진다"처럼 자료에 붙은 서술을 쓴다.
+- '확인'은 우리가 답을 모르는 것이어야 한다. 이미 자료에 답이 있으면 후보가 아니다.
+- 겹치는 후보를 만들지 않는다. 3~4개가 서로 다른 것을 가리켜야 한다.
+- 근거가 약하면 개수를 줄인다. 억지로 4개를 채우지 않는다. 하나도 없으면
+  정확히 `후보 없음` 네 글자만 출력한다.
+- 후보 사이는 빈 줄로 나눈다. 머리말·맺음말·마크다운·번호를 붙이지 않는다."""
+
+
+def _parse_tasks(text: str) -> list[dict[str, str]]:
+    """'제목:/관찰:/함의:/확인:' 네 줄 묶음을 딕셔너리 목록으로."""
+    if not text or text.strip() == "후보 없음":
+        return []
+    out, cur = [], {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            if cur:
+                out.append(cur)
+                cur = {}
+            continue
+        for key, label in (("title", "제목"), ("fact", "관찰"),
+                           ("mean", "함의"), ("ask", "확인")):
+            if line.startswith(label + ":"):
+                cur[key] = line[len(label) + 1:].strip()
+                break
+    if cur:
+        out.append(cur)
+    return [t for t in out if t.get("title") and t.get("fact")]
+
+
+def run_tasks(cfg: dict[str, Any], month: str, material: str) -> list[dict[str, str]]:
+    """과제 후보를 만든다. 실패하면 빈 목록 — 보고서는 그 절만 비우고 나간다."""
+    icfg = cfg["insight"]
+    model = icfg.get("l3_model", icfg["l2_model"])
+    client = build_client()
+    if client is None:
+        print("  ⏭ 과제 후보 건너뜀 (API 키 없음)")
+        return []
+
+    import anthropic
+    try:
+        msg = client.messages.create(
+            model=model, max_tokens=int(icfg.get("l3_max_tokens", 4000)),
+            thinking={"type": "adaptive"},
+            system=_system_blocks(TASK_RULES,
+                                  load_team_profile(icfg.get("team_profile_path", ""))),
+            messages=[{"role": "user", "content": material}])
+    except anthropic.APIError as exc:
+        print(f"  ⚠ 과제 후보 실패: {type(exc).__name__}: {exc}")
+        return []
+    tasks = _parse_tasks(_text_of(msg))
+    print(f"  과제 후보 {len(tasks)}개")
+    for t in tasks:
+        print(f"    · {t.get('title', '')}")
+    return tasks
+
+
 def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     """한 달치 흐름을 만들어 digests(week='YYYY-MM')에 저장한다.
 
@@ -607,15 +687,22 @@ def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     text = _text_of(msg)
     print(NL + f"  ── {month} 월간 리뷰 ──" + NL + text + NL)
 
+    # 과제 후보는 같은 재료를 다시 쓰되 프롬프트가 다르다 — 흐름 요약과 섞으면
+    # 한쪽이 다른 쪽 형식에 끌려간다(요약 톤으로 후보를 쓰거나 그 반대).
+    tasks = run_tasks(cfg, month, user_text)
+
     with engine.begin() as conn:
         exists = conn.execute(select(digests.c.week)
                               .where(digests.c.week == month)).first()
         if exists:
             conn.execute(digests.update().where(digests.c.week == month)
-                         .values(lead=text, generated_at=datetime.now(timezone.utc)))
+                         .values(lead=text,
+                                 body={"kind": "monthly", "weeks": mine, "tasks": tasks},
+                                 generated_at=datetime.now(timezone.utc)))
         else:
             conn.execute(digests.insert().values(
-                week=month, lead=text, body={"kind": "monthly", "weeks": mine},
+                week=month, lead=text,
+                body={"kind": "monthly", "weeks": mine, "tasks": tasks},
                 generated_at=datetime.now(timezone.utc)))
     u = msg.usage
     inp, out = PRICING.get(model, (1.0, 5.0))

@@ -448,3 +448,17 @@ td.rank{width:auto;text-align:center;padding-right:0}
 /* 월간 카드 머리 — 보고서 버튼과 월 선택을 한 줄로 */
 .mrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .mrow .weekpick{margin:0}
+
+/* ── 아이콘 ──────────────────────────────────────────────────────
+   전부 선(stroke) 아이콘이고 색은 currentColor다. 이모지는 기기마다 모양·색이
+   달라 화면이 산만해지고, 메뉴가 선택돼도 색이 안 따라온다. */
+.ico{width:1.15em;height:1.15em;flex:none;vertical-align:-.18em;
+  fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.nav-item i{display:inline-flex;align-items:center;justify-content:center}
+.nav-item .ico{width:20px;height:20px;stroke-width:1.6}
+.panel-head h2 .ico,.page-head h1 .ico{margin-right:6px;opacity:.62}
+.nav-item.active .ico{stroke-width:1.9}
+.ts-ico .ico{width:19px;height:19px;opacity:.6}
+.item-i .ico{opacity:.7;margin-right:2px}
+.preset .ico,.linkish .ico{width:15px;height:15px;margin-right:3px}
