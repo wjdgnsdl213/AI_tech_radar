@@ -640,8 +640,27 @@ const RISE_TIP = (weeks) => `이번 주 비중 ÷ 직전 ${weeks}주 평균 비�
 직전에 한 번도 안 나온 신규 키워드는
 상승폭이 이번 주 건수와 같아집니다.`;
 
-const infoIcon = (tip, right) =>
-  `<i class="info${right ? ' right' : ''}">?<span class="tip">${esc(tip)}</span></i>`;
+const infoIcon = (tip) => `<i class="info">?<span class="tip">${esc(tip)}</span></i>`;
+
+/* 말풍선 위치를 손으로 잡는다.
+   CSS만으로 두면 .tblwrap(overflow-x:auto) 같은 스크롤 컨테이너가 잘라내서
+   설명이 아예 안 보였다. position:fixed로 빼내면 잘리지 않는 대신 위치를
+   조상 기준으로 계산할 수 없어서, 아이콘의 화면 좌표를 보고 직접 놓는다.
+   화면 밖으로 나가지 않게 좌우를 8px 안쪽으로 물린다. */
+document.body.addEventListener('mouseover', e => {
+  const ic = e.target.closest('.info');
+  if (!ic) return;
+  const tip = ic.querySelector('.tip');
+  if (!tip) return;
+  const r = ic.getBoundingClientRect();
+  const w = tip.offsetWidth || 290, h = tip.offsetHeight || 120;
+  let left = r.left + r.width / 2 - w / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+  // 위에 자리가 없으면 아래로 내린다
+  const top = r.top - h - 10 >= 8 ? r.top - h - 10 : r.bottom + 10;
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+});
 
 async function loadTrend() {
   const t = await api('/api/trend', { top: 20 });
@@ -840,8 +859,9 @@ document.body.addEventListener('click', async e => {
       : tags(d.axes);
     $('#drawer-body').innerHTML = `
       <h2 style="font-size:19px;margin:0 30px 8px 0;line-height:1.45">${esc(d.title)}</h2>
-      <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}
-        · <a href="${esc(d.url)}" target="_blank" rel="noopener">원문 보기</a></div>
+      <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}</div>
+      <a class="btn-src" href="${esc(d.url)}" target="_blank" rel="noopener">
+        ${isLaw ? '법제처 원문 보기' : '원문 기사 보기'} <span>↗</span></a>
       ${d.insight ? `<div class="item-i">💡 ${esc(d.insight)}</div>` : ''}
       <p style="font-size:15px;margin-top:14px">${esc(d.summary || '')}</p>
       ${isLaw ? '' : `<div class="sec-title">비슷한 기사</div>

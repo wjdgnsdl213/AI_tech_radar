@@ -88,6 +88,12 @@ def _warm_cache() -> None:
             print(f"[cache] 홈 예열 실패: {e}", flush=True)
 
     threading.Thread(target=_warm_home, daemon=True, name="warm-home").start()
+# 로고는 저장소 루트의 logo/ 에 있다. static으로 옮기면 원본 위치가 둘이 되므로
+# 그 폴더를 그대로 붙인다.
+_LOGO = Path(__file__).resolve().parents[1] / "logo"
+if _LOGO.exists():
+    app.mount("/logo", StaticFiles(directory=str(_LOGO)), name="logo")
+
 _STATIC = Path(__file__).parent / "static"
 if _STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
