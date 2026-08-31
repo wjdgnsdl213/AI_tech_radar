@@ -12,7 +12,7 @@ sobiz web/ 패턴과 같다.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -457,12 +457,13 @@ def _ego(kw: str, hops: int, per_hop: int,
 
 
 @router.get("/regulatory")
-def regulatory(limit: int = Query(60), weeks: int = Query(0)) -> dict[str, Any]:
+def regulatory(limit: int = Query(60), days: int = Query(0),
+               q: str = Query("")) -> dict[str, Any]:
     """규제 1차 출처에서 온 항목 (HTTP 경로). 실제 조회는 _regulatory에 있다."""
-    return _regulatory(limit, weeks)
+    return _regulatory(limit, days, q)
 
 
-def _regulatory(limit: int, weeks: int) -> dict[str, Any]:
+def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
     """규제 1차 출처에서 온 항목. 관련도 필터를 태우지 않는다.
 
     ★ 라우트 함수를 다른 라우트에서 직접 부르지 않는다.
@@ -480,22 +481,27 @@ def _regulatory(limit: int, weeks: int) -> dict[str, Any]:
     if not srcs:
         return {"items": [], "total": 0, "sources": []}
     with get_engine().connect() as c:
-        q = (select(items.c.id, items.c.title, items.c.summary, items.c.url,
-                    items.c.source, items.c.published_at, items.c.meta)
-             .where(items.c.source.in_(srcs))
-             .order_by(items.c.published_at.desc()))
-        if weeks:
-            cur = c.execute(select(func.max(items.c.published_week))).scalar_one_or_none()
-            if cur:
-                from src.trend import prev_weeks
-                q = q.where(items.c.published_week.in_([cur, *prev_weeks(cur, weeks - 1)]))
-        rows = c.execute(q.limit(limit)).all()
+        cond = [items.c.source.in_(srcs)]
+        # 법령은 계속 쌓인다. 기간을 안 자르면 몇 달 뒤 오래된 것과 새 것이 섞인다.
+        if days:
+            cond.append(items.c.published_at
+                        >= datetime.now(timezone.utc) - timedelta(days=days))
+        if q:
+            # 제목과 요약(제개정이유)을 함께 본다 — 제목에 안 나오는 말이 많다
+            like = f"%{q}%"
+            cond.append(or_(items.c.title.ilike(like), items.c.summary.ilike(like)))
+        stmt = (select(items.c.id, items.c.title, items.c.summary, items.c.url,
+                       items.c.source, items.c.published_at, items.c.meta,
+                       items.c.insight)
+                .where(*cond).order_by(items.c.published_at.desc()))
+        rows = c.execute(stmt.limit(limit)).all()
         total = c.execute(select(func.count()).select_from(items)
-                          .where(items.c.source.in_(srcs))).scalar_one()
+                          .where(*cond)).scalar_one()
     out = []
     for r in rows:
         m = r.meta if isinstance(r.meta, dict) else {}
         out.append({"id": r.id, "title": r.title or "", "summary": r.summary or "",
+                    "insight": r.insight or None,
                     "url": r.url or "", "source": r.source,
                     "published": str(r.published_at)[:10] if r.published_at else "",
                     "dept": m.get("부처", ""), "kind": m.get("종류", ""),
@@ -536,7 +542,7 @@ def home() -> dict[str, Any]:
         "week": week, "week_label": week_label(week) if week else "",
         "lead": d.get("lead"), "total_kept": d.get("total_kept", 0),
         "crossing": sec.get("crossing", [])[:5],
-        "regulatory": _regulatory(6, 0)["items"],
+        "regulatory": _regulatory(6, 0, "")["items"],
         "trending": (tr.get("rows") or [])[:10],
         "health": health,
     }

@@ -175,6 +175,8 @@ const params = () => ({
 async function runSearch(page = 1) {
   const p = { ...params(), page, size: 50 };
   $('#search-body').innerHTML = '<div class="empty">검색 중…</div>';
+  // 같은 검색어가 법령·연관어에도 걸리는지 함께 찾는다 (첫 페이지에서만)
+  if (page === 1) loadSearchOther((p.q || '').trim());
   const r = await api('/api/search', p);
   const from = (page - 1) * r.size;
   $('#search-count').textContent = r.total
@@ -884,11 +886,60 @@ function regHTML(rows, compact) {
 const fmtYmd = s => (s && s.length === 8)
   ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : (s || '');
 
+/* 법령은 계속 쌓인다 — 지운 적이 없고 매 수집마다 새 것만 더해진다.
+   기간을 안 자르면 몇 달 뒤 오래된 고시와 이번 주 고시가 섞여서, 정작
+   "새로 뭐가 나왔나"를 보러 온 사람이 찾지 못한다. 기본은 최근 30일. */
+let REG_RANGE = 30;
+
 async function loadReg() {
-  const r = await api('/api/regulatory', { limit: 100 });
-  $('#reg-sub').textContent = r.total ? `누적 ${num(r.total)}건` : '';
+  $('#reg-body').innerHTML = '<div class="empty">불러오는 중…</div>';
+  const r = await api('/api/regulatory', { limit: 200, days: REG_RANGE });
+  const all = await api('/api/regulatory', { limit: 1 });
+  $('#reg-sub').textContent =
+    `${num(r.total)}건` + (REG_RANGE ? ` · 누적 ${num(all.total)}건` : '');
   $('#reg-body').innerHTML = regHTML(r.items || [], false);
 }
+$('#reg-range').addEventListener('click', e => {
+  const b = e.target.closest('[data-range]');
+  if (!b) return;
+  $$('#reg-range .chip').forEach(c => c.classList.toggle('active', c === b));
+  REG_RANGE = +b.dataset.range;
+  loadReg();
+});
+
+/* 검색어가 다른 화면에도 걸리는지 함께 보여준다.
+   전에는 기사만 뒤지고 끝나서, 같은 말이 법령에도 있는지 알 방법이 없었다.
+   법령은 건수가 적어 3건까지 그대로 펼치고, 나머지는 그쪽 화면으로 넘긴다. */
+async function loadSearchOther(q) {
+  const box = $('#search-other');
+  if (!q) { box.innerHTML = ''; return; }
+  $('#search-title').textContent = `'${q}' 검색`;
+  let reg = { items: [], total: 0 };
+  try { reg = await api('/api/regulatory', { limit: 3, q }); } catch (e) { /* 무시 */ }
+
+  const regCard = reg.total ? `<div class="card">
+      <div class="panel-head"><h2>⚖️ 법령·규제 ${num(reg.total)}건</h2>
+        <button class="linkish" data-regq="${esc(q)}">전체 보기</button></div>
+      ${regHTML(reg.items, true)}</div>` : '';
+
+  box.innerHTML = regCard + `<div class="card xrow">
+      <span class="mut">'${esc(q)}'의 연관어 망을 그려볼 수 있습니다</span>
+      <button class="preset" data-kw="${esc(q)}">🕸️ 연관어 네트워크로 보기</button>
+    </div>`;
+}
+// '전체 보기' → 법령 화면을 그 검색어로 연다
+document.body.addEventListener('click', async e => {
+  const b = e.target.closest('[data-regq]');
+  if (!b) return;
+  e.preventDefault();
+  showTab('reg');
+  if (!loaded.has('reg')) loaded.add('reg');
+  $('#reg-body').innerHTML = '<div class="empty">불러오는 중…</div>';
+  const r = await api('/api/regulatory', { limit: 200, q: b.dataset.regq });
+  $('#reg-sub').textContent = `'${b.dataset.regq}' ${num(r.total)}건`;
+  $$('#reg-range .chip').forEach(c => c.classList.remove('active'));
+  $('#reg-body').innerHTML = regHTML(r.items || [], false);
+});
 
 const LOADERS = {
   home: loadHome, reg: loadReg,

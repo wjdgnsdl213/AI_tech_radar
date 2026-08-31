@@ -21,7 +21,7 @@
   <nav role="tablist">
     <button class="nav-item active" data-tab="home"   role="tab" title="홈"><i>🏠</i><span>홈</span></button>
     <button class="nav-item" data-tab="digest" role="tab" title="이번 주"><i>📰</i><span>이번 주</span></button>
-    <button class="nav-item" data-tab="reg"    role="tab" title="법령·규제"><i>⚠️</i><span>법령·규제</span></button>
+    <button class="nav-item" data-tab="reg"    role="tab" title="법령·규제"><i>⚖️</i><span>법령·규제</span></button>
     <button class="nav-item" data-tab="trend"  role="tab" title="급상승"><i>📈</i><span>급상승</span></button>
     <button class="nav-item" data-tab="graph"  role="tab" title="연관어 네트워크"><i>🕸️</i><span>연관어</span></button>
     <button class="nav-item" data-tab="search" role="tab" title="검색"><i>🔎</i><span>검색</span></button>
@@ -57,7 +57,7 @@
         <div id="home-trend"><div class="empty">불러오는 중…</div></div>
       </div>
       <div class="card">
-        <div class="panel-head"><h2>⚠️ 법령·규제</h2>
+        <div class="panel-head"><h2>⚖️ 법령·규제</h2>
           <button class="linkish" data-tab="reg">전체 보기</button></div>
         <div id="home-reg"><div class="empty">불러오는 중…</div></div>
       </div>
@@ -103,7 +103,12 @@
 
   <!-- ② 검색 -->
   <section class="panel" id="panel-search">
-    <div class="page-head"><h1>검색</h1></div>
+    <div class="page-head"><h1 id="search-title">검색</h1></div>
+
+    <!-- 검색어가 걸린 다른 곳으로 가는 길. 기사만 뒤지고 끝나면 법령에도 있는지,
+         연관어로 뭐가 붙는지 알 수 없다. -->
+    <div id="search-other"></div>
+
     <div class="card">
       <form class="searchbar" id="search-form">
         <input name="q" id="f-q" placeholder="키워드로 찾기" autocomplete="off">
@@ -114,7 +119,7 @@
         <a class="btn-ghost" id="f-csv" href="#">⬇ 엑셀로 내려받기</a>
       </form>
       <div class="preset-row" id="presets"></div>
-      <div class="mut" id="search-count"></div>
+      <div class="panel-head"><h2>📰 기사</h2><span class="mut" id="search-count"></span></div>
       <div id="search-body"><div class="empty">검색을 눌러 시작하세요.</div></div>
       <div class="pager" id="search-pager"></div>
     </div>
@@ -166,6 +171,12 @@
   <section class="panel" id="panel-reg">
     <div class="page-head"><h1>법령·규제</h1>
       <span class="mut" id="reg-sub"></span></div>
+    <div class="chip-row" id="reg-range">
+      <button class="chip active" data-range="30">최근 30일</button>
+      <button class="chip" data-range="90">최근 90일</button>
+      <button class="chip" data-range="365">최근 1년</button>
+      <button class="chip" data-range="0">전체</button>
+    </div>
     <div class="card">
       <div id="reg-body"><div class="empty">불러오는 중…</div></div>
     </div>

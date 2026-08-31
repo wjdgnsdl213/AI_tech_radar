@@ -94,7 +94,7 @@ a:hover{text-decoration:underline}
   align-items:center;gap:6px;flex-wrap:wrap}
 .item-i{margin-top:9px;font-size:15px;line-height:1.75;color:var(--ink-2);
   background:var(--blue-soft);border-left:2px solid var(--blue-line);
-  padding:9px 13px;border-radius:0 6px 6px 0}
+  padding:9px 13px;border-radius:0 6px 6px 0;white-space:pre-line}
 .tag{display:inline-block;font-size:12.5px;padding:2px 8px;border-radius:4px;
   color:#fff;font-weight:600;letter-spacing:-.1px}
 .tag.ai{background:var(--ax-ai)} .tag.bigdata{background:var(--ax-bigdata)}
@@ -373,3 +373,9 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
   .navscrim.open{display:block;position:fixed;inset:0;
     background:rgba(15,23,42,.32);z-index:39}
 }
+
+/* 검색어가 걸린 다른 화면으로 가는 줄 */
+.xrow{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  flex-wrap:wrap}
+#search-other .card{margin-bottom:16px}
+#search-other .reg-item{padding:10px 2px}
