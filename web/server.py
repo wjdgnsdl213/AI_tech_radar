@@ -42,7 +42,7 @@ from src.digest import build, render_html
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
-app = FastAPI(title="AI 빅데이터 트렌드")
+app = FastAPI(title="SAB Trend")
 
 # ── SPA ──
 # 화면은 web/static의 SPA가 그린다(sobiz web/ 패턴). 서버는 JSON만 낸다.
@@ -113,7 +113,7 @@ def page(title: str, body: str) -> HTMLResponse:
         f"<!doctype html><html lang=ko><meta charset=utf-8>"
         f"<meta name=viewport content='width=device-width,initial-scale=1'>"
         f"<title>{E(title)}</title><style>{CSS}</style><body><div class=wrap>"
-        f"<nav><b>📡 AI 빅데이터 트렌드</b><a href='/'>새 화면</a>"
+        f"<nav><b>📡 SAB Trend</b><a href='/'>새 화면</a>"
         f"<a href='/legacy'>최신</a><a href='/legacy/search'>검색</a>"
         f"<a href='/legacy/weeks'>회차</a></nav>{body}</div></body></html>")
 
@@ -192,7 +192,7 @@ def home():
             week = conn.execute(select(func.max(items.c.published_week))
                                 .where(items.c.kept.is_(True))).scalar_one_or_none()
     if not week:
-        return page("AI 빅데이터 트렌드", "<p class=mut>아직 데이터가 없습니다. "
+        return page("SAB Trend", "<p class=mut>아직 데이터가 없습니다. "
                     "<code>python -m src.collect</code> 부터 실행하세요.</p>")
     return digest_view(week)
 

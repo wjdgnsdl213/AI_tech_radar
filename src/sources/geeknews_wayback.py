@@ -58,7 +58,7 @@ class GeekNewsWaybackSource(Source):
         super().__init__(cfg, common)
         self.session = requests.Session()
         self.session.headers.update(
-            {"User-Agent": self.common.get("user_agent", "ai-tech-radar")}
+            {"User-Agent": self.common.get("user_agent", "sab-trend")}
         )
         self._index: dict[int, str] | None = None      # topic id -> 스냅샷 timestamp
         self._ordered: list[int] | None = None         # id 내림차순 처리 순서

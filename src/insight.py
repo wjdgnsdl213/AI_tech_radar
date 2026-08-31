@@ -85,6 +85,26 @@ L1_RULES = """\
   정확히 `내용 부족` 네 글자만 출력한다.
 - 군더더기 없이 문장만 출력한다. 머리말·따옴표·마크다운을 붙이지 않는다."""
 
+L1_REG_RULES = """\
+당신은 사내 AI·빅데이터팀에 법령·행정규칙 변경을 알리는 담당자다.
+주어진 법령/고시가 **무엇을 바꿨는지**를 한국어로 요약한다.
+
+반드시 지킬 것:
+- ★ 주어진 본문에 있는 것만 쓴다. 의무·기한·과태료·적용대상을 **절대 추측하지
+  않는다.** 규제 요약에서 없는 의무를 지어내는 것은 요약이 없는 것보다 나쁘다.
+  본문에 안 나오면 그냥 쓰지 않는다.
+- 순서대로 담는다:
+    ① 무엇이 달라졌는지 (신설·변경된 내용)
+    ② 누구에게 적용되는지 (본문에 나온 대상만)
+    ③ 언제부터인지 (시행일이 주어졌을 때만)
+- "…해야 한다"는 **본문이 실제로 그렇게 정한 경우에만** 쓴다.
+  당신의 권고를 덧붙이지 않는다. 대응 방안·주의사항·전망을 쓰지 않는다.
+- 타법개정처럼 조문 번호만 바뀐 것이면 그렇게 적는다.
+  억지로 의미를 부여하지 않는다 — 실제로 영향이 없는 개정이 많다.
+- **두세 문장, 150~250자.** 재료가 적으면 짧게 끝낸다.
+- 제목만 있고 내용이 없으면 정확히 `내용 부족` 네 글자만 출력한다.
+- 군더더기 없이 문장만 출력한다. 머리말·따옴표·마크다운을 붙이지 않는다."""
+
 L2_RULES = """\
 당신은 사내 AI·빅데이터팀의 주간 트렌드 다이제스트 첫머리를 쓰는 편집자다.
 아래 팀 프로파일과 이번 주 상위 항목 목록을 읽고 **'이번 주 흐름'을 3줄**로 쓴다.
@@ -176,6 +196,11 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
     model = icfg["l1_model"]
     max_items = args.limit or int(icfg.get("l1_max_items", 300))
     max_tokens = int(icfg.get("l1_max_tokens", 200))
+    # 규제 모드: 대상도 규칙도 다르다. 법령은 kept 필터를 태우지 않으므로
+    # (소스 기반 판정) 여기서도 kept를 보지 않고 소스로 고른다.
+    reg = bool(getattr(args, "reg", False))
+    reg_sources = [n for n, sc in (cfg.get("sources") or {}).items()
+                   if isinstance(sc, dict) and sc.get("regulatory")]
     fail_open = bool(icfg.get("fail_open", True))
     labels = {ax: spec.get("label", ax) for ax, spec in cfg["axes"].items()}
     profile = load_team_profile(icfg.get("team_profile_path", ""))
@@ -183,9 +208,13 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
     engine = get_engine()
     stmt = (select(items.c.id, items.c.title, items.c.summary, items.c.source,
                    items.c.published_at)
-            .where(items.c.kept.is_(True))
-            .order_by(items.c.cross_score.desc(), items.c.relevance.desc())
             .limit(max_items))
+    if reg:
+        stmt = (stmt.where(items.c.source.in_(reg_sources))
+                .order_by(items.c.published_at.desc()))
+    else:
+        stmt = (stmt.where(items.c.kept.is_(True))
+                .order_by(items.c.cross_score.desc(), items.c.relevance.desc()))
     if not args.regenerate:
         # 이미 같은 모델로 해설이 붙은 항목은 건너뛴다. 모델·프롬프트를 바꿔
         # 다시 돌릴 때를 위해 insight_model을 함께 본다.
@@ -205,7 +234,7 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
 
     print(f"  대상 {len(rows)}건  |  모델 {model}  |  항목당 최대 {max_tokens}토큰")
 
-    system = _system_blocks(L1_RULES, profile)
+    system = _system_blocks(L1_REG_RULES if reg else L1_RULES, profile)
     prompts = [
         (r.id, _item_prompt(r.title or "", r.summary or "", r.source,
                             sorted(axes_map.get(r.id, [])),
@@ -431,6 +460,8 @@ def main() -> None:
     parser.add_argument("--week", default=None, help="L2 주차 (예: 2026-W35)")
     parser.add_argument("--limit", type=int, default=0, help="L1 처리 상한 (테스트용)")
     parser.add_argument("--workers", type=int, default=4, help="L1 동시 호출 수")
+    parser.add_argument("--reg", action="store_true",
+                        help="법령·규제 항목에 요약을 붙인다 (규제 전용 프롬프트)")
     parser.add_argument("--regenerate", action="store_true",
                         help="이미 해설이 있는 항목도 다시 생성")
     parser.add_argument("--dry-run", action="store_true",
@@ -442,8 +473,10 @@ def main() -> None:
         sys.exit("config에서 insight.enabled가 꺼져 있습니다.")
     init_db(get_engine())
 
-    do_l1 = args.l1 or not args.l2
-    do_l2 = args.l2 or not args.l1
+    # --reg는 법령 항목만 다루므로 L1 전용이다. 주간 흐름(L2)은 뉴스 기반이라
+    # 여기서 같이 돌면 규제 실행마다 주간 요약이 덮어써진다.
+    do_l1 = args.l1 or args.reg or not args.l2
+    do_l2 = args.l2 or not (args.l1 or args.reg)
 
     if do_l1:
         print(f"{'=' * 62}\nL1 — 항목 해설\n{'=' * 62}")

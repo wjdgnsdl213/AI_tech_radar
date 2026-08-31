@@ -1,4 +1,4 @@
-/* AI 빅데이터 트렌드 — SPA
+/* SAB Trend — SPA
  *
  * 서버(web/api.py)는 JSON만 내고 렌더는 여기서 한다.
  * 항목 선정·점수·브릿지는 전부 src/*.py가 정한 것을 그대로 쓴다 —
@@ -793,15 +793,23 @@ document.body.addEventListener('click', async e => {
   if (it) {
     e.preventDefault();
     const d = await api('/api/item/' + it.dataset.item);
+    const m = d.meta || {};
+    const isLaw = !!m.target;      // 법령 어댑터가 붙이는 표식
+    const badges = isLaw ? `
+      ${m['부처'] ? `<span class="rbadge dept">${esc(m['부처'])}</span>` : ''}
+      ${m['종류'] ? `<span class="rbadge">${esc(m['종류'])}</span>` : ''}
+      ${m['제개정'] ? `<span class="rbadge">${esc(m['제개정'])}</span>` : ''}
+      ${m['시행일자'] ? `<span class="rbadge">시행 ${esc(fmtYmd(m['시행일자']))}</span>` : ''}`
+      : tags(d.axes);
     $('#drawer-body').innerHTML = `
-      <h2 style="font-size:18px;margin:0 30px 8px 0;line-height:1.45">${esc(d.title)}</h2>
-      <div class="mut">${tags(d.axes)} ${esc(d.source)} · ${esc(d.published)}
+      <h2 style="font-size:19px;margin:0 30px 8px 0;line-height:1.45">${esc(d.title)}</h2>
+      <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}
         · <a href="${esc(d.url)}" target="_blank" rel="noopener">원문 보기</a></div>
-      <p style="font-size:14px;margin-top:14px">${esc(d.summary || '')}</p>
       ${d.insight ? `<div class="item-i">💡 ${esc(d.insight)}</div>` : ''}
-      <div class="sec-title">비슷한 기사</div>
+      <p style="font-size:15px;margin-top:14px">${esc(d.summary || '')}</p>
+      ${isLaw ? '' : `<div class="sec-title">비슷한 기사</div>
       <div class="items" style="padding:0;box-shadow:none;margin:0">
-        ${(d.related || []).map(itemHTML).join('') || '<div class="empty">없습니다.</div>'}</div>`;
+        ${(d.related || []).map(itemHTML).join('') || '<div class="empty">없습니다.</div>'}</div>`}`;
     $('#drawer').hidden = false;
   }
   if (e.target.closest('[data-close]')) $('#drawer').hidden = true;
@@ -859,7 +867,9 @@ function regHTML(rows, compact) {
   return rows.map(r => {
     const days = r.published ? Math.round((today - new Date(r.published)) / 86400000) : 999;
     return `<div class="reg-item">
-      <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+      <a href="#" data-item="${r.id}">${esc(r.title)}</a>
+      <a class="src-link" href="${esc(r.url)}" target="_blank" rel="noopener"
+         title="법제처 원문">원문 ↗</a>
       <div class="reg-meta">
         ${days <= 14 ? '<span class="rbadge new">최신</span>' : ''}
         ${r.dept ? `<span class="rbadge dept">${esc(r.dept)}</span>` : ''}
@@ -870,6 +880,7 @@ function regHTML(rows, compact) {
       </div></div>`;
   }).join('');
 }
+
 const fmtYmd = s => (s && s.length === 8)
   ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6)}` : (s || '');
 

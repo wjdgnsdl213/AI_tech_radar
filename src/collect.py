@@ -57,7 +57,7 @@ DEFAULT_MAX_PAGES = 20  # 쿼리당 페이지 상한 (폭주 방지)
 def _user_agent(cfg: dict[str, Any]) -> str:
     contact = os.getenv("CONTACT_EMAIL", "unknown")
     tpl = cfg.get("backfill", {}).get(
-        "user_agent", "ai-tech-radar/0.1 (contact: {contact})")
+        "user_agent", "sab-trend/0.1 (contact: {contact})")
     return tpl.format(contact=contact)
 
 

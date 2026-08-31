@@ -344,6 +344,10 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .reg-item a{color:var(--ink);font-weight:600;font-size:16px;text-decoration:none;
   line-height:1.5}
 .reg-item a:hover{color:var(--blue);text-decoration:underline}
+/* 원문은 제목 옆에 따로 둔다 — 제목은 요약(상세)을 열고, 이건 법제처로 나간다 */
+.reg-item .src-link{margin-left:8px;font-size:13px;font-weight:500;color:var(--mut);
+  white-space:nowrap}
+.reg-item .src-link:hover{color:var(--blue)}
 .reg-meta{margin-top:7px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
   font-size:13px;color:var(--mut)}
 .rbadge{background:var(--bg);border:1px solid var(--line);border-radius:5px;

@@ -610,6 +610,8 @@ def item(item_id: int) -> dict[str, Any]:
         "source": r.source, "published": str(r.published_at)[:10] if r.published_at else "",
         "cross_score": r.cross_score, "relevance": r.relevance,
         "insight": r.insight or None, "axes": sorted(my),
+        # 법령은 부처·종류·제개정·시행일이 판단에 필요하다. meta에 들어 있다.
+        "meta": r.meta if isinstance(r.meta, dict) else {},
         "related": [{"id": x.id, "title": x.title, "url": x.url, "source": x.source,
                      "published": str(x.published_at)[:10] if x.published_at else "",
                      "cross_score": x.cross_score, "insight": x.insight or None,

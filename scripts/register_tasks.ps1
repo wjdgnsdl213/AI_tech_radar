@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  AI 빅데이터 트렌드 — Windows 작업 스케줄러 등록/해제.
+  SAB Trend — Windows 작업 스케줄러 등록/해제.
 
 .DESCRIPTION
   일간(수집·처리)과 주간(해설·다이제스트) 배치를 등록한다.
@@ -94,7 +94,7 @@ foreach ($t in $tasks) {
         Trigger     = $triggers[$t.Name]
         Settings    = $settings
         Principal   = $principal
-        Description = "AI 빅데이터 트렌드 — $($t.Bat)"
+        Description = "SAB Trend — $($t.Bat)"
     }
     Register-ScheduledTask @reg | Out-Null
     Write-Host "  등록: $($t.Name)  ->  $($t.Bat)"

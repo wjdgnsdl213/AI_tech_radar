@@ -64,7 +64,7 @@ class NaverNewsSource(Source):
         self.session.headers.update({
             "X-Naver-Client-Id": client_id,
             "X-Naver-Client-Secret": client_secret,
-            "User-Agent": self.common.get("user_agent", "ai-tech-radar"),
+            "User-Agent": self.common.get("user_agent", "sab-trend"),
         })
 
     def tasks(self) -> list[str]:

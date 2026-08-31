@@ -68,7 +68,7 @@ def main() -> None:
     web_url = f"{base.rstrip('/')}/?week={week}#digest"
 
     # 제목도 사람이 읽는 표기로. 받은편지함에서 '2026-W35'는 아무 뜻이 없다.
-    subject = f"[AI 빅데이터 트렌드] {week_label(week)} — 교집합 {len(d['crossing'])}건"
+    subject = f"[SAB Trend] {week_label(week)} — 교집합 {len(d['crossing'])}건"
     text = render_markdown(d, mail=True, web_url=web_url)
     html = render_html(d, mail=True, web_url=web_url)
 

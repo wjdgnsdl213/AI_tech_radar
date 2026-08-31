@@ -1,4 +1,4 @@
-# ai-tech-radar 하이퍼파라미터
+# sab-trend 하이퍼파라미터
 # 모든 튜닝 가능한 값은 이 파일에서 관리한다 (코드 하드코딩 금지)
 
 db:
@@ -281,7 +281,7 @@ backfill:
   checkpoint_dir: data/checkpoints
   out_dir: data/raw
   batch_flush: 500           # 이 건수마다 디스크에 flush + 체크포인트 갱신
-  user_agent: "ai-tech-radar/0.1 (internal research; contact: {contact})"
+  user_agent: "sab-trend/0.1 (internal research; contact: {contact})"
 
 # ── 2단계 필터 (2주차) ───────────────────────────────────────────────
 prefilter:

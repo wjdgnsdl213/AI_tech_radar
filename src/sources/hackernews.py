@@ -33,7 +33,7 @@ class HackerNewsSource(Source):
         super().__init__(cfg, common)
         self.query = query
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": self.common.get("user_agent", "ai-tech-radar")})
+        self.session.headers.update({"User-Agent": self.common.get("user_agent", "sab-trend")})
 
     def tasks(self) -> list[str]:
         # 쿼리별로 따로 훑는다 — 체크포인트도 쿼리 단위로 갈린다

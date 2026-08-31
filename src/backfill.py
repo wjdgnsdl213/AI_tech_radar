@@ -114,7 +114,7 @@ def run_source(key: str, cfg: dict[str, Any], years: float | None, reset: bool) 
     common = dict(cfg.get("backfill", {}))
     contact = os.getenv("CONTACT_EMAIL", "unknown")
     common["user_agent"] = common.get(
-        "user_agent", "ai-tech-radar/0.1 (contact: {contact})"
+        "user_agent", "sab-trend/0.1 (contact: {contact})"
     ).format(contact=contact)
 
     ck_path = Path(cfg["backfill"]["checkpoint_dir"]) / f"{cfg_key}.json"

@@ -41,7 +41,7 @@ from src.db import digests, get_engine, init_db, item_axes, items, load_config
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 # 서비스 이름. 메일 제목·다이제스트 머리글·웹이 모두 여기를 본다.
-SERVICE_NAME = "AI 빅데이터 트렌드"
+SERVICE_NAME = "SAB Trend"
 
 
 def _bigrams(text: str) -> set[str]:
@@ -345,7 +345,7 @@ def render_html(d: dict[str, Any], mail: bool = False,
         '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\','
         "'Malgun Gothic',sans-serif;max-width:720px;margin:0 auto;padding:24px;"
         'color:#111;background:#f9fafb">',
-        f'<h1 style="font-size:20px;margin:0 0 4px">📡 AI 빅데이터 트렌드</h1>',
+        f'<h1 style="font-size:20px;margin:0 0 4px">📡 SAB Trend</h1>',
         f'<div style="color:#6b7280;font-size:13px;margin-bottom:20px">'
         f'{e(_week_title(d["week"]))} · 통과 {d["total_kept"]}건</div>',
     ]

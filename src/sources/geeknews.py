@@ -125,7 +125,7 @@ class GeekNewsSource(Source):
     def __init__(self, cfg: dict[str, Any], common: dict[str, Any] | None = None) -> None:
         super().__init__(cfg, common)
         self.session = requests.Session()
-        self.session.headers.update({"User-Agent": self.common.get("user_agent", "ai-tech-radar")})
+        self.session.headers.update({"User-Agent": self.common.get("user_agent", "sab-trend")})
 
     # ── 전방 수집 (RSS) ──────────────────────────────────────────────
     def fetch_recent(self) -> list[Item]:
