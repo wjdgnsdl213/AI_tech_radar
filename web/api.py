@@ -12,6 +12,7 @@ sobiz web/ 패턴과 같다.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -430,6 +431,31 @@ def _ego(kw: str, hops: int, per_hop: int,
                     edges.append({"source": a, "target": b,
                                   "npmi": round(v, 4), "cooc": n})
 
+        # ── ★ 홉을 **실제 간선 기준**으로 다시 매긴다 ──
+        #   위 확장 루프는 탐색 순서로 hop을 붙인다. 그런데 중심의 직접 이웃은
+        #   budget에 잘려서, 중심과 함께 나오는 말인데도 예산 밖이면 이웃을 통해
+        #   2홉으로 발견된다. 그 뒤 아래 간선 계산은 모든 쌍을 보므로 그 노드에도
+        #   중심과의 선이 그어진다 — 화면에는 "2홉인데 중심에 붙어 있는" 노드가 된다.
+        #   실측: 'AI모델' 2홉 21개 중 20개가 중심과 직접 연결이었다.
+        #   간선이 곧 보이는 관계이므로, 홉도 그 간선 위의 최단 거리여야 뜻이 맞는다.
+        adj: dict[str, set[str]] = {k: set() for k in names}
+        for e2 in edges:
+            adj[e2["source"]].add(e2["target"])
+            adj[e2["target"]].add(e2["source"])
+        dist = {center: 0}
+        queue = [center]
+        while queue:
+            cur = queue.pop(0)
+            for nb in adj[cur]:
+                if nb not in dist:
+                    dist[nb] = dist[cur] + 1
+                    queue.append(nb)
+        for k, nd in nodes.items():
+            if nd["center"]:
+                continue
+            # 중심과 이어지지 않는 노드(간선이 전부 NPMI 컷 아래)는 탐색 홉을 남긴다
+            nd["hop"] = dist.get(k, nd["hop"])
+
         # 주제 성향 — 색에 쓴다
         axis_hits: dict[str, Counter] = {k: Counter() for k in names}
         all_docs = set().union(*sets.values()) if sets else set()
@@ -456,6 +482,124 @@ def _ego(kw: str, hops: int, per_hop: int,
     return {"center": center, "empty": False, "hops": hops,
             "nodes": list(nodes.values()), "edges": edges,
             "docs": len(sets.get(center, ()))}
+
+
+@router.get("/cross")
+def cross(min_axes: int = Query(2), weeks: int = Query(8),
+          limit: int = Query(60)) -> dict[str, Any]:
+    """축이 겹치는 기사만 모은다.
+
+    ★ 이 도구의 전제가 "팀의 업무는 세 축의 교집합에 있다"(CLAUDE.md)인데,
+      정작 교집합은 다이제스트 다섯 칸에만 보였다. 그 주에 교차가 30건이어도
+      5건만 나오고 나머지는 어디에서도 볼 수 없었다. 여기서 전부 본다.
+    """
+    from src.trend import prev_weeks
+
+    with get_engine().connect() as c:
+        cur = c.execute(select(func.max(items.c.published_week))
+                        .where(items.c.kept.is_(True))).scalar_one_or_none()
+        if not cur:
+            return {"rows": [], "combos": [], "weeks": []}
+        span = [cur, *prev_weeks(cur, max(0, weeks - 1))]
+
+        # 축 조합을 파이썬에서 만든다 — GROUP BY로 문자열을 잇는 함수는 방언마다 다르다
+        rows = c.execute(
+            select(items.c.id, items.c.title, items.c.url, items.c.source,
+                   items.c.published_at, items.c.published_week,
+                   items.c.cross_score, items.c.insight)
+            .where(items.c.kept.is_(True), items.c.published_week.in_(span))
+            .order_by(items.c.cross_score.desc(),
+                      items.c.published_at.desc())).all()
+        amap: dict[int, list[str]] = {}
+        ids = [r.id for r in rows]
+        for part in [ids[i:i + 800] for i in range(0, len(ids), 800)]:
+            for i, a in c.execute(select(item_axes.c.item_id, item_axes.c.axis)
+                                  .where(item_axes.c.item_id.in_(part))):
+                amap.setdefault(i, []).append(a)
+
+    labels = {ax: s.get("label", ax) for ax, s in CFG["axes"].items()}
+    out, combo = [], Counter()
+    per_week: dict[str, Counter] = {}
+    for r in rows:
+        ax = sorted(amap.get(r.id, []))
+        if len(ax) < min_axes:
+            continue
+        key = "+".join(labels.get(a, a) for a in ax)
+        combo[key] += 1
+        per_week.setdefault(r.published_week, Counter())[key] += 1
+        if len(out) < limit:
+            out.append({"id": r.id, "title": r.title or "", "url": r.url or "",
+                        "source": r.source, "axes": ax, "combo": key,
+                        "published": str(r.published_at)[:10] if r.published_at else "",
+                        "week": r.published_week,
+                        "cross_score": r.cross_score, "insight": r.insight or None})
+    total = sum(combo.values())
+    return {
+        "rows": out, "total": total, "min_axes": min_axes,
+        "combos": [{"combo": k, "n": v} for k, v in combo.most_common()],
+        "weeks": [{"week": w, "label": week_label(w),
+                   "n": sum(per_week.get(w, Counter()).values())}
+                  for w in sorted(span)],
+    }
+
+
+@router.get("/orgs")
+def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
+    """반복 등장하는 기관.
+
+    ★ 개체명 인식을 붙이지 않는다. 키워드 중 **기관 접미사로 끝나는 긴 말**만
+      고른다. 그게 이 데이터에서 충분히 통한다 —
+      소상공인시장진흥공단·행정안전부·한국관광공사·경기도시장상권진흥원 같은 게
+      그대로 잡힌다.
+      ⚠ 완전하지 않다: 접미사가 없는 기관(카카오·SKT)은 안 잡힌다.
+
+    ★ 두 가지를 반드시 걸러야 쓸 수 있다 (실측으로 드러났다)
+      1) 일반명사: '센터'·'기관'을 접미사에 넣으면 데이터센터·지원센터·공공기관이
+         상위를 덮는다. 기관이 아니다. 접미사를 기관 고유의 것만 남긴다.
+      2) n-gram 조각: '중소벤처기업부'와 함께 '벤처기업부'·'기업부'가,
+         '경기도시장상권진흥원'과 함께 '시장상권진흥원'·'상권진흥원'이 같이 잡힌다.
+         trend._fragment_of가 이미 푸는 문제라 그대로 쓴다.
+    """
+    from src.extract import item_keywords
+    from src.trend import _fragment_of, prev_weeks
+
+    # 기관에만 붙는 접미사. '센터'·'기관'·'지원'은 일반명사를 끌고 와서 뺐다.
+    SUFFIX = ("공단", "진흥원", "연구원", "재단", "공사", "위원회", "협회",
+              "대학교", "은행", "조합", "부", "처", "청")
+    with get_engine().connect() as c:
+        cur = c.execute(select(func.max(items.c.published_week))
+                        .where(items.c.kept.is_(True))).scalar_one_or_none()
+    if not cur:
+        return {"rows": [], "weeks": []}
+    span = [cur, *prev_weeks(cur, max(0, weeks - 1))]
+
+    with kw_engine().connect() as c:
+        rows = c.execute(
+            select(item_keywords.c.keyword, item_keywords.c.week,
+                   func.count(func.distinct(item_keywords.c.item_id)))
+            .where(item_keywords.c.week.in_(span), item_keywords.c.kept.is_(True))
+            .group_by(item_keywords.c.keyword, item_keywords.c.week)).all()
+
+    agg: dict[str, Counter] = {}
+    for kw, wk, n in rows:
+        # 5자 미만은 기관명이라기엔 짧다 — '통신부'·'진흥원' 같은 조각이 걸린다
+        if len(kw) < 5 or not kw.endswith(SUFFIX):
+            continue
+        agg.setdefault(kw, Counter())[wk] += n
+
+    totals = {k: sum(v.values()) for k, v in agg.items()}
+    out = []
+    for kw, per in agg.items():
+        tot = totals[kw]
+        # 한 주에만 나온 건 '반복'이 아니다
+        if tot < 3 or len(per) < 2 or _fragment_of(kw, totals):
+            continue
+        out.append({"keyword": kw, "total": tot, "weeks": len(per),
+                    "series": [{"week": w, "label": week_label(w), "n": per.get(w, 0)}
+                               for w in sorted(span)]})
+    out.sort(key=lambda r: (-r["weeks"], -r["total"]))
+    return {"rows": out[:limit],
+            "weeks": [{"week": w, "label": week_label(w)} for w in sorted(span)]}
 
 
 @router.get("/regulatory")

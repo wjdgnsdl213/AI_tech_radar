@@ -276,8 +276,10 @@ async function loadEgo(kw, hops) {
   EGO = g;
   $('#graph-tools').hidden = false;
   $('#ego-hops').value = hops;
-  $('#hop-label').textContent = hops + '홉';
-  $('#graph-stat').textContent = `${g.nodes.length}개 키워드 · ${g.edges.length}개 연결`;
+  $('#hop-label').textContent = RANGE_LABEL[hops] || hops;
+  const far = g.nodes.filter(n => n.hop >= 2).length;
+  $('#graph-stat').textContent = `${g.nodes.length}개 키워드 · ${g.edges.length}개 연결`
+    + (far ? ` · 2단계 ${far}개` : '');
   drawEgo(g);
   selectNode(g.center);
 }
@@ -372,38 +374,42 @@ function drawEgo(g) {
   });
 
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
-  // 선에 양끝 키워드를 적어둔다 — 노드를 끌 때 이 선들만 골라 다시 잇는다
+  /* 선에 양끝 키워드를 적어둔다 — 노드를 끌 때 이 선들만 골라 다시 잇는다.
+     ★ 직선 대신 완만한 곡선을 쓴다. 방사형 배치에서 직선만 쓰면 중심에서 뻗은
+       살처럼 보여 어느 선이 어디로 가는지 눈으로 못 따라간다. 살짝 휘면
+       겹친 선끼리도 갈라져 보인다. */
   (g.edges || []).forEach(e2 => {
     const a2 = pos[e2.source], b2 = pos[e2.target];
     if (!a2 || !b2) return;
     const mid = e2.source === g.center || e2.target === g.center;
-    out.push(`<line data-s="${esc(e2.source)}" data-t="${esc(e2.target)}"
-      x1="${a2[0].toFixed(1)}" y1="${a2[1].toFixed(1)}"
-      x2="${b2[0].toFixed(1)}" y2="${b2[1].toFixed(1)}" stroke="#94a3b8"
-      stroke-opacity="${(e2.npmi * (mid ? .5 : .16)).toFixed(3)}"
-      stroke-width="${mid ? 1.5 : 1}"/>`);
+    const dx = b2[0] - a2[0], dy = b2[1] - a2[1];
+    out.push(`<path class="gedge${mid ? ' mid' : ''}"
+      data-s="${esc(e2.source)}" data-t="${esc(e2.target)}"
+      d="M${a2[0].toFixed(1)} ${a2[1].toFixed(1)} Q${((a2[0] + b2[0]) / 2 - dy * .09).toFixed(1)} ${((a2[1] + b2[1]) / 2 + dx * .09).toFixed(1)} ${b2[0].toFixed(1)} ${b2[1].toFixed(1)}"
+      stroke-opacity="${(0.10 + e2.npmi * (mid ? .55 : .30)).toFixed(3)}"
+      stroke-width="${((mid ? 1.6 : 1.0) + e2.npmi * 1.1).toFixed(2)}"/>`);
   });
   g.nodes.forEach(n => {
     const [x, y] = pos[n.keyword], r = rad[n.keyword], fs = fsz[n.keyword];
-    const fade = n.center ? 1 : Math.max(.4, 1 - (n.hop - 1) * .28);
-    /* ★ 라벨은 예외 없이 노드 **아래**에 붙인다.
-       전에는 이웃끼리 높이를 어긋내려고 위/아래를 번갈아 놨는데, 겹침은
-       조금 줄었지만 같은 원 위의 말들이 들쭉날쭉해서 훑어 읽기가 더 나빴다.
-       대신 흰 알약을 깔아 선 위에 겹쳐도 글자가 죽지 않게 한다. */
-    const ly = y + r + fs + 2;
+    const far = n.hop >= 2;
+    /* 색은 축(AI·빅데이터·소상공인)을 뜻한다. 전부 진한 파랑으로 칠하면 그 뜻이
+       안 보이고 화면도 무겁다. 옅은 채움 + 같은 색 테두리로 바꾸고, 흰 링을
+       둘러 선 위에 얹혀도 노드 경계가 살아 있게 한다. */
+    const c = `var(--ax-${n.axis || 'ai'})`;
+    const ly = y + r + fs + 4;
     const tw = textW(n.keyword, fs);
-    out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}"
+    out.push(`<g class="gnode${n.keyword === egoSel ? ' sel' : ''}${far ? ' far' : ''}"
       data-node="${esc(n.keyword)}">
-      <title>${esc(n.keyword)} · ${n.df}건${n.center ? '' : ` · ${n.hop}홉`}</title>
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
-        fill="var(--ax-${n.axis || 'ai'})" fill-opacity="${fade.toFixed(2)}"/>
-      <rect class="lbl-bg" x="${(x - tw / 2 - 5).toFixed(1)}" y="${(ly - fs * .85).toFixed(1)}"
-        width="${(tw + 10).toFixed(1)}" height="${(fs * 1.22).toFixed(1)}" rx="4"/>
+      <title>${esc(n.keyword)} · ${n.df}건${n.center ? ' · 중심' : far ? ' · 2단계' : ''}</title>
+      <circle class="halo" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r + 3).toFixed(1)}"/>
+      <circle class="dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}"
+        fill="${c}" stroke="${c}"/>
+      ${n.center ? `<circle class="ring" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r + 6).toFixed(1)}" stroke="${c}"/>` : ''}
+      <rect class="lbl-bg" x="${(x - tw / 2 - 6).toFixed(1)}" y="${(ly - fs * .88).toFixed(1)}"
+        width="${(tw + 12).toFixed(1)}" height="${(fs * 1.3).toFixed(1)}" rx="5"/>
       <text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle"
-        class="glabel${n.center ? ' glabel-bridge' : ''}" fill="#334155"
-        font-size="${fs}"
-        opacity="${n.center ? 1 : Math.max(.72, 1 - (n.hop - 1) * .16)}"
-        >${esc(n.keyword)}</text>
+        class="glabel${n.center ? ' glabel-bridge' : ''}"
+        font-size="${fs}">${esc(n.keyword)}</text>
     </g>`);
   });
   out.push('</svg>');
@@ -414,9 +420,10 @@ function drawEgo(g) {
      든 키워드에서 깨져서 CSS.escape가 필요해지는데, 참조를 쥐면 그럴 일이 없다. */
   const inc = {}, el = {};
   $$('#graph-svg .gnode').forEach(g2 => (el[g2.dataset.node] = g2));
-  $$('#graph-svg line').forEach(l => {
-    (inc[l.dataset.s] = inc[l.dataset.s] || []).push([l, '1']);
-    (inc[l.dataset.t] = inc[l.dataset.t] || []).push([l, '2']);
+  // 간선이 곡선(path)이라 끌 때 d를 다시 만든다 — 양끝과 제어점을 함께 옮긴다
+  $$('#graph-svg path.gedge').forEach(l => {
+    (inc[l.dataset.s] = inc[l.dataset.s] || []).push([l, 's']);
+    (inc[l.dataset.t] = inc[l.dataset.t] || []).push([l, 't']);
   });
   LAYOUT = { pos, home: JSON.parse(JSON.stringify(pos)), rad, inc, el };
 
@@ -433,9 +440,14 @@ function moveNode(kw, x, y) {
   LAYOUT.pos[kw] = [x, y];
   const h = LAYOUT.home[kw], g = LAYOUT.el[kw];
   if (g) g.setAttribute('transform', `translate(${(x - h[0]).toFixed(1)} ${(y - h[1]).toFixed(1)})`);
-  (LAYOUT.inc[kw] || []).forEach(([el, end]) => {
-    el.setAttribute('x' + end, x.toFixed(1));
-    el.setAttribute('y' + end, y.toFixed(1));
+  (LAYOUT.inc[kw] || []).forEach(([el]) => {
+    const a = LAYOUT.pos[el.dataset.s], b = LAYOUT.pos[el.dataset.t];
+    if (!a || !b) return;
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    el.setAttribute('d', `M${a[0].toFixed(1)} ${a[1].toFixed(1)} `
+      + `Q${((a[0] + b[0]) / 2 - dy * .09).toFixed(1)} `
+      + `${((a[1] + b[1]) / 2 + dx * .09).toFixed(1)} `
+      + `${b[0].toFixed(1)} ${b[1].toFixed(1)}`);
   });
 }
 
@@ -563,7 +575,7 @@ function selectNode(kw) {
     g.classList.toggle('sel', me);
     g.classList.toggle('dim', !me && !near.has(g.dataset.node));
   });
-  $$('#graph-svg line').forEach(l => {
+  $$('#graph-svg path.gedge').forEach(l => {
     const hot = l.dataset.s === kw || l.dataset.t === kw;
     l.classList.toggle('hot', hot);
     l.classList.toggle('dim', !hot);
@@ -583,7 +595,12 @@ $('#graph-svg').addEventListener('dblclick', e => {
 $('#ego-form').onsubmit = e => { e.preventDefault(); loadEgo($('#ego-q').value.trim()); };
 // 검색 뒤에도 범위를 늘렸다 줄였다 할 수 있어야 한다 — 몇 홉이 맞는지는
 // 그려보기 전에는 모른다.
-$('#ego-hops').oninput = e => { $('#hop-label').textContent = e.target.value + '홉'; };
+// 슬라이더 값은 '몇 홉까지 찾아볼까'다. 표시되는 노드의 홉은 간선 기준으로
+// 다시 계산되므로, 2로 올려도 대부분 1홉으로 나오는 게 정상이다.
+const RANGE_LABEL = { 1: '좁게', 2: '보통', 3: '넓게' };
+$('#ego-hops').oninput = e => {
+  $('#hop-label').textContent = RANGE_LABEL[e.target.value] || e.target.value;
+};
 $('#ego-hops').onchange = e => {
   const v = $('#ego-q').value.trim();
   if (v) loadEgo(v, +e.target.value);
@@ -1055,7 +1072,62 @@ async function loadNews() {
     <div class="mut" style="margin-top:10px">config.yaml의 alerts.keywords에서 바꿉니다.</div>`;
 }
 
+/* ── 교차 ────────────────────────────────────────────────────────
+ * "팀의 업무는 세 축의 교집합에 있다"가 이 도구의 전제인데(CLAUDE.md),
+ * 정작 교집합은 다이제스트 다섯 칸에만 보였다. 그 주에 30건이 있어도 5건만
+ * 나오고 나머지는 어디에서도 볼 수 없었다. 여기서 전부 본다. */
+let CROSS_MIN = 2;
+
+async function loadCross() {
+  $('#cross-body').innerHTML = '<div class="empty">불러오는 중…</div>';
+  const r = await api('/api/cross', { min_axes: CROSS_MIN, weeks: 8, limit: 80 });
+  $('#cross-sub').textContent = `최근 8주 · ${num(r.total)}건`;
+  $('#cross-body').innerHTML = r.rows.length
+    ? `<div class="items" style="padding:0;border:0;margin:0">
+        ${r.rows.map(itemHTML).join('')}</div>`
+    : '<div class="empty">해당 항목이 없습니다.</div>';
+  const max = Math.max(1, ...(r.combos || []).map(c => c.n));
+  $('#cross-combos').innerHTML = (r.combos || []).map(c => `<div class="hrow">
+      <span>${esc(c.combo)}</span>
+      <span class="n">${c.n}건<div class="bar" style="width:${Math.round(c.n / max * 70)}px"></div></span>
+    </div>`).join('') || '<div class="empty">—</div>';
+  const wmax = Math.max(1, ...(r.weeks || []).map(x => x.n));
+  $('#cross-weeks').innerHTML = (r.weeks || []).map(x => `<div class="hrow">
+      <span>${esc(x.label.replace(/^\d+년 /, ''))}</span>
+      <span class="n">${x.n}건<div class="bar" style="width:${Math.round(x.n / wmax * 70)}px"></div></span>
+    </div>`).join('');
+}
+$('#cross-axes').addEventListener('click', e => {
+  const b = e.target.closest('[data-min]');
+  if (!b) return;
+  $$('#cross-axes .chip').forEach(c => c.classList.toggle('active', c === b));
+  CROSS_MIN = +b.dataset.min;
+  loadCross();
+});
+
+/* ── 기관 ────────────────────────────────────────────────────────
+ * 어디가 반복해서 나오는지 보면 협업·벤치마크 대상이 보인다.
+ * 여러 주에 걸쳐 나온 것만 남긴다 — 한 주 한 번은 '반복'이 아니다. */
+async function loadOrgs() {
+  const r = await api('/api/orgs', { weeks: 8, limit: 40 });
+  $('#orgs-sub').textContent = `최근 8주 · ${r.rows.length}곳`;
+  if (!r.rows.length) { $('#orgs-body').innerHTML = '<div class="empty">없습니다.</div>'; return; }
+  const wk = r.weeks || [];
+  const max = Math.max(1, ...r.rows.flatMap(x => x.series.map(s => s.n)));
+  $('#orgs-body').innerHTML = `<div class="tblwrap"><table>
+      <tr><th>기관</th><th>등장</th><th>주차</th>
+        <th>${wk.map(x => x.label.replace(/^\d+년 /, '').replace('주차', '')).join('</th><th>')}</th></tr>` +
+    r.rows.map(x => `<tr>
+      <td><a href="#" data-kw="${esc(x.keyword)}"><b>${esc(x.keyword)}</b></a></td>
+      <td class="n">${x.total}건</td><td class="n">${x.weeks}주</td>
+      ${x.series.map(s => `<td class="n"><span class="spark"
+        style="opacity:${(0.12 + 0.88 * s.n / max).toFixed(2)}"
+        title="${esc(s.label)} ${s.n}건">${s.n || ''}</span></td>`).join('')}
+    </tr>`).join('') + '</table></div>';
+}
+
 const LOADERS = {
+  cross: loadCross, orgs: loadOrgs,
   news: loadNews,
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,

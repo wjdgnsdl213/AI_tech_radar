@@ -25,6 +25,8 @@
 <g id="i-server"><rect x="3.5" y="4" width="17" height="6.5" rx="1.6"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.6"/><path d="M7 7.2h.01M7 16.7h.01"/></g>
 <g id="i-doc"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></g>
 <g id="i-down"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></g>
+<g id="i-cross"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3.2"/></g>
+<g id="i-org"><path d="M4 21V8l7-4 7 4v13"/><path d="M2.5 21h19"/><path d="M9 21v-5h6v5"/><path d="M8.5 11h1.5M14 11h1.5"/></g>
 <g id="i-bulb"><path d="M9.2 16.5a5.5 5.5 0 1 1 5.6 0"/><path d="M9.7 19h4.6M10.4 21.3h3.2"/><path d="M9.2 16.5h5.6"/></g>
 </defs></svg>
 
@@ -45,6 +47,8 @@
     <button class="nav-item active" data-tab="home"   role="tab" title="홈"><i><svg class="ico"><use href="#i-home"/></svg></i><span>홈</span></button>
     <button class="nav-item" data-tab="digest" role="tab" title="이번 주"><i><svg class="ico"><use href="#i-digest"/></svg></i><span>이번 주</span></button>
     <button class="nav-item" data-tab="reg"    role="tab" title="법령·규제"><i><svg class="ico"><use href="#i-law"/></svg></i><span>법령·규제</span></button>
+    <button class="nav-item" data-tab="cross"  role="tab" title="교차"><i><svg class="ico"><use href="#i-cross"/></svg></i><span>교차</span></button>
+    <button class="nav-item" data-tab="orgs"   role="tab" title="기관"><i><svg class="ico"><use href="#i-org"/></svg></i><span>기관</span></button>
     <button class="nav-item" data-tab="trend"  role="tab" title="급상승"><i><svg class="ico"><use href="#i-trend"/></svg></i><span>급상승</span></button>
     <button class="nav-item" data-tab="graph"  role="tab" title="연관어 네트워크"><i><svg class="ico"><use href="#i-graph"/></svg></i><span>연관어</span></button>
     <button class="nav-item" data-tab="search" role="tab" title="검색"><i><svg class="ico"><use href="#i-search"/></svg></i><span>검색</span></button>
@@ -177,9 +181,11 @@
       <div class="col-main">
         <div class="card graph-card">
           <div class="graph-tools" id="graph-tools" hidden>
+            <!-- '홉'이 아니라 '범위'다. 홉은 이제 간선 위의 실제 거리를 뜻하고,
+                 이 슬라이더는 얼마나 멀리까지 **찾아볼지**를 정한다. -->
             <label class="hopctl">범위
               <input type="range" id="ego-hops" min="1" max="3" step="1" value="1">
-              <b id="hop-label">1홉</b>
+              <b id="hop-label">좁게</b>
             </label>
             <span class="mut" id="graph-stat"></span>
             <span class="zoomctl">
@@ -204,6 +210,32 @@
         </div>
       </aside>
     </div>
+  </section>
+
+  <!-- ③-d 교차 -->
+  <section class="panel" id="panel-cross">
+    <div class="page-head"><h1>교차</h1><span class="mut" id="cross-sub"></span></div>
+    <div class="chip-row" id="cross-axes">
+      <button class="chip active" data-min="2">2축 이상</button>
+      <button class="chip" data-min="3">3축 전부</button>
+    </div>
+    <div class="board board-graph">
+      <div class="col-main">
+        <div class="card"><div id="cross-body"><div class="empty">불러오는 중…</div></div></div>
+      </div>
+      <aside class="col-side">
+        <div class="card"><div class="panel-head"><h2>조합별</h2></div>
+          <div id="cross-combos"></div></div>
+        <div class="card"><div class="panel-head"><h2>주차별</h2></div>
+          <div id="cross-weeks"></div></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ③-e 기관 -->
+  <section class="panel" id="panel-orgs">
+    <div class="page-head"><h1>기관</h1><span class="mut" id="orgs-sub"></span></div>
+    <div class="card"><div id="orgs-body"><div class="empty">불러오는 중…</div></div></div>
   </section>
 
   <!-- ③-c 뉴스레터 -->
