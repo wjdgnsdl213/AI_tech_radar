@@ -305,7 +305,9 @@ insight:
   l2_model: claude-sonnet-5             # 주간 요약
   l3_model: claude-sonnet-5             # 월간 데이터 해석 (2차)
   l1_max_items: 300           # 비용 상한 — 교차 점수 상위부터 이 개수만 해설
-  l1_max_tokens: 200
+  # 200 → 420. 요약만 읽고 원문 내용을 파악할 수 있는 길이(200~280자)로 바꿨는데,
+  #   한국어는 토큰당 글자 수가 적어 200토큰에서는 문장 중간에 잘렸다.
+  l1_max_tokens: 420
   team_profile_path: seeds/team_profile.md   # "우리 팀이 누구인지" — 해설 프롬프트에 주입
   # LLM 장애 시에도 다이제스트는 나가야 한다
   fail_open: true
