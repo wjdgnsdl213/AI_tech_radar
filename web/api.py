@@ -525,8 +525,9 @@ def home() -> dict[str, Any]:
         # 소스별 수집 현황 — 수집기가 조용히 멈춘 걸 알아채는 유일한 화면이다.
         #   스케줄러가 "성공"으로 보고하면서 실제로는 아무것도 안 받는 상황이
         #   가능하므로(잠금 버그가 실제로 그랬다) 여기서 눈에 보이게 둔다.
+        labels = CFG.get("source_labels") or {}
         health = [
-            {"source": s, "total": n,
+            {"source": s, "label": labels.get(s, s), "total": n,
              "latest": str(p)[:10] if p else "", "collected": str(cl)[:10] if cl else ""}
             for s, n, p, cl in c.execute(
                 select(items.c.source, func.count(), func.max(items.c.published_at),

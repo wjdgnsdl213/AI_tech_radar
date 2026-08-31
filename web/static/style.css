@@ -268,18 +268,19 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
   background:var(--card);border-right:1px solid var(--line);
   display:flex;flex-direction:column;padding:12px 10px;overflow-y:auto;z-index:40;
   transition:width .16s}
-/* 로고와 메뉴 사이를 넉넉히 띄운다 — 붙어 있으면 로고가 메뉴의 첫 항목처럼 보인다 */
-.nav-head{display:flex;align-items:center;gap:6px;padding:6px 4px 30px}
-.brand{display:flex;align-items:center;gap:8px;color:var(--ink);
+/* 로고와 메뉴 사이를 넉넉히 띄운다 — 붙어 있으면 로고가 메뉴의 첫 항목처럼 보인다.
+   ★ 왼쪽 칸(접기 버튼)의 폭·여백을 .nav-item의 아이콘 칸과 맞춰 둔다.
+     그래야 접었을 때 ☰와 메뉴 아이콘들이 한 줄로 정렬된다. */
+.nav-head{display:flex;align-items:center;gap:12px;padding:6px 13px 30px}
+.brand{display:flex;align-items:center;color:var(--ink);
   text-decoration:none;min-width:0;flex:1}
 .brand:hover{text-decoration:none}
 .brand:hover .brand-name{color:var(--blue)}
-.brand-img{height:38px;width:auto;flex:none;display:block}
-.brand-name{font-size:18px;font-weight:800;letter-spacing:-.2px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sidenav.fold .brand-img{height:30px}
-.nav-fold{background:none;border:0;font-size:17px;color:var(--mut);cursor:pointer;
-  padding:5px 7px;border-radius:6px;flex:none;line-height:1}
+.brand-name{font-size:23px;font-weight:800;letter-spacing:-.4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15}
+.nav-fold{background:none;border:0;font-size:19px;color:var(--mut);cursor:pointer;
+  padding:0;border-radius:6px;flex:none;line-height:1;
+  width:24px;text-align:center}
 .nav-fold:hover{background:var(--bg);color:var(--ink)}
 
 .sidenav nav{display:flex;flex-direction:column;gap:3px}
@@ -300,11 +301,11 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 
 /* 접힌 상태 — 아이콘만 남긴다. 글자를 지우는 게 아니라 기둥을 좁힌다 */
 .sidenav.fold{width:var(--nav-w-fold);padding:12px 8px}
-.sidenav.fold .brand-name,
+/* 접힘: 오른쪽(글자)만 사라진다. 왼쪽 열의 위치·순서는 그대로다. */
+.sidenav.fold .brand,
 .sidenav.fold .nav-item span,
 .sidenav.fold .nav-foot{display:none}
-.sidenav.fold .nav-head{flex-direction:column;gap:8px;padding-bottom:12px}
-.sidenav.fold .nav-item{justify-content:center;padding:11px 0;gap:0}
+.sidenav.fold .nav-head{padding:6px 13px 30px}
 .shell.fold .wrap{margin-left:var(--nav-w-fold)}
 
 /* ★ 본문을 가운데로 모은다.

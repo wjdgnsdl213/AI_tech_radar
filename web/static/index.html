@@ -13,11 +13,12 @@
      되는데, 화면 위쪽은 내용을 보여줄 자리다. 접으면 아이콘만 남는다. -->
 <div class="shell">
 <aside class="sidenav" id="sidenav">
+  <!-- 접기 버튼이 **왼쪽 첫 칸**에 온다. 접으면 오른쪽(로고 글자)만 사라지고
+       왼쪽 열은 그대로 남아서, 열고 닫아도 아이콘 줄이 흔들리지 않는다. -->
   <div class="nav-head">
-    <a class="brand" href="#home" data-tab="home" title="홈으로">
-      <img class="brand-img" src="/logo/logo-nav.png?v={{V}}" alt="SAB Trend">
-      <b class="brand-name">SAB Trend</b></a>
     <button class="nav-fold" id="nav-fold" aria-label="메뉴 접기" title="메뉴 접기">☰</button>
+    <a class="brand" href="#home" data-tab="home" title="홈으로">
+      <b class="brand-name">SAB Trend</b></a>
   </div>
   <nav role="tablist">
     <button class="nav-item active" data-tab="home"   role="tab" title="홈"><i>🏠</i><span>홈</span></button>

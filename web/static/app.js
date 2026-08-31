@@ -909,7 +909,7 @@ async function loadHome() {
     <tr><th>소스</th><th>누적</th><th>최근 발행</th><th>최근 수집</th></tr>` +
     (h.health || []).map(s => {
       const d = s.collected ? Math.round((today - new Date(s.collected)) / 86400000) : 999;
-      return `<tr><td><b>${esc(s.source)}</b></td><td>${num(s.total)}건</td>
+      return `<tr><td><b>${esc(s.label || s.source)}</b></td><td>${num(s.total)}건</td>
         <td>${esc(s.latest || '—')}</td>
         <td class="${d > 3 ? 'stale' : ''}">${esc(s.collected || '—')}
           ${d > 3 ? ` (${d}일 전)` : ''}</td></tr>`;
