@@ -51,6 +51,28 @@ app = FastAPI(title="AI 빅데이터 트렌드")
 from web.api import router as api_router  # noqa: E402
 
 app.include_router(api_router)
+
+
+@app.on_event("startup")
+def _warm_cache() -> None:
+    """자주 열릴 키워드의 연관어 망을 미리 계산해 둔다.
+
+    첫 사용자가 3~4초를 통째로 뒤집어쓰지 않게 하는 게 목적이다.
+    추천 목록(=문서 빈도 상위)이 곧 실제로 많이 열리는 키워드다.
+    데몬 스레드에서 돌고 실패해도 서버를 멈추지 않는다. WARM_CACHE=0으로 끈다.
+    """
+    from web.api import ego, suggest
+    from web.cache import warm
+    try:
+        # ★ 인자를 전부 명시해야 한다. 라우트 함수를 파이썬 함수로 직접 부르면
+        #   FastAPI가 값을 채워주지 않아 기본값이 Query 객체 그대로 넘어간다
+        #   (실측: "type 'Query' is not supported"로 예열이 통째로 실패했다).
+        #   화면이 보내는 값과 똑같이 넣어야 캐시 키도 맞는다.
+        kws = [i["keyword"] for i in suggest(q="", limit=12)["items"]]
+    except Exception as e:            # DB가 아직 없을 수 있다
+        print(f"[cache] 예열 건너뜀: {e}", flush=True)
+        return
+    warm(kws, ego)
 _STATIC = Path(__file__).parent / "static"
 if _STATIC.exists():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")

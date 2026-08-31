@@ -29,3 +29,6 @@ logs/
 logs_*.txt
 reports/*
 !reports/.gitkeep
+
+# 서버 실행 로그 (uvicorn을 백그라운드로 띄울 때 생긴다)
+data/*.log
