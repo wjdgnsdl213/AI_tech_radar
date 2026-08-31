@@ -1,19 +1,30 @@
 @echo off
-REM ì£¼ê°„ ë°°ì¹˜ â€” AI í•´ì„¤ + ë‹¤ì´ì œìŠ¤íŠ¸ + ë©”ì¼ ë°œì†¡. ìž‘ì—… ìŠ¤ì¼€ì¤„ëŸ¬ì— ì£¼ 1íšŒ ë“±ë¡í•œë‹¤.
+REM ============================================================================
+REM ÁÖ°£ ¹èÄ¡ - AI ÇØ¼³ + ´ÙÀÌÁ¦½ºÆ® + ¸ÞÀÏ. ÀÛ¾÷ ½ºÄÉÁÙ·¯°¡ ÁÖ 1È¸ ºÎ¸¥´Ù.
 REM
-REM ë“±ë¡ ì˜ˆì‹œ (ì›”ìš”ì¼ 07:00):
-REM   schtasks /create /tn "ai-tech-radar-weekly" /tr "%~dp0run_weekly.bat" /sc weekly /d MON /st 07:00
+REM ÀÏ°£ ¹èÄ¡°¡ ¼öÁý¡¤Ã³¸®¸¦ ¸¶ÃÄµÐ »óÅÂ¸¦ ÀüÁ¦·Î ÇÑ´Ù. ±×·¡¼­ ÀÏ°£(06:00)º¸´Ù
+REM ÃæºÐÈ÷ µÚÀÎ 07:30¿¡ µ·´Ù - ÀÏ°£ÀÌ ¾à 8ºÐ °É¸®¹Ç·Î °ãÄ¡Áö ¾Ê´Â´Ù.
+REM ±×·¡µµ °ãÄ¡¸é run_pipelineÀÇ Àá±ÝÀÌ ¸·°í Á¾·á ÄÚµå 0À¸·Î Á¶¿ëÈ÷ °Ç³Ê¶Ú´Ù.
 REM
-REM ì¼ê°„ ë°°ì¹˜(run_daily.bat)ê°€ ìˆ˜ì§‘Â·ì²˜ë¦¬ë¥¼ ë§ˆì³ë‘” ìƒíƒœë¥¼ ì „ì œë¡œ í•œë‹¤.
-REM LLM ìž¥ì• ë‚˜ í‚¤ ëˆ„ë½ì´ë©´ í•´ì„¤ë§Œ ê±´ë„ˆë›°ê³  ë‹¤ì´ì œìŠ¤íŠ¸ëŠ” ê·¸ëŒ€ë¡œ ë‚˜ê°„ë‹¤(fail_open).
+REM LLM Àå¾Ö³ª Å° ´©¶ôÀÌ¸é ÇØ¼³¸¸ °Ç³Ê¶Ù°í ´ÙÀÌÁ¦½ºÆ®´Â ±×´ë·Î ³ª°£´Ù(fail_open).
+REM SMTP ¹Ì¼³Á¤ÀÌ¸é ¸ÞÀÏ ´Ü°è¸¸ ½ÇÆÐÇÏ°í ³ª¸ÓÁö´Â Á¤»ó ¿Ï·áµÈ´Ù.
+REM ============================================================================
 
 cd /d "%~dp0"
 if not exist logs mkdir logs
 
-echo ============================================================ >> "logs\weekly.log"
-echo [START] %date% %time% >> "logs\weekly.log"
+set "PY=C:\Users\wjdgn\anaconda3\python.exe"
+if not exist "%PY%" set "PY=python"
 
-REM ê°€ìƒí™˜ê²½ì„ ì“´ë‹¤ë©´ ì•„ëž˜ë¥¼ .venv\Scripts\python.exe ë¡œ êµì²´
-python -m src.run_pipeline --weekly >> "logs\weekly.log" 2>&1
+for /f "tokens=1-3 delims=/- " %%a in ("%date%") do set "TODAY=%%a%%b%%c"
+set "LOG=logs\weekly_%TODAY%.log"
 
-echo [END] %date% %time% (exit=%errorlevel%) >> "logs\weekly.log"
+echo ============================================================ >> "%LOG%"
+echo [START] %date% %time% >> "%LOG%"
+"%PY%" -m src.run_pipeline --weekly >> "%LOG%" 2>&1
+set "RC=%errorlevel%"
+echo [END] %date% %time% (exit=%RC%) >> "%LOG%"
+
+forfiles /p logs /m *.log /d -30 /c "cmd /c del @path" >nul 2>&1
+
+exit /b %RC%

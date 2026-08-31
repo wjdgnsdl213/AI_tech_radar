@@ -154,7 +154,10 @@ class LawGoKrSource(Source):
         root = ET.fromstring(r.content)
         # 인증 실패도 200 + XML로 온다 — 조용히 0건이 되지 않게 여기서 잡는다
         if root.tag == "Response" or root.findtext("totalCnt") is None:
-            raise RuntimeError(
-                f"법제처 API 거부: {root.findtext('msg') or root.findtext('result') or '알 수 없음'}"
-                f" (OC={self.oc!r} — open.law.go.kr에서 발급받아 LAW_GO_KR_OC에 넣으세요)")
+            msg = root.findtext("msg") or root.findtext("result") or "알 수 없음"
+            hint = ("open.law.go.kr에서 OC를 발급받아 LAW_GO_KR_OC에 넣으세요"
+                    if self.oc == "test" else
+                    "open.law.go.kr → 마이페이지 → 활용신청 내역에서 **호출 IP를 등록**하세요. "
+                    "법제처는 등록된 IP에서만 응답합니다(공인 IP가 바뀌면 다시 등록해야 합니다)")
+            raise RuntimeError(f"법제처 API 거부: {msg} (OC={self.oc!r}) — {hint}")
         return root

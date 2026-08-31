@@ -84,8 +84,13 @@ def main() -> None:
     host = os.getenv("SMTP_HOST")
     to = _recipients(args.to)
     if not host or not to:
-        sys.exit("SMTP_HOST 또는 MAIL_TO가 .env에 없습니다.\n"
-                 "  내용만 보려면 --dry-run 을 쓰세요.")
+        # * 미설정은 **실패가 아니라 건너뜀**이다 - 종료 코드 0으로 끝낸다.
+        #   메일은 아직 안 쓰기로 한 선택 기능인데, 여기서 1을 돌려주면 주간 배치가
+        #   매주 실패로 기록된다. 그러면 작업 스케줄러의 실패 표시를 늘 무시하게 되고,
+        #   정작 진짜 실패가 났을 때 묻힌다.
+        print("SMTP_HOST 또는 MAIL_TO가 .env에 없습니다 - 메일 발송을 건너뜁니다.")
+        print("  내용만 보려면 --dry-run 을 쓰세요.")
+        return
 
     msg = EmailMessage()
     msg["Subject"] = subject

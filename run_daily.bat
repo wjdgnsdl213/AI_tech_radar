@@ -1,22 +1,37 @@
 @echo off
-REM ì¼ì¼ ìˆ˜ì§‘ ë°°ì¹˜ â€” Windows ìž‘ì—… ìŠ¤ì¼€ì¤„ëŸ¬ì— ë“±ë¡í•´ í•˜ë£¨ 1íšŒ ì‹¤í–‰í•œë‹¤.
-REM %~dp0 = ì´ ë°°ì¹˜ íŒŒì¼ì´ ìžˆëŠ” í´ë” â†’ ìŠ¤ì¼€ì¤„ëŸ¬ê°€ ì–´ë””ì„œ í˜¸ì¶œí•˜ë“  ê²½ë¡œê°€ ë§žëŠ”ë‹¤.
+REM ============================================================================
+REM ÀÏÀÏ ¹èÄ¡ - ¼öÁý + Ã³¸®. Windows ÀÛ¾÷ ½ºÄÉÁÙ·¯°¡ ¸ÅÀÏ ºÎ¸¥´Ù.
 REM
-REM ë“±ë¡ ì˜ˆì‹œ (ê´€ë¦¬ìž ê¶Œí•œ ëª…ë ¹ í”„ë¡¬í”„íŠ¸):
-REM   schtasks /create /tn "ai-tech-radar" /tr "%~dp0run_daily.bat" /sc daily /st 06:00
+REM   µî·Ï:  powershell -ExecutionPolicy Bypass -File scripts\register_tasks.ps1
+REM   ÇØÁ¦:  powershell -ExecutionPolicy Bypass -File scripts\register_tasks.ps1 -Remove
 REM
-REM GeekNews ê³¼ê±°ë¶„ì€ config.yamlì˜ daily_crawl_limit(ê¸°ë³¸ 150ê±´)ë§Œí¼ë§Œ ë°›ëŠ”ë‹¤.
-REM ì„œë²„ê°€ 403ìœ¼ë¡œ ê±°ë¶€í•˜ë©´ ê·¸ ì‹¤í–‰ì€ ì¦‰ì‹œ ë©ˆì¶”ê³  ë‹¤ìŒ ë‚  ê°™ì€ ì§€ì ì—ì„œ ìž¬ê°œí•œë‹¤.
+REM * ¸ÅÀÏ µ¹·Á¾ß ÇÏ´Â ÀÌÀ¯: ¼öÁýÀº ¼Ò±ÞµÇÁö ¾Ê´Â´Ù.
+REM   ³×ÀÌ¹ö °Ë»ö API´Â Äõ¸®´ç ÃÖ±Ù 1,000°ÇÀÌ »óÇÑÀÌ°í ±â°£ ÁöÁ¤ÀÌ ¾ø´Ù.
+REM   ¿À´Ã ¾È ¹ÞÀ¸¸é ¿À´Ã ±â»ç´Â ¿µ¿µ ¸ø ¹Þ´Â´Ù. Ã³¸®(Ãà¡¤Á¡¼ö¡¤ÇÊÅÍ)´Â ¾ðÁ¦µç
+REM   ´Ù½Ã Àû¿ëÇÒ ¼ö ÀÖÁö¸¸ ¼öÁý¸¸Àº µÇµ¹¸± ¼ö ¾ø´Ù.
+REM
+REM ¼Ò¿ä: ¾à 8ºÐ (¼öÁý 1ºÐ + Ã³¸® 2ºÐ + Å°¿öµå ÃßÃâ 5ºÐ)
+REM ============================================================================
 
 cd /d "%~dp0"
 if not exist logs mkdir logs
 
-echo ============================================================ >> "logs\collect.log"
-echo [START] %date% %time% >> "logs\collect.log"
+REM PATH¿¡ ¾î¶² pythonÀÌ ÀâÈúÁö´Â ½ºÄÉÁÙ·¯ È¯°æ¿¡ µû¶ó ´Ù¸£´Ù. ÀÇÁ¸¼º(torch¡¤psycopg µî)ÀÌ
+REM ¼³Ä¡µÈ ÀÎÅÍÇÁ¸®ÅÍ¸¦ °íÁ¤ÇÏ°í, ¾øÀ¸¸é PATHÀÇ pythonÀ¸·Î ³Ñ¾î°£´Ù.
+set "PY=C:\Users\wjdgn\anaconda3\python.exe"
+if not exist "%PY%" set "PY=python"
 
-REM ê°€ìƒí™˜ê²½ì„ ì“´ë‹¤ë©´ ì•„ëž˜ë¥¼ .venv\Scripts\python.exe ë¡œ êµì²´
-REM ìˆ˜ì§‘ë§Œì´ ì•„ë‹ˆë¼ ì²˜ë¦¬(prefilter/filter/score)ê¹Œì§€ ëŒë¦°ë‹¤.
-REM ì²˜ë¦¬ëŠ” ì‹ ê·œë¶„ë§Œ í•˜ë¯€ë¡œ ëª‡ ë¶„ì´ë©´ ëë‚˜ê³ , ë§¤ì¼ ëŒë ¤ì•¼ ì£¼ê°„ ë‹¤ì´ì œìŠ¤íŠ¸ê°€ ë°”ë¡œ ë‚˜ì˜¨ë‹¤.
-python -m src.run_pipeline --daily >> "logs\collect.log" 2>&1
+REM ³¯Â¥º° ·Î±× - ÇÑ ÆÄÀÏ¿¡ °è¼Ó ºÙÀÌ¸é ¸î ´Þ µÚ ¿­¾îº¸Áöµµ ¸øÇÒ Å©±â°¡ µÈ´Ù
+for /f "tokens=1-3 delims=/- " %%a in ("%date%") do set "TODAY=%%a%%b%%c"
+set "LOG=logs\daily_%TODAY%.log"
 
-echo [END] %date% %time% (exit=%errorlevel%) >> "logs\collect.log"
+echo ============================================================ >> "%LOG%"
+echo [START] %date% %time% >> "%LOG%"
+"%PY%" -m src.run_pipeline --daily >> "%LOG%" 2>&1
+set "RC=%errorlevel%"
+echo [END] %date% %time% (exit=%RC%) >> "%LOG%"
+
+REM 30ÀÏº¸´Ù ¿À·¡µÈ ·Î±×´Â Áö¿î´Ù
+forfiles /p logs /m *.log /d -30 /c "cmd /c del @path" >nul 2>&1
+
+exit /b %RC%
