@@ -38,16 +38,36 @@ function showTab(name) {
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
 }
 
-/* 좁은 화면에서만 열고 닫는다. 넓은 화면에서는 늘 붙어 있다. */
+/* 메뉴 접기.
+   넓은 화면에서는 아이콘만 남기고(기둥을 좁힌다), 좁은 화면(820px 이하)에서는
+   통째로 밀어 넣는다. 같은 버튼이 화면 폭에 따라 다른 일을 하는 게 아니라,
+   CSS가 폭에 맞는 표현을 고르고 JS는 상태만 켠다. */
+// CSS의 820px 분기와 같은 값. matchMedia를 쓰면 그게 없는 환경에서 접기 버튼이
+// 통째로 죽는데(실측), innerWidth는 어디에나 있다.
+const NARROW = () => window.innerWidth <= 820;
+
 function closeNav() {
   $('#sidenav').classList.remove('open');
   $('#navscrim').classList.remove('open');
 }
-$('#nav-toggle').onclick = () => {
-  $('#sidenav').classList.toggle('open');
-  $('#navscrim').classList.toggle('open');
+
+function setFold(on) {
+  $('#sidenav').classList.toggle('fold', on);
+  $('.shell').classList.toggle('fold', on);
+  try { localStorage.setItem('navFold', on ? '1' : '0'); } catch (e) { /* 무시 */ }
+}
+
+$('#nav-fold').onclick = () => {
+  if (NARROW()) {
+    $('#sidenav').classList.toggle('open');
+    $('#navscrim').classList.toggle('open');
+  } else {
+    setFold(!$('#sidenav').classList.contains('fold'));
+  }
 };
 $('#navscrim').onclick = closeNav;
+// 접어둔 상태는 다음에 열 때도 유지된다 — 매번 다시 접게 하면 성가시다
+try { if (localStorage.getItem('navFold') === '1') setFold(true); } catch (e) { /* 무시 */ }
 
 // 메뉴·로고·"전체 보기" 버튼이 전부 같은 경로를 탄다
 document.body.addEventListener('click', e => {

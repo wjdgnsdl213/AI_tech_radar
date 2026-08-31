@@ -8,31 +8,26 @@
 </head>
 <body>
 
-<!-- ── 상단 바 ──────────────────────────────────────────────────
-     로고(→ 홈) + 전역 검색. 검색은 어느 화면에 있든 항상 닿을 수 있어야 한다. -->
-<header class="topbar">
-  <button class="hamburger" id="nav-toggle" aria-label="메뉴 열기">☰</button>
-  <a class="brand" href="#home" data-tab="home">📡 <b>AI 빅데이터 트렌드</b></a>
-  <form class="topsearch" id="top-form" role="search">
-    <input id="top-q" type="search" placeholder="기사·키워드 검색" autocomplete="off"
-           aria-label="검색">
-    <button type="submit" aria-label="검색 실행">🔍</button>
-  </form>
-</header>
-
-<!-- ── 좌측 메뉴 ────────────────────────────────────────────────── -->
+<!-- ── 좌측 메뉴 ──────────────────────────────────────────────────
+     로고·메뉴·회차를 한 기둥에 모은다. 상단 바를 따로 두면 가로줄이 두 개가
+     되는데, 화면 위쪽은 내용을 보여줄 자리다. 접으면 아이콘만 남는다. -->
 <div class="shell">
 <aside class="sidenav" id="sidenav">
+  <div class="nav-head">
+    <a class="brand" href="#home" data-tab="home" title="홈으로">
+      <span class="brand-mark">📡</span><b class="brand-name">AI 빅데이터 트렌드</b></a>
+    <button class="nav-fold" id="nav-fold" aria-label="메뉴 접기" title="메뉴 접기">☰</button>
+  </div>
   <nav role="tablist">
-    <button class="nav-item active" data-tab="home"   role="tab"><i>🏠</i><span>홈</span></button>
-    <button class="nav-item" data-tab="digest" role="tab"><i>📰</i><span>이번 주</span></button>
-    <button class="nav-item" data-tab="reg"    role="tab"><i>⚠️</i><span>법령·규제</span></button>
-    <button class="nav-item" data-tab="trend"  role="tab"><i>📈</i><span>급상승</span></button>
-    <button class="nav-item" data-tab="graph"  role="tab"><i>🕸️</i><span>연관어 네트워크</span></button>
-    <button class="nav-item" data-tab="search" role="tab"><i>🔎</i><span>검색</span></button>
+    <button class="nav-item active" data-tab="home"   role="tab" title="홈"><i>🏠</i><span>홈</span></button>
+    <button class="nav-item" data-tab="digest" role="tab" title="이번 주"><i>📰</i><span>이번 주</span></button>
+    <button class="nav-item" data-tab="reg"    role="tab" title="법령·규제"><i>⚠️</i><span>법령·규제</span></button>
+    <button class="nav-item" data-tab="trend"  role="tab" title="급상승"><i>📈</i><span>급상승</span></button>
+    <button class="nav-item" data-tab="graph"  role="tab" title="연관어 네트워크"><i>🕸️</i><span>연관어</span></button>
+    <button class="nav-item" data-tab="search" role="tab" title="검색"><i>🔎</i><span>검색</span></button>
   </nav>
   <div class="nav-foot">
-    <label class="navweek">지난 회차
+    <label class="navweek"><span>지난 회차</span>
       <select id="week-select"></select>
     </label>
   </div>
@@ -40,6 +35,15 @@
 <div class="navscrim" id="navscrim"></div>
 
 <main class="wrap">
+<div class="inner">
+
+  <!-- 어느 화면에 있든 여기서 바로 찾는다 -->
+  <form class="topsearch" id="top-form" role="search">
+    <span class="ts-ico">🔍</span>
+    <input id="top-q" type="search" placeholder="기사·키워드 검색" autocomplete="off" aria-label="검색">
+    <button type="submit">검색</button>
+  </form>
+
 
   <!-- ⓪ 홈 — 한 화면에서 "이번 주에 무슨 일이 있었나"가 끝나야 한다 -->
   <section class="panel active" id="panel-home">
@@ -64,8 +68,7 @@
       <div id="home-cross"><div class="empty">불러오는 중…</div></div>
     </div>
     <div class="card">
-      <div class="panel-head"><h2>🗂️ 수집 현황</h2>
-        <span class="mut">수집기가 멈추면 여기서 먼저 보인다</span></div>
+      <div class="panel-head"><h2>🗂️ 수집 현황</h2></div>
       <div id="home-health"></div>
     </div>
   </section>
@@ -142,7 +145,7 @@
               <button class="preset" data-zoom="0">전체</button>
               <button class="preset" data-relayout>배치 되돌리기</button>
             </span>
-            <span class="mut hint">휠 = 확대 · 빈곳 끌기 = 이동 · 노드 끌기 = 옮기기 · 클릭 = 기사 · 더블클릭 = 다시 그리기</span>
+            <span class="mut hint">휠 확대 · 끌어 이동 · 클릭 기사 · 더블클릭 재중심</span>
           </div>
           <div id="graph-svg" class="graph-map"><div class="empty">키워드를 검색해 보세요.</div></div>
         </div>
@@ -164,8 +167,6 @@
     <div class="page-head"><h1>법령·규제</h1>
       <span class="mut" id="reg-sub"></span></div>
     <div class="card">
-      <div class="panel-head"><h2>1차 출처에서 직접 받은 항목</h2>
-        <span class="mut">관련도 필터를 거치지 않는다</span></div>
       <div id="reg-body"><div class="empty">불러오는 중…</div></div>
     </div>
   </section>
@@ -179,6 +180,7 @@
     </div>
   </section>
 
+</div><!-- /.inner -->
 </main>
 </div><!-- /.shell -->
 
