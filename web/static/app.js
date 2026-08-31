@@ -225,49 +225,83 @@ function textW(s, fs) {
   return u * fs;
 }
 
-let LAYOUT = null;      // {pos, home, rad, inc} — 노드를 끌어 옮기려면 좌표를 들고 있어야 한다
+let LAYOUT = null;      // {pos, home, rad, inc, el} — 노드를 끌어 옮기려면 좌표를 들고 있어야 한다
+
+/** 노드 반지름 = 기사 건수. 중심도 예외 없다.
+ *
+ *  ★ 로그를 쓴다. 건수가 3건에서 15,000건까지 네 자릿수를 넘나들기 때문이다.
+ *     제곱근 척도로 가장 큰 값에 맞춰 정규화했더니 링 노드들이 전부 뭉개졌다
+ *     — 'AI모델' 1홉에서 중심 324건이 척도를 잡아먹어 링 11종이 7.2~8.6px에
+ *     들어갔다. 로그로 바꾸면 같은 경우가 13.1~18.1px로 벌어진다.
+ *
+ *  ★ 중심을 고정 크기(26)로 두던 걸 없앤다. 중심이 항상 큰 게 아니었다 —
+ *     'Claude'(873건)를 검색하면 링에 2,096건짜리가 있다. 고정값은 덜 흔한
+ *     말을 더 크게 그려서 크기가 뜻하는 바를 거짓으로 만든다.
+ *
+ *  ★ 홉이 깊다고 줄이던 것도 없앤다. 크기는 건수만 뜻해야 한다.
+ *     먼 홉이라는 건 거리와 투명도가 이미 말해준다. */
+const RADIUS = df => Math.min(32, Math.max(9, 7 + 3.4 * Math.log(Math.max(df, 1))));
 
 function drawEgo(g) {
   const byHop = {};
   g.nodes.forEach(n => (byHop[n.hop] = byHop[n.hop] || []).push(n));
-
-  /* ★ 반지름을 노드 수에 맞춰 늘린다.
-     고정 반지름이면 홉이 깊어져 노드가 늘 때 원 둘레는 그대로인데 개수만 늘어
-     라벨이 서로 겹친다. 한 노드가 차지할 호 길이(LANE)를 정해두고
-     둘레가 그만큼 나오도록 반지름을 역산하면, 몇 개가 오든 간격이 유지된다.
-
-     LANE 84 → 96. 라벨을 위아래 지그재그로 놓아 간격을 벌던 걸 없앴기 때문이다
-     (같은 홉인데 어떤 건 위, 어떤 건 아래라 읽는 순서가 안 잡혔다).
-     한 줄로 세우면 그만큼 가로로 더 벌려야 한다. */
-  const LANE = 96;
-  const rings = Object.keys(byHop).filter(h => +h > 0).map(Number).sort();
-  const radii = {};
-  let prev = 0;
-  rings.forEach(h => {
-    const need = (byHop[h].length * LANE) / (2 * Math.PI);
-    radii[h] = Math.max(prev + 118, 145, need);
-    prev = radii[h];
+  const rad = {}, fsz = {};
+  g.nodes.forEach(n => {
+    rad[n.keyword] = RADIUS(n.df);
+    fsz[n.keyword] = n.center ? 15 : Math.max(11, 13 - n.hop);
   });
-  const R = rings.length ? radii[rings[rings.length - 1]] : 160;
+
+  /* ★ 한 홉을 원 하나에 다 세우지 않는다.
+     둘레는 반지름에 비례하는데 노드 수는 홉마다 확 늘어서, 24개짜리 홉을
+     한 원에 세우면 반지름이 367px까지 튄다. 그러면 이웃 노드끼리는 여전히
+     붙어 있으면서 원과 원 사이만 휑해진다 — "너무 떨어져 있다"의 정체다.
+     12개씩 나눠 여러 겹으로 돌리면 같은 개수를 절반 반지름에 담는다.
+     건수가 큰 것부터 안쪽에 둬서 중요한 게 중심 가까이 오게 한다. */
+  const RING_MAX = 12;
+  const bands = [];
+  Object.keys(byHop).filter(h => +h > 0).map(Number).sort()
+    .forEach(h => {
+      const arr = byHop[h].slice().sort((x, y) => (y.df || 0) - (x.df || 0));
+      const subs = Math.max(1, Math.ceil(arr.length / RING_MAX));
+      const per = Math.ceil(arr.length / subs);
+      for (let i = 0; i < subs; i++)
+        bands.push({ hop: h, nodes: arr.slice(i * per, (i + 1) * per) });
+    });
+
+  /* 간격을 상수로 박지 않고 **실제 크기에서 계산**한다.
+     노드가 커지거나 라벨이 길어지면 그만큼만 벌어진다 — 상수로 두면
+     최악의 경우에 맞춰야 해서 평소에 늘 휑하다. */
+  let prev = 0, prevR = rad[g.center], prevFs = fsz[g.center];
+  bands.forEach(b => {
+    const maxR = Math.max(...b.nodes.map(n => rad[n.keyword]));
+    const maxFs = Math.max(...b.nodes.map(n => fsz[n.keyword]));
+    // 둘레가 라벨들의 실제 폭 합을 담을 만큼은 되어야 한다
+    const need = b.nodes.reduce((s, n) => s + textW(n.keyword, fsz[n.keyword]) + 16, 0)
+      / (2 * Math.PI);
+    /* 두 겹 사이에 꼭 필요한 거리 = 안쪽 원의 반지름 + 그 아래 라벨 높이
+       + 바깥 원의 반지름. 여기에 숨통 8px만 더한다.
+       배수(×1.45)로 잡았더니 노드가 커질수록 필요 이상으로 밀어내서,
+       모처럼 크기를 건수에 맞췄더니 그림이 도로 휑해졌다. */
+    const clearance = prevR + prevFs * 1.35 + maxR + 8;
+    b.r = Math.max(prev + clearance, 118, need);
+    prev = b.r;
+    prevR = maxR;
+    prevFs = maxFs;
+  });
+
+  const R = bands.length ? bands[bands.length - 1].r : 160;
   const W = Math.round(Math.max(900, R * 2 + 190));
   const H = Math.round(Math.max(620, R * 1.72 + 190));
   const cx = W / 2, cy = H / 2;
 
   const pos = { [g.center]: [cx, cy] };
-  rings.forEach(h => {
-    const arr = byHop[h], r = radii[h];
-    arr.forEach((n, i) => {
-      const t = -Math.PI / 2 + (i + (h % 2) * .5) * 2 * Math.PI / arr.length;
+  bands.forEach((b, bi) => {
+    b.nodes.forEach((n, i) => {
+      // 겹마다 시작 각을 반 칸씩 어긋내 안팎이 일직선으로 서지 않게 한다
+      const t = -Math.PI / 2 + (i + (bi % 2) * .5) * 2 * Math.PI / b.nodes.length;
       // 세로를 눌러 타원으로 — 가로가 긴 화면을 쓰면서 위아래 여백을 줄인다
-      pos[n.keyword] = [cx + r * Math.cos(t), cy + r * Math.sin(t) * .86];
+      pos[n.keyword] = [cx + b.r * Math.cos(t), cy + b.r * Math.sin(t) * .86];
     });
-  });
-
-  const maxDf = Math.max(...g.nodes.map(n => n.df || 1));
-  const rad = {};
-  g.nodes.forEach(n => {
-    rad[n.keyword] = n.center ? 26
-      : Math.max(6, 7 + 11 * Math.sqrt((n.df || 1) / maxDf)) / (1 + n.hop * .18);
   });
 
   const out = [`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`];
@@ -283,9 +317,8 @@ function drawEgo(g) {
       stroke-width="${mid ? 1.5 : 1}"/>`);
   });
   g.nodes.forEach(n => {
-    const [x, y] = pos[n.keyword], r = rad[n.keyword];
+    const [x, y] = pos[n.keyword], r = rad[n.keyword], fs = fsz[n.keyword];
     const fade = n.center ? 1 : Math.max(.4, 1 - (n.hop - 1) * .28);
-    const fs = n.center ? 15 : Math.max(11, 13 - n.hop);
     /* ★ 라벨은 예외 없이 노드 **아래**에 붙인다.
        전에는 이웃끼리 높이를 어긋내려고 위/아래를 번갈아 놨는데, 겹침은
        조금 줄었지만 같은 원 위의 말들이 들쭉날쭉해서 훑어 읽기가 더 나빴다.
