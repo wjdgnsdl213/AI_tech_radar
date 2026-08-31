@@ -896,6 +896,7 @@ async function loadHome() {
         <span class="n">${r.count}건 · ${r.score.toFixed(1)}배</span></div>`).join('')
     : '<div class="empty">데이터가 없습니다.</div>';
 
+  loadMonth();      // 별도 호출 — 월간은 홈보다 훨씬 덜 바뀐다
   $('#home-reg').innerHTML = regHTML(h.regulatory || [], true);
   $('#home-cross').innerHTML = (h.crossing || []).length
     ? `<div class="items" style="padding:0;border:0;margin:0">
@@ -999,24 +1000,23 @@ document.body.addEventListener('click', async e => {
 
 /* ── 월간 리뷰 (L3) ──────────────────────────────────────────────
  * 주간은 "이번 주에 무슨 일이 있었나", 월간은 "여러 주에 걸쳐 무엇이
- * 이어졌나"다. 분기 보고나 사업계획에 쓰는 건 이쪽이다. */
+ * 이어졌나"다. 홈의 '이번 주 흐름' 바로 아래에 둔다 — 네댓 줄짜리 글이라
+ * 페이지를 따로 만들 분량이 아니고, 읽는 순서로도 그 자리가 맞다. */
 async function loadMonth(month) {
-  $('#month-lead').innerHTML = '<div class="empty">불러오는 중…</div>';
   const m = await api('/api/monthly', month ? { month } : {});
-  $('#month-title').textContent = m.label ? `${m.label} 리뷰` : '월간 리뷰';
+  if (!m.lead) { $('#home-month').hidden = true; return; }
+  $('#home-month').hidden = false;
+  $('#month-title').textContent = `🗓️ ${m.label} 리뷰`;
   $('#month-sub').textContent = m.weeks
     ? `${m.weeks}개 주차 · 통과 ${num(m.kept)}건` : '';
   $('#month-select').innerHTML = (m.months || [])
     .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
-      ${esc(x.label)}</option>`).join('')
-    || '<option>아직 없음</option>';
-  $('#month-lead').textContent = m.lead ||
-    '아직 이 달의 리뷰가 없습니다. 주간 요약이 쌓이면 만들어집니다.';
+      ${esc(x.label)}</option>`).join('');
+  $('#month-lead').textContent = m.lead;
 }
 $('#month-select').onchange = e => loadMonth(e.target.value);
 
 const LOADERS = {
-  month: () => loadMonth(),
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
 };

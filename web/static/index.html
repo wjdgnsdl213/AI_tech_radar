@@ -24,7 +24,6 @@
     <button class="nav-item active" data-tab="home"   role="tab" title="홈"><i>🏠</i><span>홈</span></button>
     <button class="nav-item" data-tab="digest" role="tab" title="이번 주"><i>📰</i><span>이번 주</span></button>
     <button class="nav-item" data-tab="reg"    role="tab" title="법령·규제"><i>⚖️</i><span>법령·규제</span></button>
-    <button class="nav-item" data-tab="month"  role="tab" title="월간 리뷰"><i>🗓️</i><span>월간 리뷰</span></button>
     <button class="nav-item" data-tab="trend"  role="tab" title="급상승"><i>📈</i><span>급상승</span></button>
     <button class="nav-item" data-tab="graph"  role="tab" title="연관어 네트워크"><i>🕸️</i><span>연관어</span></button>
     <button class="nav-item" data-tab="search" role="tab" title="검색"><i>🔎</i><span>검색</span></button>
@@ -53,6 +52,15 @@
     <div class="page-head"><h1 id="home-title">—</h1>
       <span class="mut" id="home-sub"></span></div>
     <div class="card lead-card" id="home-lead" hidden><div class="lead" id="home-lead-t"></div></div>
+
+    <!-- 이번 주 흐름 바로 아래에 둔다. "이번 주" 다음에 "한 달로 보면"이
+         이어지는 순서라 따로 페이지를 만들 만큼의 분량도 아니다. -->
+    <div class="card" id="home-month" hidden>
+      <div class="panel-head"><h2 id="month-title">🗓️ 월간 리뷰</h2>
+        <label class="weekpick"><select id="month-select"></select></label></div>
+      <div class="lead" id="month-lead"></div>
+      <div class="mut" id="month-sub"></div>
+    </div>
     <div class="home-grid">
       <div class="card">
         <div class="panel-head"><h2>📈 급상승 키워드</h2>
@@ -167,16 +175,6 @@
           <div class="scroll-list" id="kw-body"></div>
         </div>
       </aside>
-    </div>
-  </section>
-
-  <!-- ③-a 월간 리뷰 -->
-  <section class="panel" id="panel-month">
-    <div class="page-head"><h1 id="month-title">월간 리뷰</h1>
-      <label class="weekpick">월 <select id="month-select"></select></label></div>
-    <div class="card">
-      <div class="panel-head"><h2 id="month-sub"></h2></div>
-      <div class="lead" id="month-lead"><div class="empty">불러오는 중…</div></div>
     </div>
   </section>
 
