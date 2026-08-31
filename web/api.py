@@ -20,6 +20,7 @@ from sqlalchemy import and_, func, or_, select
 
 from src.db import digests, get_engine, item_axes, items, kw_engine, load_config
 from src.digest import week_label
+from web.cache import ego_cache
 
 router = APIRouter(prefix="/api")
 CFG = load_config()
@@ -256,6 +257,19 @@ def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
 @router.get("/ego")
 def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
         min_cooc: int = Query(0), max_nodes: int = Query(46)) -> dict[str, Any]:
+    """캐시를 거쳐 _ego를 부른다. 실제 계산은 아래 _ego에 있다.
+
+    '소상공인'(15,390건)은 3.7초가 걸린다. 홉 슬라이더를 왕복하거나 노드를
+    더블클릭하며 헤집는 게 이 화면의 용도인데, 그때마다 4초를 기다리면 못 쓴다.
+    같은 질의가 반복되는 비율이 높아 캐시가 잘 듣는다.
+    """
+    key = (kw, hops, per_hop, min_cooc, max_nodes)
+    return ego_cache.get_or_call(
+        key, lambda: _ego(kw, hops, per_hop, min_cooc, max_nodes))
+
+
+def _ego(kw: str, hops: int, per_hop: int,
+         min_cooc: int, max_nodes: int) -> dict[str, Any]:
     """키워드 하나를 중심으로 한 연관어 망. 홉 수를 지정할 수 있다.
 
     ★ 전체 코퍼스를 본다 (kept 필터를 걸지 않는다)
@@ -440,6 +454,12 @@ def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
     return {"center": center, "empty": False, "hops": hops,
             "nodes": list(nodes.values()), "edges": edges,
             "docs": len(sets.get(center, ()))}
+
+
+@router.get("/cache")
+def cache_info() -> dict[str, Any]:
+    """캐시가 실제로 듣고 있는지 확인용. 안 맞으면 여기부터 본다."""
+    return ego_cache.info()
 
 
 @router.get("/keyword/{kw}")

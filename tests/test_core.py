@@ -267,3 +267,44 @@ def test_graph_does_not_capture_pointer():
         "setPointerCapture 호출이 다시 들어왔다 — 노드 클릭/더블클릭이 죽는다. "
         "window에 pointermove/pointerup을 붙여서 처리할 것"
     )
+
+
+# ── 연관어 망 캐시 ──────────────────────────────────────────────────
+def test_cache_reuses_and_evicts_and_invalidates():
+    """캐시가 조용히 옛 답을 내주면 알아채기 가장 어려운 종류의 버그가 된다.
+
+    '소상공인' 연관어 망은 3.6초가 걸려서 캐시 없이는 못 쓴다. 대신 파이프라인을
+    돌린 뒤에도 옛 망이 나가면 안 되므로, 만료를 시간이 아니라 데이터 버전으로
+    잡았다. 여기서 지키는 건 세 가지다 — 재사용, 용량 제한, 버전 바뀌면 폐기.
+    """
+    from web.cache import Cache
+
+    c = Cache(max_entries=2)
+    ver = [(1, 1)]
+    c.stamp = lambda: ver[0]        # DB를 보지 않고 버전을 직접 쥔다
+    calls: list[str] = []
+
+    def make(v):
+        def f():
+            calls.append(v)
+            return v
+        return f
+
+    assert c.get_or_call("a", make("a")) == "a"
+    assert c.get_or_call("a", make("a")) == "a"
+    assert calls == ["a"]                       # 두 번째는 계산하지 않는다
+
+    # 용량을 넘기면 가장 오래 안 쓴 것부터 버린다
+    c.get_or_call("b", make("b"))
+    c.get_or_call("a", make("a"))               # a를 다시 써서 최신으로
+    c.get_or_call("c", make("c"))               # 여기서 b가 밀려난다
+    assert c.info()["entries"] == 2
+    assert calls == ["a", "b", "c"]
+    c.get_or_call("b", make("b"))
+    assert calls == ["a", "b", "c", "b"]        # b는 다시 계산됐다
+
+    # 수집·추출이 돌면(버전 변화) 전부 버린다
+    ver[0] = (2, 1)
+    c.get_or_call("a", make("a"))
+    assert calls[-1] == "a"
+    assert c.info()["entries"] == 1

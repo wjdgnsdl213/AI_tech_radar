@@ -253,3 +253,15 @@ td.n{white-space:nowrap;color:var(--mut);font-size:12.5px;font-variant-numeric:t
    라벨을 전부 노드 아래로 통일하면서 겹칠 확률이 늘어 같이 들어왔다. */
 .lbl-bg{fill:#fff;fill-opacity:.82}
 .gnode.sel .lbl-bg{fill:#eff6ff;fill-opacity:.95}
+
+/* ── 선택 강조 ─────────────────────────────────────────────────
+   크기를 건수에 맞추고 나니 비슷한 크기가 많아져 테두리만으로는 어디를
+   골랐는지 못 찾는다. 색은 축(AI·빅데이터·소상공인)을 뜻하므로 건드리지
+   않고, 관계없는 것을 물러나게 해서 고른 쪽을 드러낸다. */
+.gnode.sel circle{stroke:var(--blue);stroke-width:3.5}
+.gnode.sel text{font-weight:700;fill:var(--blue)}
+.gnode.dim{opacity:.18}
+#graph-svg line{transition:stroke-opacity .12s,stroke-width .12s}
+#graph-svg line.hot{stroke:var(--blue) !important;stroke-opacity:.85 !important;
+  stroke-width:2.4 !important}
+#graph-svg line.dim{stroke-opacity:.05 !important}

@@ -472,11 +472,35 @@ $('#graph-tools').addEventListener('click', e => {
 /* 클릭 = 이 키워드의 기사를 옆에 띄운다 (망은 그대로).
    더블클릭 = 그 키워드를 중심으로 다시 그린다.
    망을 유지한 채 여러 노드를 훑어보는 게 기본 동작이어야 한다 — 클릭할 때마다
-   그림이 갈아엎히면 어디를 보고 있었는지 잃는다. */
+   그림이 갈아엎히면 어디를 보고 있었는지 잃는다.
+
+   ★ 고른 노드는 **주변을 흐리게 해서** 드러낸다.
+     크기를 건수에 맞추고 나니 비슷한 크기가 많아져서, 테두리만으로는 어디를
+     골랐는지 찾기 어려워졌다. 색을 바꾸는 방법도 있지만 색은 이미 축(AI·
+     빅데이터·소상공인)을 뜻한다 — 크기를 건수에 맞춘 것과 같은 이유로,
+     선택 표시하자고 그 뜻을 덮으면 안 된다.
+     그래서 색은 그대로 두고 **관계없는 것을 물러나게** 한다:
+       고른 노드   테두리 굵게 + 그대로
+       이웃 노드   그대로 (누구와 이어졌는지가 알고 싶은 것이다)
+       이은 선     진하고 굵게
+       나머지      흐리게 */
 function selectNode(kw) {
   egoSel = kw;
-  $$('#graph-svg .gnode').forEach(g =>
-    g.classList.toggle('sel', g.dataset.node === kw));
+  const near = new Set([kw]);
+  (LAYOUT?.inc[kw] || []).forEach(([l]) => {
+    near.add(l.dataset.s);
+    near.add(l.dataset.t);
+  });
+  $$('#graph-svg .gnode').forEach(g => {
+    const me = g.dataset.node === kw;
+    g.classList.toggle('sel', me);
+    g.classList.toggle('dim', !me && !near.has(g.dataset.node));
+  });
+  $$('#graph-svg line').forEach(l => {
+    const hot = l.dataset.s === kw || l.dataset.t === kw;
+    l.classList.toggle('hot', hot);
+    l.classList.toggle('dim', !hot);
+  });
   showKeyword(kw);
 }
 
