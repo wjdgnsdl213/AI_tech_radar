@@ -156,14 +156,24 @@ async function loadDigest(week) {
   if (!$('#side-bridge').dataset.done) loadSideBridge();
 }
 
-// 회차는 별도 탭이 아니라 주차 선택으로 둔다 — 지난 주를 보는 건
-// 별도 화면이 필요한 일이 아니라 같은 화면의 날짜만 바꾸는 일이다.
+/* 회차는 별도 탭이 아니라 주차 선택으로 둔다 — 지난 주를 보는 건 별도 화면이
+   필요한 일이 아니라 같은 화면의 날짜만 바꾸는 일이다.
+
+   ★ 시작할 때 채운다. 전에는 '이번 주' 탭을 열어야 채워졌는데, 이 선택창은
+     사이드바에 **늘 보인다.** 홈에서 시작하면 비어 있어서 고장으로 보였다.
+     보이는 것과 채워지는 시점이 어긋나면 그건 버그로 읽힌다. */
 async function loadWeekOptions(cur) {
   const w = await api('/api/weeks', { limit: 60 });
   $('#week-select').innerHTML = w.weeks.map(x =>
     `<option value="${esc(x.week)}" ${x.week === cur ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
 }
-$('#week-select').onchange = e => loadDigest(e.target.value);
+$('#week-select').onchange = e => {
+  // 홈에서 주차를 고르면 그 주차 지면으로 넘어가야 한다 — 고르기만 하고
+  // 아무 일도 안 일어나면 선택창이 왜 있는지 알 수 없다.
+  showTab('digest');
+  loaded.add('digest');
+  loadDigest(e.target.value);
+};
 $('#axis-chips').onclick = e => {
   const b = e.target.closest('[data-axis]');
   if (b) { activeAxis = b.dataset.axis; renderDigest(); }
@@ -1226,6 +1236,7 @@ const LOADERS = {
   // 메일의 '전체 보기'가 ?week=2026-W35#digest 로 들어온다
   const wanted = new URLSearchParams(location.search).get('week');
   if (wanted) { loaded.add('digest'); await loadDigest(wanted); }
+  loadWeekOptions();          // 사이드바에 늘 보이므로 탭과 무관하게 채운다
   const tab = (location.hash || '#home').slice(1);
   showTab(LOADERS[tab] ? tab : 'home');
 })();
