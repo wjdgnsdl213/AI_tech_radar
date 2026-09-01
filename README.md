@@ -39,6 +39,22 @@ python -m uvicorn web.server:app --port 8000
 python -m src.extract --scope all --min-df 2    # 약 6분. 한 번만 하면 된다
 ```
 
+**또는 다른 PC에서 파일을 복사해도 된다.** `data/keywords.db` 하나면 되고,
+`item_id`가 본 DB와 같으므로 그대로 맞는다(둘 다 같은 Supabase를 본다).
+
+```bash
+# 보내는 쪽: 쓰는 중이 아닐 때 복사한다(서버·파이프라인을 잠시 멈춘다)
+#   extract가 끝날 때 WAL을 정리하므로 보통 .db 하나로 온전하다.
+#   확실히 하려면 -wal · -shm 까지 세 개를 함께 복사한다.
+copy data\keywords.db  <USB나 공유 폴더>
+
+# 받는 쪽
+copy <USB>\keywords.db  data\keywords.db
+```
+
+⚠️ 인덱스는 복사한 시점까지만 담는다. 그 뒤 수집된 기사는 안 들어 있으므로,
+받은 PC에서도 일간 배치가 돌면 자연히 최신이 된다(`src.extract`가 매일 갱신).
+
 | clone 직후 | 상태 |
 |---|---|
 | 홈 · 이번 주 · 법령·규제 · 교차 · 검색 | ✅ 바로 됨 |

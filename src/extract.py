@@ -240,7 +240,26 @@ def _run_low_memory(rows, extract, args, engine) -> None:
         total += replace_keywords(buf, kw_engine())
     with kw_engine().connect() as conn:
         in_db = conn.execute(select(func.count()).select_from(item_keywords)).scalar_one()
+    _checkpoint_wal()
     print(f"  {total:,}개 적재 (테이블 총 {in_db:,}행)")
+
+
+def _checkpoint_wal() -> None:
+    """WAL을 본 파일에 반영하고 잘라낸다.
+
+    ★ 왜 필요한가
+      keywords.db는 다른 PC로 그냥 복사해 쓰는 파일이다(저장소에 넣기엔 크고,
+      본 DB에서 다시 만들 수 있는 파생물이라 넣지 않는다). 그런데 WAL 모드에서는
+      최근 쓴 내용이 -wal 파일에 남아 있을 수 있어, .db만 복사하면 그만큼이
+      빠진다. 끝낼 때 반영해 두면 **파일 하나로 온전해진다.**
+      실측: 정리 전 -wal이 870MB까지 자라 있었다(내용은 이미 반영된 뒤였지만,
+      그 크기로는 복사할 때 무엇이 필요한지 판단할 수 없다).
+    """
+    try:
+        with kw_engine().connect() as conn:
+            conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception as exc:
+        print(f"  (WAL 정리 건너뜀: {type(exc).__name__})")
 
 
 def main() -> None:
@@ -324,6 +343,7 @@ def main() -> None:
         total += replace_keywords(result[i:i + args.batch], kw_engine())
     with kw_engine().connect() as conn:
         in_db = conn.execute(select(func.count()).select_from(item_keywords)).scalar_one()
+    _checkpoint_wal()
     print(f"  {total:,}개 적재 (테이블 총 {in_db:,}행)")
     print("\n  다음: python -m src.trend")
 
