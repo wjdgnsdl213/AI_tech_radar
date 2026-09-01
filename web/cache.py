@@ -7,8 +7,8 @@
 
 ★ 만료를 시간이 아니라 **데이터 버전**으로 잡는다.
   TTL만 쓰면 파이프라인을 돌린 뒤에도 한동안 옛 결과가 나가는데, 언제까지
-  옛것인지 사용자가 알 방법이 없다. 대신 items와 item_keywords의 최댓값을
-  버전으로 삼아, 수집·추출이 돌면 캐시 전체가 자연히 빗나가게 한다.
+  옛것인지 사용자가 알 방법이 없다. 대신 items의 최댓값과 kw_meta의 행 수를
+  버전으로 삼아, 수집·인덱스 재적재가 돌면 캐시 전체가 자연히 빗나가게 한다.
   버전 조회 자체는 30초 캐시한다 — 매 요청마다 두 번 왕복할 이유는 없다.
 """
 
@@ -22,8 +22,7 @@ from typing import Any, Callable
 
 from sqlalchemy import func, select
 
-from src.db import get_engine, items, kw_engine
-from src.extract import item_keywords
+from src.db import get_engine, items, kw_meta
 
 _STAMP_TTL = 30.0        # 데이터 버전을 다시 확인하는 주기(초)
 _MAX_ENTRIES = 256       # 항목당 수십 KB — 망 응답 기준으로 넉넉하다
@@ -43,15 +42,26 @@ class Cache:
 
     # ── 데이터 버전 ────────────────────────────────────────────────
     def _fresh_stamp(self) -> tuple:
-        """items와 item_keywords의 최댓값. 둘 다 append 위주라 단조 증가한다."""
+        """데이터가 바뀌었는지 알아보는 도장. 바뀌면 캐시를 통째로 버린다.
+
+        ★ 예전엔 로컬 keywords.db의 item_keywords 행 수를 셌다. 두 가지가 틀렸다.
+          하나, 인덱스가 본 DB로 옮겨가면서 배포본에는 그 파일이 아예 없다.
+          둘, 있던 시절에도 그 파일은 부팅 때 한 번 만들어지고 끝이라 컨테이너가
+          사는 동안 값이 안 변했다 — 도장 구실을 못 하고 있었다.
+          지금은 인덱스를 PC에서 다시 만들어 DB에 올리므로, 그 표를 봐야 한다.
+
+        kw_neighbor(547,408행)를 세면 1.8초라 30초마다 돌리기엔 비싸다.
+        kw_meta(27,824행)는 197ms다. 재적재하면 키워드 집합이 거의 항상 달라져
+        이 숫자가 움직인다.
+        """
         with get_engine().connect() as c:
             a = c.execute(select(func.max(items.c.id))).scalar_one_or_none()
-        try:
-            with kw_engine().connect() as c:
-                b = c.execute(select(func.count()).select_from(item_keywords)).scalar_one()
-        except Exception:
-            b = -1          # 키워드 DB가 아직 없을 수 있다 — 캐시를 막을 일은 아니다
+            try:
+                b = c.execute(select(func.count()).select_from(kw_meta)).scalar_one()
+            except Exception:
+                b = -1      # 인덱스를 아직 안 만들었을 수 있다 — 캐시를 막을 일은 아니다
         return (a, b)
+
 
     def stamp(self) -> tuple:
         now = time.time()

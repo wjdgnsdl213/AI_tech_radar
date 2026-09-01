@@ -3,9 +3,10 @@
 # 이 이미지는 **보여주기만** 한다. 수집·임베딩 필터·AI 해설은 GPU가 있는 PC에서
 # 돌고 결과가 Supabase에 쌓인다. 그래서 torch도 모델도 넣지 않는다(3GB → 400MB대).
 #
-# 하나만 예외로 컨테이너가 직접 만든다: 키워드 인덱스(data/keywords.db).
-#   본 DB에서 6분이면 다시 만들 수 있는 파생물인데 310MB라 저장소로 못 옮긴다.
-#   src.extract는 kiwipiepy만 쓰므로 이 이미지에서 그대로 돌아간다.
+# 키워드 인덱스도 더는 여기서 만들지 않는다. kw_week·kw_meta·kw_item·kw_neighbor로
+#   본 DB에 들어가 있고 web/api.py는 그 표만 읽는다. 예전엔 부팅 때 10분짜리
+#   src.extract를 돌려 310MB짜리 로컬 파일을 만들었는데, 옮긴 뒤로는 아무도
+#   그 파일을 읽지 않았다. 인덱스는 PC에서 `python -m src.index_build`로 만든다.
 
 FROM python:3.12-slim
 
