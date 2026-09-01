@@ -476,10 +476,8 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
       2) n-gram 조각: '중소벤처기업부'와 '벤처기업부'가 같이 잡힌다 —
          trend._fragment_of가 푸는 문제라 그대로 쓴다.
     """
+    from src.extract import is_org_keyword
     from src.trend import _fragment_of, prev_weeks
-
-    SUFFIX = ("공단", "진흥원", "연구원", "재단", "공사", "위원회", "협회",
-              "대학교", "은행", "조합", "부", "처", "청")
     with get_engine().connect() as c:
         cur = c.execute(select(func.max(items.c.published_week))
                         .where(items.c.kept.is_(True))).scalar_one_or_none()
@@ -492,8 +490,9 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
 
     agg: dict[str, Counter] = {}
     for kw, wk, n in rows:
-        # 5자 미만은 기관명이라기엔 짧다 — '통신부'·'진흥원' 같은 조각이 걸린다
-        if len(kw) < 5 or not kw.endswith(SUFFIX):
+        # 판정은 src.extract.is_org_keyword 한 곳에서 한다 — 인덱스 적재도 같은
+        # 규칙을 쓴다. 갈라지면 표와 목록이 어긋난다.
+        if not is_org_keyword(kw):
             continue
         agg.setdefault(kw, Counter())[wk] += n
 
@@ -510,6 +509,60 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
     out.sort(key=lambda r: (-r["weeks"], -r["total"]))
     return {"rows": out[:limit],
             "weeks": [{"week": w, "label": week_label(w)} for w in sorted(span)]}
+
+
+@router.get("/org_items")
+def org_items(kw: str = Query(""), week: str = Query(""),
+              limit: int = Query(40)) -> dict[str, Any]:
+    """기관 표의 주차 칸을 눌렀을 때 그 주 기사 (HTTP 경로). 조회는 _org_items."""
+    return _org_items(kw, week, limit)
+
+
+def _org_items(kw: str, week: str, limit: int = 40) -> dict[str, Any]:
+    """기관 이름이 그 주에 나온 기사.
+
+    ★ 본문 부분 문자열로 찾으면 안 된다 (한 번 그렇게 만들었다가 되돌렸다).
+      추출기가 만든 키워드는 원문에 그 문자열이 없을 수도, 더 긴 이름의 일부일
+      수도 있다. 기관 40곳 191칸을 전수 대조한 결과 21.5%가 어긋났다:
+          이재명정부   표 34 / 본문검색  3   ← '이재명 정부'를 붙여 만든 n-gram
+          신용보증재단 표  6 / 본문검색 18   ← '지역신용보증재단'이 딸려 걸린다
+      표(kw_week)와 목록은 **같은 재료**에서 나와야 한다. 둘 다 item_keywords다.
+
+    ★ 그래서 kw_item을 쓴다. 기관 키워드는 상한 없이 담는다(index_build 참고).
+      kept로 거른다 — 표의 숫자가 통과분만 세기 때문이다(build_week_counts).
+      전에 이걸 안 걸어 7건 대 78건으로 어긋났었다.
+    """
+    kw, week = (kw or "").strip(), (week or "").strip()
+    if not kw or not week:
+        return {"keyword": kw, "week": week, "label": "", "total": 0, "items": []}
+
+    with get_engine().connect() as c:
+        ids = [i for (i,) in c.execute(
+            select(kw_item.c.item_id).where(kw_item.c.keyword == kw))]
+        if not ids:
+            return {"keyword": kw, "week": week, "label": week_label(week),
+                    "total": 0, "items": []}
+        rows = []
+        for part in (ids[n:n + 400] for n in range(0, len(ids), 400)):
+            rows += list(c.execute(
+                select(items.c.id, items.c.title, items.c.url, items.c.source,
+                       items.c.published_at, items.c.cross_score, items.c.insight)
+                .where(items.c.id.in_(part),
+                       items.c.published_week == week,
+                       items.c.kept.is_(True))))
+        total = len(rows)
+        rows.sort(key=lambda r: (-(r.cross_score or 0), str(r.published_at or "")),
+                  reverse=False)
+        rows = rows[:max(1, min(limit, 200))]
+        ax = _axes_of(c, [r.id for r in rows])
+    return {
+        "keyword": kw, "week": week, "label": week_label(week), "total": total,
+        "items": [{"id": r.id, "title": r.title or "", "url": r.url or "",
+                   "source": r.source, "kept": True,
+                   "published": str(r.published_at)[:10] if r.published_at else "",
+                   "cross_score": r.cross_score, "insight": r.insight or None,
+                   "axes": sorted(ax.get(r.id, []))} for r in rows],
+    }
 
 
 @router.get("/regulatory")

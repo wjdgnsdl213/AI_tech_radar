@@ -40,7 +40,7 @@ from sqlalchemy import delete, func, select, text
 
 from src.db import (get_engine, item_axes, items, kw_engine, kw_item,
                     kw_meta, kw_neighbor, kw_week, load_config)
-from src.extract import STOPWORDS, item_keywords
+from src.extract import STOPWORDS, is_org_keyword, item_keywords
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
@@ -185,18 +185,29 @@ def build_items(df: dict[str, int]) -> list[dict[str, Any]]:
 
     최근 것부터 상한만큼만 담는다 — '소상공인'은 1만 5천 건인데 화면은 40건만
     보여준다. 상한이 없으면 이 표가 원본만큼 커져서 옮기는 의미가 없다.
+
+    ★ 기관 키워드만 예외다 — 상한도 MIN_DF도 걸지 않는다.
+      기관 화면은 8주를 **주차별로 쪼개서** 보여주고, 각 칸을 누르면 그 주 기사가
+      나와야 한다. 최근 60건만 담으면 오래된 주가 통째로 비어 "표에는 33건인데
+      목록은 0건"이 된다(실측: 중소벤처기업부는 8주에 122건).
+      MIN_DF(10)도 못 건다 — 표는 8주 합계 3건부터 띄우기 때문이다.
+      비용은 없다시피 하다: 기관 키워드는 2,025개 17,357행으로 이 표의 2%다.
     """
-    big = {k for k, n in df.items() if n >= MIN_DF}
+    org = {k for k in df if is_org_keyword(k)}
+    keep = {k for k, n in df.items() if n >= MIN_DF} | org
     per: dict[str, list[int]] = defaultdict(list)
     with kw_engine().connect() as c:
         # item_id가 클수록 최근이다(단조 증가). 내림차순으로 읽어 앞에서 자른다.
         for k, i in c.execute(
                 select(item_keywords.c.keyword, item_keywords.c.item_id)
                 .order_by(item_keywords.c.item_id.desc())):
-            if k in big and len(per[k]) < MAX_ITEMS:
+            if k not in keep:
+                continue
+            if k in org or len(per[k]) < MAX_ITEMS:
                 per[k].append(i)
     out = [{"keyword": k, "item_id": i} for k, ids in per.items() for i in ids]
-    print(f"  키워드→기사 {len(out):,}행")
+    n_org = sum(len(per[k]) for k in org if k in per)
+    print(f"  키워드→기사 {len(out):,}행  (그중 기관 {n_org:,}행, 상한 없음)")
     return out
 
 

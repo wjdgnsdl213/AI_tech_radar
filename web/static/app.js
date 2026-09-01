@@ -1197,7 +1197,7 @@ document.body.addEventListener('click', async e => {
   $('#drawer').hidden = false;
   $('#drawer-body').innerHTML = '<div class="empty">불러오는 중…</div>';
   const r = await api('/api/org_items', { kw, week, limit: 40 });
-  const wl = (r.week || '').replace(/^(\d{4})-W(\d+)$/, '$1-W$2');
+  const wl = r.label || r.week || '';
   $('#drawer-body').innerHTML = `
     <h2 style="font-size:19px;margin:0 30px 6px 0">${esc(kw)}</h2>
     <div class="mut">${esc(wl)} · 이 주 ${r.items.length}건 (전체 ${num(r.total)}건)</div>
