@@ -269,11 +269,25 @@ def db_status() -> dict[str, Any]:
     return out
 
 
+def _is_deployed() -> bool:
+    """클라우드에서 도는 중인가.
+
+    Railway·Render·Fly는 각자 표식 환경변수를 넣는다. 어느 하나라도 있으면
+    배포 환경으로 본다. 직접 켜고 싶으면 DEPLOYED=1을 준다.
+    """
+    return bool(os.getenv("DEPLOYED")
+                or any(k.startswith(("RAILWAY_", "RENDER", "FLY_"))
+                       for k in os.environ))
+
+
 @app.on_event("startup")
 def _log_db() -> None:
     """어디에 붙었는지 **부팅 로그에 남긴다.**
 
-    배포 로그에서 이 한 줄만 보면 DATABASE_URL이 먹었는지 바로 안다.
+    ★ 배포 환경에서 sqlite로 떨어졌으면 **띄우지 않고 죽는다.**
+      그 상태로 서버가 뜨면 화면은 멀쩡한데 데이터만 0이라, 무엇이 잘못됐는지
+      알 방법이 없다(실제로 그렇게 한참 헤맸다). 조용히 틀린 것보다 크게
+      실패하는 쪽이 낫다. 로컬에서는 그대로 두므로 개발에는 영향이 없다.
     """
     s = db_status()
     if not s["from_env"]:
@@ -282,6 +296,14 @@ def _log_db() -> None:
         print("[db]   배포 환경이라면 데이터가 비어 보일 것입니다. 변수를 확인하세요.",
               flush=True)
     print(f"[db] {s['url']}", flush=True)
+    if _is_deployed() and s["dialect"].startswith("sqlite"):
+        print("[db] ✗ 배포 환경인데 sqlite로 떨어졌습니다. 서버를 시작하지 않습니다.",
+              flush=True)
+        print("[db]   → 서비스(프로젝트 아님)의 Variables에 DATABASE_URL을 넣고",
+              flush=True)
+        print("[db]     따옴표 없이 postgresql+psycopg://... 로 시작하는지 확인하세요.",
+              flush=True)
+        raise RuntimeError("DATABASE_URL이 설정되지 않았습니다 (sqlite로 떨어짐)")
     if s["ok"]:
         print(f"[db] 연결 OK — 전체 {s['items']:,}건 · 통과 {s['kept']:,}건", flush=True)
     else:
