@@ -37,7 +37,7 @@ from fastapi import FastAPI, Query
 from fastapi.responses import (FileResponse, HTMLResponse, PlainTextResponse,
                                Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 
 from pathlib import Path
 
@@ -466,9 +466,16 @@ def item_view(item_id: int):
 
 @app.get("/healthz", response_class=PlainTextResponse)
 def healthz():
+    """DB에 닿는지만 본다.
+
+    ★ count(*)를 쓰지 않는다. 헬스체크는 배포 중에도, 그 뒤로도 60초마다
+      계속 불린다. 8만 5천 행을 매번 세는 건 확인하려는 것(=연결이 살아 있나)에
+      비해 비싸고, 행이 늘수록 더 비싸진다. SELECT 1이면 충분하다.
+      항목 수가 궁금하면 /api/stats 가 있다.
+    """
     with get_engine().connect() as conn:
-        n = conn.execute(select(func.count()).select_from(items)).scalar_one()
-    return f"ok items={n}"
+        conn.execute(text("SELECT 1"))
+    return "ok"
 
 
 if __name__ == "__main__":
