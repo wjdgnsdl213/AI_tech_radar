@@ -840,7 +840,12 @@ def main() -> None:
         print(f"\n{'=' * 62}\nL2 — 이번 주 흐름\n{'=' * 62}")
         run_l2(cfg, args)
         # 주간 과제 후보 — 재료는 그 주 교차 항목이라 L2와 층위가 다르다
-        run_week_tasks(cfg, args.week)
+        # ★ --dry-run이면 여기도 건너뛴다.
+        #   run_l2는 자기 안에서 dry_run을 보는데 이건 안 봐서, "API를 호출하지
+        #   않는다"고 적어둔 플래그가 실제로는 sonnet을 한 번 부르고 digests에
+        #   행까지 남겼다(실측: 2026-W34에 lead 없는 행이 생겼다).
+        if not args.dry_run:
+            run_week_tasks(cfg, args.week)
 
     if do_l3:
         print('\n' + '=' * 62 + '\n' + 'L3 — 월간 리뷰' + '\n' + '=' * 62)
