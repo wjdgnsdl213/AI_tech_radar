@@ -524,3 +524,8 @@ td.rank{width:auto;text-align:center;padding-right:0}
 #week-tasks-wrap{margin-bottom:8px}
 .lead-card{margin-bottom:8px}
 #axis-chips{margin-bottom:16px}
+
+/* 인덱스 생성 중 안내 — "없다"와 "아직 만드는 중"은 다른 상태다 */
+.empty.building{color:var(--ink-2);background:#fffbeb;border:1px dashed #fcd34d;
+  border-radius:8px;padding:26px 18px;line-height:1.7}
+.empty.building b{color:#92400e;font-size:15.5px}

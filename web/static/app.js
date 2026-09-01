@@ -293,8 +293,9 @@ async function loadEgo(kw, hops) {
     // 이전 검색의 지도 상태가 남으면 휠·드래그가 없는 그림을 계속 만진다
     EGO = null; BASE = VIEW = null;
     $('#graph-tools').hidden = true;
-    $('#graph-svg').innerHTML =
-      `<div class="empty">'${esc(kw)}' — ${esc(g.reason || '결과가 없습니다.')}</div>`;
+    $('#graph-svg').innerHTML = (await indexState()).ready
+      ? `<div class="empty">'${esc(kw)}' — ${esc(g.reason || '결과가 없습니다.')}</div>`
+      : await emptyOrBuilding('');
     return;
   }
   EGO = g;
@@ -741,8 +742,8 @@ async function loadTrend() {
   const t = await api('/api/trend', { top: 20 });
   TREND = t.rows || [];
   $('#trend-week').textContent = t.week_label || '';
-  if (!t.rows?.length) { $('#trend-body').innerHTML = '<div class="empty">데이터가 없습니다.</div>'; return; }
   const max = Math.max(...t.rows.map(r => r.score));
+  if (!t.rows?.length) { $('#trend-body').innerHTML = await emptyOrBuilding('데이터가 없습니다.'); return; }
   $('#trend-body').innerHTML = `<div class="tblwrap"><table>
       <tr><th style="width:44px;text-align:center">순위</th><th>키워드</th>
         <th>이번 주</th>
@@ -1171,7 +1172,7 @@ $('#cross-axes').addEventListener('click', e => {
 async function loadOrgs() {
   const r = await api('/api/orgs', { weeks: 8, limit: 40 });
   $('#orgs-sub').textContent = `최근 8주 · ${r.rows.length}곳`;
-  if (!r.rows.length) { $('#orgs-body').innerHTML = '<div class="empty">없습니다.</div>'; return; }
+  if (!r.rows.length) { $('#orgs-body').innerHTML = await emptyOrBuilding('반복 등장한 기관이 없습니다.'); return; }
   const wk = r.weeks || [];
   const max = Math.max(1, ...r.rows.flatMap(x => x.series.map(s => s.n)));
   $('#orgs-body').innerHTML = `<div class="tblwrap"><table>
@@ -1217,6 +1218,32 @@ function showSub(name) {
   if (!subLoaded.has(name)) { subLoaded.add(name); (SUB_LOADERS[name] || (() => {}))(); }
 }
 $$('.subtab').forEach(b => (b.onclick = () => showSub(b.dataset.sub)));
+
+/* 급상승·기관·연관어가 비었을 때, 그게 "데이터가 없다"인지 "아직 만드는 중"인지
+   화면에 적는다. 배포 직후에는 인덱스를 다시 만드느라 이 셋이 비는데, 아무 설명이
+   없으면 기능이 사라진 것으로 보인다. 상태는 한 번만 물어보고 캐시한다. */
+let IDX = null;
+
+async function indexState() {
+  if (IDX) return IDX;
+  try { IDX = await api('/api/index_status'); } catch (e) { IDX = { ready: true }; }
+  return IDX;
+}
+
+async function emptyOrBuilding(fallback) {
+  const s = await indexState();
+  if (s.ready) return `<div class="empty">${fallback}</div>`;
+  const pct = s.rows ? Math.min(99, Math.round(s.rows / 2418391 * 100)) : 0;
+  return `<div class="empty building">
+      <b>키워드 인덱스를 만드는 중입니다</b>
+      <div style="margin-top:6px">이 화면은 인덱스가 준비되면 채워집니다. 약 10분 걸립니다.
+        ${s.rows ? `<br>진행 ${num(s.rows)}행 (${pct}%)` : ''}</div>
+      <button class="preset" style="margin-top:12px" data-idxretry>다시 확인</button>
+    </div>`;
+}
+document.body.addEventListener('click', e => {
+  if (e.target.closest('[data-idxretry]')) { IDX = null; location.reload(); }
+});
 
 const LOADERS = {
   analysis: () => showSub('cross'),

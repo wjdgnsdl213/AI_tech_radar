@@ -825,6 +825,30 @@ def newsletter(week: str = Query("")) -> dict[str, Any]:
     }
 
 
+@router.get("/index_status")
+def index_status() -> dict[str, Any]:
+    """키워드 인덱스가 준비됐는지.
+
+    ★ 급상승·기관·연관어 세 화면만 이 인덱스를 쓴다. 없으면 그 셋이 조용히
+      비는데, 화면만 보고는 "데이터가 없는 것"과 "아직 만드는 중"을 구분할 수
+      없다. 배포마다 컨테이너가 새로 뜨면 다시 만들어야 해서(볼륨이 없으면)
+      그동안 세 화면이 사라진 것처럼 보인다 — 그 이유를 화면에 적기 위한 값이다.
+    """
+    from src.extract import item_keywords
+
+    try:
+        with kw_engine().connect() as c:
+            rows = c.execute(select(func.count()).select_from(item_keywords)).scalar_one()
+            weeks = c.execute(select(func.count(func.distinct(item_keywords.c.week)))
+                              ).scalar_one()
+    except Exception as exc:
+        return {"ready": False, "rows": 0, "weeks": 0, "building": True,
+                "error": f"{type(exc).__name__}"}
+    # 전체 코퍼스를 넣으면 240만 행이 나온다. 그보다 한참 적으면 만드는 중이다.
+    return {"ready": rows > 500_000, "rows": rows, "weeks": weeks,
+            "building": 0 < rows <= 500_000 or rows == 0}
+
+
 @router.get("/cache")
 def cache_info() -> dict[str, Any]:
     """캐시가 실제로 듣고 있는지 확인용. 안 맞으면 여기부터 본다."""
