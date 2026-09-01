@@ -161,8 +161,146 @@ def near_duplicate_mask(vecs: np.ndarray, threshold: float,
     return keep
 
 
+def ensure_embeddings(ids: list[int], texts: dict[int, str], model_name: str,
+                      batch_size: int, save_every: int = 20) -> EmbeddingCache:
+    """캐시에 없는 항목만 인코딩해 채운 캐시를 돌려준다.
+
+    모델 로딩(수십 초)과 GPU 인코딩이 이 파이프라인에서 제일 비싼 구간이라
+    캐시가 곧 재실행 비용이다. 그래서 배치마다 중간 저장한다 — 죽어도 거기까지는 남는다.
+    """
+    slug = model_name.replace("/", "_").replace(":", "_")
+    cache = EmbeddingCache(Path("data/processed") / f"embeddings_{slug}.npz")
+    todo = cache.missing(ids)
+    print(f"캐시 {len(cache.index):,}건 보유  →  새로 계산할 항목 {len(todo):,}건")
+    if not todo:
+        print("  전부 캐시에 있습니다 — 임베딩 생략\n")
+        return cache
+
+    from sentence_transformers import SentenceTransformer   # 로딩이 느려 지연 임포트
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    gpu = torch.cuda.get_device_name(0) if device == "cuda" else ""
+    print(f"장치 {device} {gpu}  |  모델 로딩 중…")
+    model = SentenceTransformer(model_name, device=device)
+
+    t0, done = time.time(), 0
+    for n, start in enumerate(range(0, len(todo), batch_size), start=1):
+        chunk = todo[start:start + batch_size]
+        vecs = model.encode([texts[i] for i in chunk], batch_size=batch_size,
+                            convert_to_numpy=True, normalize_embeddings=True,
+                            show_progress_bar=False)
+        cache.add(chunk, vecs)
+        done += len(chunk)
+        if n % save_every == 0:
+            cache.save()
+            rate = done / max(time.time() - t0, 1e-9)
+            left = (len(todo) - done) / max(rate, 1e-9)
+            print(f"  {done:>7,}/{len(todo):,}  ({rate:.0f}건/초, 남은 시간 약 {left / 60:.1f}분)")
+    cache.save()
+    print(f"  완료 — {done:,}건 {time.time() - t0:.0f}초\n")
+    return cache
+
+
+def run_axes_mode(args, fcfg: dict) -> None:
+    """축으로 통과를 정하고, 신디케이션 중복만 임베딩으로 걷어낸다.
+
+    ★ 왜 관련성 점수를 버렸나 (사람 라벨 50건 실측, 2026-09-01)
+        지금 필터(임베딩)   precision 0.560  recall 0.519
+        축 1개 이상         precision 0.605  recall 0.963
+      **끄는 쪽이 precision도 같거나 높고 recall은 두 배다.** 관련 있는 것의
+      절반을 버리면서 정확도는 못 얻고 있었다.
+
+      시드 탓이 아니다. 사람 라벨로 시드를 다시 만들어 반대쪽 절반을 재도
+      AUC 0.677로 지금 초안(0.683)과 같았다(2겹 교차검증).
+      사람이 가른 경계가 주제가 아니라 **성격**이었기 때문이다 —
+      기관·정책·산업의 움직임인가, 개발자 개인의 도구·의견인가.
+      둘 다 주제는 AI라서 문장 임베딩이 그 차이를 담지 못한다.
+
+    ★ 그런데 중복 제거는 남긴다 — 같이 껐다가 급상승이 무너졌다 (실측 2026-09-01)
+      축만으로 통과시킨 직후 급상승 1~5위가 전부 한 사건이었다.
+      '데이터센터냉각솔루션' 'AIDV' '지능플랫폼' … 전부 LG전자 CEO 북미 인재
+      채용 기사 한 건이 네이버에 50건 가까이 받아쓰이면서 딸려 올라온 n-gram이다.
+      임베딩의 **관련성 점수**는 값을 못 했지만 **중복 군집**은 하고 있었다.
+      그래서 관련성 컷만 버리고 dedup은 그대로 쓴다.
+      digest의 제목 기반 is_syndicated는 지면 한 장만 보므로 이걸 대신하지 못한다 —
+      급상승·연관어·기관은 통과분 전체를 센다.
+
+    ★ 비교는 주차 안에서만 한다
+      5만 건 전체면 12억 쌍이라 못 돌린다. 신디케이션은 같은 사건을 며칠 안에
+      받아쓰는 것이라 주차 경계를 거의 넘지 않는다. 가장 큰 주가 9,003건
+      (4천만 쌍)이라 청크 행렬곱으로 감당된다.
+
+    relevance는 건드리지 않는다. 예전 값이 남아 화면·CSV가 깨지지 않게 하고,
+    나중에 임베딩 모드로 되돌릴 때 다시 계산하지 않아도 되게 한다.
+    """
+    engine = get_engine()
+    stmt = (select(items.c.id, items.c.title, items.c.summary,
+                   items.c.published_week, items.c.cross_score)
+            .where(items.c.id.in_(select(item_axes.c.item_id).distinct()))
+            .order_by(items.c.id))
+    if args.limit:
+        stmt = stmt.limit(args.limit)
+    with engine.connect() as conn:
+        rows = conn.execute(stmt).all()
+    if not rows:
+        sys.exit("대상이 없습니다. 먼저 python -m src.prefilter 를 실행하세요.")
+    print(f"모드 axes — 축이 하나라도 붙은 항목을 통과시킨다 ({len(rows):,}건)")
+
+    dupes: set[int] = set()
+    if args.no_dedup:
+        print("  ⚠ 중복 제거 생략 (--no-dedup) — 급상승·연관어가 신디케이션에 먹힙니다")
+    else:
+        dedup_th = float(fcfg.get("dedup_threshold", 0.92))
+        texts = {r.id: doc_text(r.title, r.summary) for r in rows}
+        cache = ensure_embeddings([r.id for r in rows], texts, fcfg["model"],
+                                  int(fcfg.get("batch_size", 64)), args.save_every)
+        by_week: dict[str, list] = {}
+        for r in rows:
+            by_week.setdefault(r.published_week or "?", []).append(r)
+        t0 = time.time()
+        for _week, group in sorted(by_week.items()):
+            if len(group) < 2:
+                continue
+            # 군집에서 살아남는 건 맨 앞 항목이므로 교차점수가 높은 쪽을 앞에 둔다
+            group.sort(key=lambda r: (-(r.cross_score or 0.0), r.id))
+            gids = [r.id for r in group]
+            keep = near_duplicate_mask(cache.matrix(gids), dedup_th)
+            dupes.update(i for i, k in zip(gids, keep) if not k)
+        print(f"  중복 컷 {dedup_th} — 주차 {len(by_week)}개에서 신디케이션 "
+              f"{len(dupes):,}건 제거 ({time.time() - t0:.0f}초)")
+
+    if args.tune or args.limit:
+        print("⏭  DB에 반영하지 않았습니다 (--tune/--limit)")
+        return
+
+    # ★ 바뀌는 행만 쓴다. 매번 8만 행을 통째로 UPDATE하면 Postgres가 죽은 행을
+    #   그만큼 쌓아 DB가 붓는다 — 인덱스 테이블에서 이미 한 번 겪었다(125→136MB).
+    axis_ids = select(item_axes.c.item_id).distinct()
+    with engine.begin() as conn:
+        conn.execute(items.update()
+                     .where(items.c.id.in_(axis_ids), items.c.kept.isnot(True))
+                     .values(kept=True))
+        conn.execute(items.update()
+                     .where(items.c.id.notin_(axis_ids), items.c.kept.isnot(False))
+                     .values(kept=False))
+        ordered = sorted(dupes)
+        for start in range(0, len(ordered), 5000):
+            conn.execute(items.update()
+                         .where(items.c.id.in_(ordered[start:start + 5000]),
+                                items.c.kept.isnot(False))
+                         .values(kept=False))
+    with engine.connect() as conn:
+        kept_n = conn.execute(select(func.count()).select_from(items)
+                              .where(items.c.kept.is_(True))).scalar_one()
+    print(f"  완료 — DB 기준 통과 {kept_n:,}건")
+
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="시드 centroid 임베딩 필터")
+    parser.add_argument("--mode", choices=["axes", "embedding"], default=None,
+                        help="axes=축만으로 판정(기본) / embedding=시드 임베딩")
     parser.add_argument("--tune", action="store_true",
                         help="임계값 후보별 통과량만 보고 DB에 반영하지 않는다")
     parser.add_argument("--limit", type=int, default=0, help="처리 상한 (0=전체)")
@@ -178,6 +316,13 @@ def main() -> None:
     threshold = float(args.threshold if args.threshold is not None else fcfg["threshold"])
     dedup_th = float(fcfg.get("dedup_threshold", 0.92))
     batch_size = int(fcfg.get("batch_size", 64))
+
+    # ★ 기본은 axes다. 라벨 실측에서 임베딩이 값을 못 하는 게 드러났다 —
+    #   자세한 근거는 run_axes_mode의 주석과 HANDOFF.md.
+    mode = (args.mode or fcfg.get("mode", "axes")).lower()
+    if mode == "axes":
+        run_axes_mode(args, fcfg)
+        return
 
     print(f"모델 {model_name}  |  임계값 {threshold}  |  중복 컷 {dedup_th}")
 
@@ -199,38 +344,8 @@ def main() -> None:
     texts = {r.id: doc_text(r.title, r.summary) for r in rows}
 
     # ── 임베딩 (캐시 우선) ──
-    slug = model_name.replace("/", "_").replace(":", "_")
-    cache = EmbeddingCache(Path("data/processed") / f"embeddings_{slug}.npz")
-    todo = cache.missing(ids)
-    print(f"캐시 {len(cache.index):,}건 보유  →  새로 계산할 항목 {len(todo):,}건")
-
-    if todo:
-        from sentence_transformers import SentenceTransformer   # 로딩이 느려 지연 임포트
-        import torch
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        gpu = torch.cuda.get_device_name(0) if device == "cuda" else ""
-        print(f"장치 {device} {gpu}  |  모델 로딩 중…")
-        model = SentenceTransformer(model_name, device=device)
-
-        t0 = time.time()
-        done = 0
-        for n, start in enumerate(range(0, len(todo), batch_size), start=1):
-            chunk = todo[start:start + batch_size]
-            vecs = model.encode([texts[i] for i in chunk], batch_size=batch_size,
-                                convert_to_numpy=True, normalize_embeddings=True,
-                                show_progress_bar=False)
-            cache.add(chunk, vecs)
-            done += len(chunk)
-            if n % args.save_every == 0:
-                cache.save()      # 중간에 죽어도 여기까지는 남는다
-                rate = done / max(time.time() - t0, 1e-9)
-                left = (len(todo) - done) / max(rate, 1e-9)
-                print(f"  {done:>7,}/{len(todo):,}  ({rate:.0f}건/초, 남은 시간 약 {left / 60:.1f}분)")
-        cache.save()
-        print(f"  완료 — {done:,}건 {time.time() - t0:.0f}초\n")
-    else:
-        print("  전부 캐시에 있습니다 — 임베딩 생략\n")
+    slug = model_name.replace("/", "_").replace(":", "_")   # 시드 캐시 경로도 쓴다
+    cache = ensure_embeddings(ids, texts, model_name, batch_size, args.save_every)
 
     # ── 시드 centroid (양성 / 부정) ──
     #

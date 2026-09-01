@@ -319,6 +319,13 @@ prefilter:
   min_axis_hits: 1
 
 filter:
+  # ★ 판정 방식. 사람 라벨 50건 실측(2026-09-01)으로 기본을 axes로 바꿨다.
+  #     embedding  precision 0.560 · recall 0.519
+  #     axes       precision 0.605 · recall 0.963   ← 끄는 쪽이 낫다
+  #   시드 탓이 아니다 — 라벨로 시드를 다시 만들어도 AUC 0.677 vs 0.683으로 같다.
+  #   사람이 가른 경계가 주제가 아니라 성격(기관·정책 vs 개발자 개인 도구)이라
+  #   문장 임베딩이 담지 못한다. 근거는 HANDOFF.md.
+  mode: axes                  # axes | embedding
   model: BAAI/bge-m3          # 한·영 혼재라 다국어 모델. ko-sroberta는 쓰지 않는다
   seed_path: seeds/seed_sentences.txt
   # 부정 시드 — '우리 팀 일이 아닌 것'. relevance = 양성유사도 - 부정유사도.

@@ -57,16 +57,26 @@ def build_week_counts() -> list[dict[str, Any]]:
     """(키워드, 주차) 문서 수. 급상승·기관이 쓴다.
 
     통과분(kept)만 센다 — 급상승은 다이제스트에 실리는 것이라 필터 기준이 같아야
-    하고, 기관도 같은 지면을 본다. 원본 freq()와 같은 조건이다.
+    하고, 기관도 같은 지면을 본다.
+
+    ★ kept는 **본 DB에서 읽는다.** 로컬 인덱스에도 kept 열이 있지만 그건 추출한
+      시점의 값이라, 필터를 다시 돌리면 낡는다(실제로 판정 방식을 axes로 바꾸자
+      3,779 → 50,956건이 됐는데 로컬 값은 옛것 그대로였다). 판정의 출처는
+      하나여야 한다.
     """
+    with get_engine().connect() as c:
+        kept = {i for (i,) in c.execute(
+            select(items.c.id).where(items.c.kept.is_(True)))}
+    print(f"  통과 항목 {len(kept):,}건 (본 DB 기준)")
+    agg: Counter = Counter()
     with kw_engine().connect() as c:
-        rows = c.execute(
-            select(item_keywords.c.keyword, item_keywords.c.week,
-                   func.count(func.distinct(item_keywords.c.item_id)))
-            .where(item_keywords.c.kept.is_(True),
-                   item_keywords.c.week.isnot(None))
-            .group_by(item_keywords.c.keyword, item_keywords.c.week)).all()
-    return [{"keyword": k, "week": w, "n": n} for k, w, n in rows]
+        for k, w, i in c.execute(
+                select(item_keywords.c.keyword, item_keywords.c.week,
+                       item_keywords.c.item_id)
+                .where(item_keywords.c.week.isnot(None))):
+            if i in kept:
+                agg[(k, w)] += 1
+    return [{"keyword": k, "week": w, "n": n} for (k, w), n in agg.items()]
 
 
 def build_neighbors() -> tuple[list[dict[str, Any]], dict[str, int]]:
