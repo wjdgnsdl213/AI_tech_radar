@@ -19,7 +19,8 @@ from typing import Any
 from fastapi import APIRouter, Query
 from sqlalchemy import and_, func, or_, select
 
-from src.db import digests, get_engine, item_axes, items, kw_engine, load_config
+from src.db import (digests, get_engine, item_axes, items, kw_item, kw_meta,
+                    kw_neighbor, kw_week, load_config)
 from src.digest import week_label
 from web.cache import ego_cache
 
@@ -239,13 +240,12 @@ def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
     사용자가 처음 보는 목록이라 여기가 지저분하면 기능 전체가 못 미더워 보인다.
     → 더 긴 키워드에 포함되면서 빈도가 비슷한 것은 조각으로 보고 뺀다.
     """
-    from src.extract import STOPWORDS, item_keywords
-    with kw_engine().connect() as c:      # 키워드는 파생 인덱스 DB에 있다
-        stmt = (select(item_keywords.c.keyword, func.count().label("n"))
-                .group_by(item_keywords.c.keyword)
-                .order_by(func.count().desc()).limit(limit * 8))
+    from src.extract import STOPWORDS
+    with get_engine().connect() as c:     # 집계 표에서 읽는다(kw_meta)
+        stmt = (select(kw_meta.c.keyword, kw_meta.c.df)
+                .order_by(kw_meta.c.df.desc()).limit(limit * 8))
         if q:
-            stmt = stmt.where(item_keywords.c.keyword.contains(q))
+            stmt = stmt.where(kw_meta.c.keyword.contains(q))
         rows = [(k, n) for k, n in c.execute(stmt) if k not in STOPWORDS]
 
     out: list[dict[str, Any]] = []
@@ -277,215 +277,123 @@ def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
 
 def _ego(kw: str, hops: int, per_hop: int,
          min_cooc: int, max_nodes: int) -> dict[str, Any]:
-    """키워드 하나를 중심으로 한 연관어 망. 홉 수를 지정할 수 있다.
+    """키워드 하나를 중심으로 한 연관어 망.
+
+    ★ 미리 계산된 이웃 표(kw_neighbor)를 읽는다.
+      전에는 요청마다 공기(co-occurrence)를 실시간으로 셌다 — '소상공인' 2홉이면
+      질의 165회다(실측). 원격 DB로 옮기면 왕복만 5~10초가 붙는다.
+      이웃을 미리 만들어 두면 홉당 한 번으로 끝난다. 대신 이웃은 만든 시점에
+      고정된다 — 매일 파이프라인이 다시 만드므로 하루 단위로는 최신이다.
 
     ★ 전체 코퍼스를 본다 (kept 필터를 걸지 않는다)
-      필터는 다이제스트를 위한 것이다 — 밀어주는 지면은 좁으니 좁게 걸러야 한다.
-      탐색은 반대다. 'Ollama'(48건), 'LangChain'(12건), 'Kubernetes'(65건) 같은 말은
-      통과분 3,046건 안에는 거의 없다. push와 pull은 기준이 달라야 한다.
-
-    ★ 인덱스 질의로만 만든다
-      220만 행을 매번 메모리에 올리면 요청마다 몇 초가 걸린다. 필요한 건
-      "이 키워드가 나온 문서"와 "그 문서에 또 뭐가 있나"뿐이라 인덱스로 좁혀 읽는다.
-
-    NPMI 식은 graph.py와 같다. 화면마다 다른 지표를 쓰면 값이 갈린다.
+      필터는 다이제스트를 위한 것이다. 탐색은 반대다 — 'Ollama'·'LangChain'
+      같은 말은 통과분 안에는 거의 없다. kw_neighbor는 전체 코퍼스로 만든다.
     """
-    import math
-    from collections import Counter
-
-    from src.extract import STOPWORDS, item_keywords
-
     hops = max(1, min(hops, 3))
     per_hop = max(3, min(per_hop, 30))
-    eng = kw_engine()                     # 키워드는 파생 인덱스 DB에 있다
+    max_nodes = max(6, min(max_nodes, 120))
+    q = (kw or "").strip()
+    if not q:
+        return {"center": kw, "empty": True, "nodes": [], "edges": [],
+                "reason": "검색어가 없습니다."}
 
-    def chunked(seq, n=400):
-        seq = list(seq)
-        for i in range(0, len(seq), n):
-            yield seq[i:i + n]
-
-    with eng.connect() as c:
-        n_docs = c.execute(select(func.count(func.distinct(item_keywords.c.item_id)))
-                           ).scalar_one() or 1
-
-        # 대소문자가 달라도 찾게 한다 — 'ollama'로 쳐도 'Ollama'가 나와야 한다.
-        # 대소문자 변형이 여러 개면 **문서가 가장 많은 것**을 고른다.
-        # (실측: 'CLAUDE' 2건과 'Claude' 873건이 따로 있어 LIMIT 1이 적은 쪽을 집었다)
+    with get_engine().connect() as c:
+        # 대소문자가 다른 표기가 섞여 있다('CLAUDE' 2건 vs 'Claude' 873건).
+        # 문서가 많은 쪽을 중심으로 잡는다 — 적은 쪽을 고르면 망이 거의 안 나온다.
         center = c.execute(
-            select(item_keywords.c.keyword)
-            .where(func.lower(item_keywords.c.keyword) == kw.strip().lower())
-            .group_by(item_keywords.c.keyword)
-            .order_by(func.count().desc()).limit(1)).scalar_one_or_none()
+            select(kw_meta.c.keyword)
+            .where(func.lower(kw_meta.c.keyword) == q.lower())
+            .order_by(kw_meta.c.df.desc()).limit(1)).scalar_one_or_none()
         if not center:
-            return {"center": kw, "empty": True, "nodes": [], "edges": [],
-                    "reason": "코퍼스에 없는 키워드입니다."}
+            return {"center": q, "empty": True, "nodes": [], "edges": [],
+                    "reason": f"'{q}' — 자료가 적어 망을 그릴 수 없습니다 "
+                              f"(문서 10건 이상인 키워드만 만듭니다)."}
 
-        def docs_of(words: list[str]) -> dict[str, set[int]]:
-            out: dict[str, set[int]] = {w: set() for w in words}
-            for part in chunked(words):
-                for w, i in c.execute(
-                        select(item_keywords.c.keyword, item_keywords.c.item_id)
-                        .where(item_keywords.c.keyword.in_(part))):
-                    out[w].add(i)
+        def neighbours(words: list[str]) -> dict[str, list]:
+            """여러 키워드의 이웃을 **한 번에** 가져온다."""
+            out: dict[str, list] = {w: [] for w in words}
+            for k, nb, v, n in c.execute(
+                    select(kw_neighbor.c.keyword, kw_neighbor.c.neighbor,
+                           kw_neighbor.c.npmi, kw_neighbor.c.cooc)
+                    .where(kw_neighbor.c.keyword.in_(words))
+                    .order_by(kw_neighbor.c.keyword, kw_neighbor.c.npmi.desc())):
+                if len(out[k]) < per_hop and (not min_cooc or n >= min_cooc):
+                    out[k].append((v, nb, n))
             return out
 
-        def df_of(words: list[str]) -> dict[str, int]:
-            out: dict[str, int] = {}
-            for part in chunked(words):
-                for w, n in c.execute(
-                        select(item_keywords.c.keyword, func.count())
-                        .where(item_keywords.c.keyword.in_(part))
-                        .group_by(item_keywords.c.keyword)):
-                    out[w] = n
-            return out
-
-        def neighbours_of(word: str, host: set[int], exclude: set[str]) -> list[tuple]:
-            """host 문서들에 word와 함께 나온 키워드를 NPMI 순으로."""
-            co = Counter()
-            for part in chunked(host):
-                for k, n in c.execute(
-                        select(item_keywords.c.keyword, func.count())
-                        .where(item_keywords.c.item_id.in_(part))
-                        .group_by(item_keywords.c.keyword)):
-                    co[k] += n
-            floor = min_cooc or max(3, min(len(host) // 15, 6))
-            cand = {k: n for k, n in co.items()
-                    if n >= floor and k not in STOPWORDS and k not in exclude
-                    and word not in k and k not in word}
-            if not cand:
-                return []
-            dfs = df_of(list(cand) + [word])
-            dw = dfs.get(word, 1)
-
-            def npmi(k: str, n: int) -> float:
-                pa, pb, pab = dw / n_docs, dfs.get(k, 1) / n_docs, n / n_docs
-                d = -math.log(pab)
-                return math.log(pab / (pa * pb)) / d if d > 0 else 0.0
-
-            ranked = sorted(((npmi(k, n), k, n) for k, n in cand.items()), reverse=True)
-            # n-gram 조각 제거 — 좁은 지면이 같은 말의 조각으로 덮이는 걸 막는다
-            out: list[tuple] = []
-            for sc, k, n in ranked:
-                if any(k != o and k in o and m >= n * 0.5 for _, o, m in ranked):
-                    continue
-                # out은 4-튜플이다. 3개로 언팩하면 ValueError로 500이 난다(실측).
-                if any(o in k and n >= m * 0.5 for _, o, m, _d in out):
-                    continue
-                out.append((sc, k, n, dfs.get(k, 0)))
-                if len(out) >= per_hop:
-                    break
-            return out
-
-        # ── 홉을 넓혀 나간다 ──
         nodes: dict[str, dict[str, Any]] = {
             center: {"keyword": center, "hop": 0, "center": True,
                      "npmi": 1.0, "cooc": 0, "df": 0}}
         frontier = [center]
-        doc_cache = docs_of([center])
-        # ★ 총 노드 수에 상한을 둔다.
-        #   홉마다 노드가 per_hop배로 늘어 3홉이면 100개를 넘는다. 그러면 겹치지 않게
-        #   그리려고 캔버스를 키우게 되고, 화면 폭에 맞춰 축소되면서 글자가 다시
-        #   작아진다(실측: 3홉 119노드 → viewBox 2940px). 넓혀서 푸는 문제가 아니다.
-        #   깊은 홉일수록 가지를 좁혀, 멀리 보되 굵은 줄기만 남긴다.
         for hop in range(1, hops + 1):
-            nxt: list[str] = []
             room = max_nodes - len(nodes)
             if room <= 0:
                 break
             budget = max(2, room // max(1, len(frontier)))
+            nbrs = neighbours(frontier)
+            nxt: list[str] = []
             for w in frontier:
                 got = 0
-                for sc, k, n, d in neighbours_of(w, doc_cache[w], set(nodes)):
+                for v, k, n in nbrs.get(w, []):
                     if k in nodes or got >= budget or len(nodes) >= max_nodes:
                         continue
-                    # 조각 판정은 홉을 넘어서도 해야 한다. 홉 안에서만 걸면
-                    # 2홉에 '대전결제'와 '대전결제데이터', '서울시상권'과
-                    # '서울시상권분석'이 따로 올라온다(실측).
-                    if any(k in o or o in k for o in nodes if len(o) > 2 and len(k) > 2):
+                    # 조각 판정은 홉을 넘어서도 한다. 홉 안에서만 걸면 '대전결제'와
+                    # '대전결제데이터'가 따로 올라온다(실측).
+                    if any(k in o or o in k for o in nodes
+                           if len(o) > 2 and len(k) > 2):
                         continue
                     nodes[k] = {"keyword": k, "hop": hop, "center": False,
-                                "npmi": round(sc, 3), "cooc": n, "df": d,
-                                "via": w}
+                                "npmi": v, "cooc": n, "df": 0, "via": w}
                     nxt.append(k)
                     got += 1
             if not nxt:
                 break
             frontier = nxt
-            if hop < hops:
-                doc_cache.update(docs_of(nxt))
 
         names = list(nodes)
-        dfs = df_of(names)
-        for k, nd in nodes.items():
-            nd["df"] = dfs.get(k, nd.get("df", 0))
+        # 노드끼리의 간선도 같은 표에서 한 번에 읽는다
+        edges, seen = [], set()
+        for a, b, v, n in c.execute(
+                select(kw_neighbor.c.keyword, kw_neighbor.c.neighbor,
+                       kw_neighbor.c.npmi, kw_neighbor.c.cooc)
+                .where(kw_neighbor.c.keyword.in_(names),
+                       kw_neighbor.c.neighbor.in_(names))):
+            key = (a, b) if a < b else (b, a)
+            if key not in seen:
+                seen.add(key)
+                edges.append({"source": a, "target": b, "npmi": v, "cooc": n})
 
-        # ── 노드끼리의 간선 ──
-        sets = docs_of(names)
-        edges = []
-        for x in range(len(names)):
-            for y in range(x + 1, len(names)):
-                a, b = names[x], names[y]
-                n = len(sets[a] & sets[b])
-                if n < 2:
-                    continue
-                pa, pb, pab = dfs.get(a, 1) / n_docs, dfs.get(b, 1) / n_docs, n / n_docs
-                d = -math.log(pab)
-                v = math.log(pab / (pa * pb)) / d if d > 0 else 0.0
-                if v >= 0.15:
-                    edges.append({"source": a, "target": b,
-                                  "npmi": round(v, 4), "cooc": n})
+        # 크기(df)와 색(axis)은 미리 계산해 둔 표에서 — 실시간으로 세면 키워드
+        # 하나에 7초가 걸린다(실측)
+        for k, d, ax in c.execute(
+                select(kw_meta.c.keyword, kw_meta.c.df, kw_meta.c.axis)
+                .where(kw_meta.c.keyword.in_(names))):
+            if k in nodes:
+                nodes[k]["df"] = d
+                nodes[k]["axis"] = ax
 
-        # ── ★ 홉을 **실제 간선 기준**으로 다시 매긴다 ──
-        #   위 확장 루프는 탐색 순서로 hop을 붙인다. 그런데 중심의 직접 이웃은
-        #   budget에 잘려서, 중심과 함께 나오는 말인데도 예산 밖이면 이웃을 통해
-        #   2홉으로 발견된다. 그 뒤 아래 간선 계산은 모든 쌍을 보므로 그 노드에도
-        #   중심과의 선이 그어진다 — 화면에는 "2홉인데 중심에 붙어 있는" 노드가 된다.
-        #   실측: 'AI모델' 2홉 21개 중 20개가 중심과 직접 연결이었다.
-        #   간선이 곧 보이는 관계이므로, 홉도 그 간선 위의 최단 거리여야 뜻이 맞는다.
-        adj: dict[str, set[str]] = {k: set() for k in names}
-        for e2 in edges:
-            adj[e2["source"]].add(e2["target"])
-            adj[e2["target"]].add(e2["source"])
-        dist = {center: 0}
-        queue = [center]
-        while queue:
-            cur = queue.pop(0)
-            for nb in adj[cur]:
-                if nb not in dist:
-                    dist[nb] = dist[cur] + 1
-                    queue.append(nb)
-        for k, nd in nodes.items():
-            if nd["center"]:
-                continue
-            # 중심과 이어지지 않는 노드(간선이 전부 NPMI 컷 아래)는 탐색 홉을 남긴다
-            nd["hop"] = dist.get(k, nd["hop"])
-
-        # 주제 성향 — 색에 쓴다
-        axis_hits: dict[str, Counter] = {k: Counter() for k in names}
-        all_docs = set().union(*sets.values()) if sets else set()
-        pairs: list[tuple[int, str]] = []
-    # 축은 본 DB에 있다 — 키워드 DB와 다른 파일이라 커넥션을 따로 연다
-    with get_engine().connect() as mc:
-        for part in chunked(all_docs):
-            pairs += list(mc.execute(select(item_axes.c.item_id, item_axes.c.axis)
-                                     .where(item_axes.c.item_id.in_(part))))
-        by_doc: dict[int, list[str]] = {}
-        for i, a in pairs:
-            by_doc.setdefault(i, []).append(a)
-        for k in names:
-            for i in sets[k]:
-                for a in by_doc.get(i, ()):
-                    axis_hits[k][a] += 1
-
+    # ── 홉을 실제 간선 기준으로 다시 매긴다 ──
+    #   확장은 예산(budget)에 잘리므로, 중심과 이어져 있는데도 2홉으로 밀리는
+    #   노드가 생긴다. 간선이 곧 보이는 관계이니 홉도 그 위의 최단 거리여야 한다.
+    adj: dict[str, set[str]] = {k: set() for k in names}
+    for e in edges:
+        adj[e["source"]].add(e["target"])
+        adj[e["target"]].add(e["source"])
+    dist, queue = {center: 0}, [center]
+    while queue:
+        cur = queue.pop(0)
+        for nb in adj[cur]:
+            if nb not in dist:
+                dist[nb] = dist[cur] + 1
+                queue.append(nb)
     for k, nd in nodes.items():
-        h = axis_hits[k]
-        tot = sum(h.values())
-        nd["axis"] = max(h, key=h.get) if h else None
-        nd["axis_share"] = {a: round(v / tot, 3) for a, v in h.items()} if tot else {}
+        if not nd["center"]:
+            nd["hop"] = dist.get(k, nd["hop"])
+        nd.setdefault("axis", None)
 
     return {"center": center, "empty": False, "hops": hops,
             "nodes": list(nodes.values()), "edges": edges,
-            "docs": len(sets.get(center, ()))}
+            "docs": nodes[center].get("df", 0)}
 
 
 @router.get("/cross")
@@ -559,37 +467,28 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
     """반복 등장하는 기관.
 
     ★ 개체명 인식을 붙이지 않는다. 키워드 중 **기관 접미사로 끝나는 긴 말**만
-      고른다. 그게 이 데이터에서 충분히 통한다 —
-      소상공인시장진흥공단·행정안전부·한국관광공사·경기도시장상권진흥원 같은 게
-      그대로 잡힌다.
-      ⚠ 완전하지 않다: 접미사가 없는 기관(카카오·SKT)은 안 잡힌다.
+      고른다. 소상공인시장진흥공단·행정안전부·한국관광공사가 그대로 잡힌다.
+      ⚠ 접미사가 없는 기관(카카오·SKT)은 안 잡힌다.
 
-    ★ 두 가지를 반드시 걸러야 쓸 수 있다 (실측으로 드러났다)
-      1) 일반명사: '센터'·'기관'을 접미사에 넣으면 데이터센터·지원센터·공공기관이
-         상위를 덮는다. 기관이 아니다. 접미사를 기관 고유의 것만 남긴다.
-      2) n-gram 조각: '중소벤처기업부'와 함께 '벤처기업부'·'기업부'가,
-         '경기도시장상권진흥원'과 함께 '시장상권진흥원'·'상권진흥원'이 같이 잡힌다.
-         trend._fragment_of가 이미 푸는 문제라 그대로 쓴다.
+    ★ 두 가지를 걸러야 쓸 수 있다 (실측)
+      1) 일반명사: '센터'·'기관'을 넣으면 데이터센터·지원센터·공공기관이 상위를
+         덮는다. 기관 고유 접미사만 남긴다.
+      2) n-gram 조각: '중소벤처기업부'와 '벤처기업부'가 같이 잡힌다 —
+         trend._fragment_of가 푸는 문제라 그대로 쓴다.
     """
-    from src.extract import item_keywords
     from src.trend import _fragment_of, prev_weeks
 
-    # 기관에만 붙는 접미사. '센터'·'기관'·'지원'은 일반명사를 끌고 와서 뺐다.
     SUFFIX = ("공단", "진흥원", "연구원", "재단", "공사", "위원회", "협회",
               "대학교", "은행", "조합", "부", "처", "청")
     with get_engine().connect() as c:
         cur = c.execute(select(func.max(items.c.published_week))
                         .where(items.c.kept.is_(True))).scalar_one_or_none()
-    if not cur:
-        return {"rows": [], "weeks": []}
-    span = [cur, *prev_weeks(cur, max(0, weeks - 1))]
-
-    with kw_engine().connect() as c:
+        if not cur:
+            return {"rows": [], "weeks": []}
+        span = [cur, *prev_weeks(cur, max(0, weeks - 1))]
         rows = c.execute(
-            select(item_keywords.c.keyword, item_keywords.c.week,
-                   func.count(func.distinct(item_keywords.c.item_id)))
-            .where(item_keywords.c.week.in_(span), item_keywords.c.kept.is_(True))
-            .group_by(item_keywords.c.keyword, item_keywords.c.week)).all()
+            select(kw_week.c.keyword, kw_week.c.week, kw_week.c.n)
+            .where(kw_week.c.week.in_(span))).all()
 
     agg: dict[str, Counter] = {}
     for kw, wk, n in rows:
@@ -611,42 +510,6 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
     out.sort(key=lambda r: (-r["weeks"], -r["total"]))
     return {"rows": out[:limit],
             "weeks": [{"week": w, "label": week_label(w)} for w in sorted(span)]}
-
-
-@router.get("/org_items")
-def org_items(kw: str = Query(...), week: str = Query(""),
-              limit: int = Query(40)) -> dict[str, Any]:
-    """기관 표의 주차 칸을 눌렀을 때 그 주의 기사를 돌려준다.
-
-    keyword 인덱스에서 문서 id를 얻고 본 DB에서 기사를 읽는다 — 두 DB가 갈려
-    있어서(item_keywords는 keywords.db) 조인을 못 한다.
-    """
-    from src.extract import item_keywords
-
-    with kw_engine().connect() as c:
-        # ★ 표와 같은 기준으로 센다. orgs 표는 kept 기사만 세는데 여기서 전체를
-        #   세면 "7건이라 눌렀더니 78건"이 된다(실측). 숫자가 다르면 둘 중
-        #   무엇이 맞는지 알 수 없어 표 자체를 못 믿게 된다.
-        q = (select(item_keywords.c.item_id)
-             .where(item_keywords.c.keyword == kw, item_keywords.c.kept.is_(True)))
-        if week:
-            q = q.where(item_keywords.c.week == week)
-        ids = [i for (i,) in c.execute(q.distinct())]
-    if not ids:
-        return {"keyword": kw, "week": week, "items": [], "total": 0}
-    with get_engine().connect() as c:
-        rows = c.execute(
-            select(items.c.id, items.c.title, items.c.url, items.c.source,
-                   items.c.published_at, items.c.insight, items.c.kept)
-            .where(items.c.id.in_(ids[:2000]))
-            .order_by(items.c.published_at.desc())
-            .limit(limit)).all()
-        ax = _axes_of(c, [r.id for r in rows])
-    return {"keyword": kw, "week": week, "total": len(ids),
-            "items": [{"id": r.id, "title": r.title or "", "url": r.url or "",
-                       "source": r.source, "insight": r.insight or None,
-                       "published": str(r.published_at)[:10] if r.published_at else "",
-                       "axes": sorted(ax.get(r.id, []))} for r in rows]}
 
 
 @router.get("/regulatory")
@@ -827,26 +690,19 @@ def newsletter(week: str = Query("")) -> dict[str, Any]:
 
 @router.get("/index_status")
 def index_status() -> dict[str, Any]:
-    """키워드 인덱스가 준비됐는지.
+    """압축 키워드 인덱스가 준비됐는지.
 
-    ★ 급상승·기관·연관어 세 화면만 이 인덱스를 쓴다. 없으면 그 셋이 조용히
-      비는데, 화면만 보고는 "데이터가 없는 것"과 "아직 만드는 중"을 구분할 수
-      없다. 배포마다 컨테이너가 새로 뜨면 다시 만들어야 해서(볼륨이 없으면)
-      그동안 세 화면이 사라진 것처럼 보인다 — 그 이유를 화면에 적기 위한 값이다.
+    급상승·기관·연관어 세 화면이 이 표들을 쓴다. 이제 본 DB에 있으므로 배포한
+    컨테이너도 그대로 읽는다 — 예전처럼 컨테이너가 뜰 때마다 다시 만들 필요가 없다.
+    비어 있다면 python -m src.index_build 를 아직 안 돌린 것이다.
     """
-    from src.extract import item_keywords
-
-    try:
-        with kw_engine().connect() as c:
-            rows = c.execute(select(func.count()).select_from(item_keywords)).scalar_one()
-            weeks = c.execute(select(func.count(func.distinct(item_keywords.c.week)))
-                              ).scalar_one()
-    except Exception as exc:
-        return {"ready": False, "rows": 0, "weeks": 0, "building": True,
-                "error": f"{type(exc).__name__}"}
-    # 전체 코퍼스를 넣으면 240만 행이 나온다. 그보다 한참 적으면 만드는 중이다.
-    return {"ready": rows > 500_000, "rows": rows, "weeks": weeks,
-            "building": 0 < rows <= 500_000 or rows == 0}
+    with get_engine().connect() as c:
+        n_week = c.execute(select(func.count()).select_from(kw_week)).scalar_one()
+        n_nb = c.execute(select(func.count()).select_from(kw_neighbor)).scalar_one()
+        n_meta = c.execute(select(func.count()).select_from(kw_meta)).scalar_one()
+    ready = n_week > 0 and n_nb > 0 and n_meta > 0
+    return {"ready": ready, "building": not ready,
+            "rows": n_nb, "weeks": n_week, "keywords": n_meta}
 
 
 @router.get("/cache")
@@ -863,10 +719,9 @@ def keyword(kw: str, limit: int = Query(20)) -> dict[str, Any]:
     내려갈 수 있어야 한다. 브릿지 노드를 발견하는 것과 그게 왜 브릿지인지 확인하는 건
     다른 일이고, 후자가 없으면 과제 후보로 쓸 수 없다.
     """
-    from src.extract import item_keywords
-    with kw_engine().connect() as kc:
+    with get_engine().connect() as kc:
         ids = [i for (i,) in kc.execute(
-            select(item_keywords.c.item_id).where(item_keywords.c.keyword == kw))]
+            select(kw_item.c.item_id).where(kw_item.c.keyword == kw))]
     if not ids:
         return {"keyword": kw, "total": 0, "items": []}
     # ★ kept로 거르지 않는다.

@@ -174,6 +174,61 @@ def get_engine(url: str | None = None) -> Engine:
     return _engine
 
 
+# ── 압축 키워드 인덱스 (본 DB에 둔다) ────────────────────────────────
+# item_keywords 원본은 240만 행 · 310MB라 공유 DB에 올리기엔 크고, 원격으로
+# 질의하면 연관어 한 번에 왕복이 165회까지 간다(실측).
+#
+# 화면이 실제로 쓰는 건 원본이 아니라 **집계 결과**다. 그래서 두 개만 올린다:
+#   kw_week      (키워드, 주차) 문서 수    → 급상승 · 기관
+#   kw_neighbor  키워드별 상위 이웃        → 연관어
+# 기사 목록은 items의 제목·요약을 직접 훑는다(별도 표가 필요 없다).
+#
+# 이러면 로컬 keywords.db 없이도 세 화면이 동작한다 — 배포에서 인덱스를 다시
+# 만들 필요가 사라진다.
+kw_week = Table(
+    "kw_week", metadata,
+    Column("keyword", String(64), nullable=False),
+    Column("week", String(8), nullable=False),
+    Column("n", Integer, nullable=False),          # 그 주 통과 기사 중 등장 문서 수
+    # UNIQUE(keyword, week)가 keyword 접두 조회까지 처리하므로 keyword 인덱스를
+    # 따로 두지 않는다. 주차 범위 조회는 별도 인덱스가 필요하다.
+    UniqueConstraint("keyword", "week", name="uq_kw_week"),
+    Index("ix_kwweek_week", "week"),
+)
+
+# 키워드 자체의 성질. 노드 크기(df)와 색(axis)에 쓴다.
+# 축은 그 키워드가 나온 기사들의 축 분포에서 가장 많은 것이다. 화면에서 실시간으로
+# 세면 키워드 하나에 7초가 걸린다(실측) — 미리 정해 둔다.
+kw_meta = Table(
+    "kw_meta", metadata,
+    Column("keyword", String(64), primary_key=True),
+    Column("df", Integer, nullable=False),
+    Column("axis", String(24)),
+)
+
+# 키워드가 나온 기사. 노드를 눌렀을 때 기사 목록을 여는 데 쓴다.
+#   ★ 키워드당 상한을 둔다. 화면은 최근 40건만 보여주는데 '소상공인'처럼 1만 5천
+#     건짜리 말까지 전부 담으면 표가 원본만큼 커진다. 상한을 두면 240만 → 116만 행.
+#   ★ 기사 제목을 ILIKE로 훑는 방법도 있지만 키워드 하나에 7초가 걸린다(실측).
+kw_item = Table(
+    "kw_item", metadata,
+    Column("keyword", String(64), nullable=False),
+    Column("item_id", PK_INT, nullable=False),
+    UniqueConstraint("keyword", "item_id", name="uq_kw_item"),
+)
+
+kw_neighbor = Table(
+    "kw_neighbor", metadata,
+    Column("keyword", String(64), nullable=False),
+    Column("neighbor", String(64), nullable=False),
+    Column("npmi", Float, nullable=False),
+    Column("cooc", Integer, nullable=False),
+    Column("df", Integer, nullable=False),         # 이웃의 문서 빈도 — 노드 크기에 쓴다
+    # UNIQUE(keyword, neighbor)가 keyword 조회를 처리한다 — 중복 인덱스는 용량만 먹는다
+    UniqueConstraint("keyword", "neighbor", name="uq_kw_neighbor"),
+)
+
+
 # ── 파생 인덱스 DB ───────────────────────────────────────────────────
 # item_keywords는 **전체 코퍼스**에서 뽑은 키워드 인덱스라 180만 행이다.
 # radar.db에 넣으면 46MB → 270MB가 되는데, radar.db는 git으로 관리되므로

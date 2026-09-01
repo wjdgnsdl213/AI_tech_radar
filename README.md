@@ -28,40 +28,28 @@ python -m uvicorn web.server:app --port 8000
 기사 DB는 Supabase에 있어서 clone + `.env`만으로 바로 붙는다.
 `.env`에 최소한 **`DATABASE_URL`** 하나는 있어야 한다.
 
-### ⚠️ clone만으로는 비어 있는 화면이 있다
+### clone + `.env` 면 화면은 전부 나온다
 
-`data/keywords.db`(키워드 인덱스, 약 270MB)는 저장소에 넣지 않는다 —
-본 DB에서 언제든 다시 만들 수 있는 파생물이고, git으로 주고받기엔 크다.
-이게 없으면 **급상승 · 연관어 · 기관** 세 화면이 빈 채로 뜬다.
-(오류는 안 난다 — 나머지 화면은 그대로 동작한다. 실측으로 확인했다.)
-
-```bash
-python -m src.extract --scope all --min-df 2    # 약 6분. 한 번만 하면 된다
-```
-
-**또는 다른 PC에서 파일을 복사해도 된다.** `data/keywords.db` 하나면 되고,
-`item_id`가 본 DB와 같으므로 그대로 맞는다(둘 다 같은 Supabase를 본다).
-
-```bash
-# 보내는 쪽: 쓰는 중이 아닐 때 복사한다(서버·파이프라인을 잠시 멈춘다)
-#   extract가 끝날 때 WAL을 정리하므로 보통 .db 하나로 온전하다.
-#   확실히 하려면 -wal · -shm 까지 세 개를 함께 복사한다.
-copy data\keywords.db  <USB나 공유 폴더>
-
-# 받는 쪽
-copy <USB>\keywords.db  data\keywords.db
-```
-
-⚠️ 인덱스는 복사한 시점까지만 담는다. 그 뒤 수집된 기사는 안 들어 있으므로,
-받은 PC에서도 일간 배치가 돌면 자연히 최신이 된다(`src.extract`가 매일 갱신).
+키워드 인덱스도 본 DB에 있다(`kw_week` · `kw_neighbor` · `kw_meta` · `kw_item`).
+예전에는 로컬 `data/keywords.db`(310MB)가 있어야 급상승·연관어·기관이 나왔는데,
+지금은 집계 표를 Supabase에서 읽으므로 **clone만으로 전 화면이 동작한다.**
 
 | clone 직후 | 상태 |
 |---|---|
-| 홈 · 이번 주 · 법령·규제 · 교차 · 검색 | ✅ 바로 됨 |
-| 급상승 · 연관어 · 기관 | ⬜ `src.extract` 후 |
+| 모든 화면 | ✅ 바로 됨 (`DATABASE_URL` 하나면 된다) |
 | 수집 (`src.collect`) | 🔑 네이버·법제처 키 필요 |
 | AI 해설 (`src.insight`) | 🔑 `ANTHROPIC_API_KEY` 필요 |
-| 필터 재실행 (`src.filter`) | ⏳ 모델 최초 다운로드 약 2GB |
+| 필터·인덱스 재생성 | ⏳ `data/keywords.db`가 필요 — 아래 참고 |
+
+### 파이프라인을 돌릴 PC라면 로컬 인덱스가 하나 더 필요하다
+
+`src.index_build`가 집계 표를 만들려면 원본 `data/keywords.db`가 있어야 한다.
+**보는 것만** 할 PC에는 필요 없다.
+
+```bash
+python -m src.extract --scope all --min-df 2   # 약 6분 (한 번)
+python -m src.index_build                      # 약 2분 → Supabase에 적재
+```
 
 GPU가 있으면 **CUDA 빌드 torch를 따로** 설치한다. 임베딩이 유일한 병목이다.
 
