@@ -269,13 +269,18 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .nav-fold:hover{background:var(--bg);color:var(--ink)}
 
 .sidenav nav{display:flex;flex-direction:column;gap:3px}
+/* 메뉴는 늘 떠 있는 껍데기다. 본문보다 살짝 물러나 있어야 내용이 먼저 읽힌다 —
+   그래서 글씨를 조금 줄이고 색을 연하게 둔다. 고른 항목만 진해진다. */
 .nav-item{display:flex;align-items:center;gap:16px;width:100%;
-  background:none;border:0;border-radius:8px;padding:12px 13px;cursor:pointer;
-  font-size:17px;color:var(--ink);text-align:left;font-family:inherit;
+  background:none;border:0;border-radius:8px;padding:11px 13px;cursor:pointer;
+  font-size:15.5px;color:var(--mut);text-align:left;font-family:inherit;
   font-weight:500;line-height:1.3;white-space:nowrap}
-.nav-item i{font-style:normal;font-size:19px;width:24px;text-align:center;flex:none}
-.nav-item:hover{background:var(--bg)}
+.nav-item i{font-style:normal;font-size:17px;width:22px;text-align:center;flex:none;
+  opacity:.75}
+.nav-item:hover{background:var(--bg);color:var(--ink-2)}
+.nav-item:hover i{opacity:1}
 .nav-item.active{background:var(--blue-soft);color:var(--blue-dark);font-weight:700}
+.nav-item.active i{opacity:1}
  /* 지난 회차는 기둥 맨 아래에 붙인다 — 자주 쓰는 메뉴가 위에 모여야 한다 */
 .nav-foot{border-top:1px solid var(--line);padding:13px 5px 4px;margin-top:auto}
 .navweek{display:block;font-size:13px;color:var(--mut)}
@@ -439,7 +444,7 @@ td.rank{width:auto;text-align:center;padding-right:0}
   fill:none;stroke:currentColor;stroke-width:1.7;
   stroke-linecap:round;stroke-linejoin:round}
 .nav-item i{display:inline-flex;align-items:center;justify-content:center}
-.nav-item .ico{width:20px;height:20px;stroke-width:1.6}
+.nav-item .ico{width:19px;height:19px;stroke-width:1.6}
 .panel-head h2 .ico,.page-head h1 .ico{margin-right:6px;opacity:.62}
 .nav-item.active .ico{stroke-width:1.9}
 .ts-ico .ico{width:19px;height:19px;opacity:.6}

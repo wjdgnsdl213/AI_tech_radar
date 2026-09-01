@@ -22,14 +22,12 @@
 
 from __future__ import annotations
 
-import base64
 import csv
 import threading
 import html as html_mod
 import io
 import os
 import re
-import secrets
 import sys
 from datetime import datetime, timezone
 from typing import Any
@@ -48,41 +46,6 @@ from src.digest import build, render_html
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 app = FastAPI(title="SAB Trend")
-
-# ── 접근 제한 (배포용) ──────────────────────────────────────────────
-# WEB_USER / WEB_PASSWORD 가 있을 때만 켜진다. 비어 있으면 아무 제한이 없다 —
-# 개인 PC에서 띄울 때까지 로그인을 요구하면 성가시기만 하다.
-#
-# ★ 배포하면 반드시 켜야 한다. 수집한 기사 전체와 팀 과제 후보가 그대로 보인다.
-#   공개 주소에 올리면서 이걸 비워두면 URL을 아는 누구나 볼 수 있다.
-#
-# ★ 비밀번호 비교에 == 를 쓰지 않는다.
-#   문자열 비교는 다른 글자가 나오는 순간 멈춰서, 걸리는 시간이 맞은 글자 수에
-#   비례한다. compare_digest는 길이에 무관하게 같은 시간이 걸린다.
-_WEB_USER = os.getenv("WEB_USER", "")
-_WEB_PW = os.getenv("WEB_PASSWORD", "")
-# 이 경로들은 인증 없이 연다 — 헬스체크가 401을 받으면 배포가 계속 실패로 잡힌다
-_OPEN_PATHS = {"/healthz"}
-
-
-@app.middleware("http")
-async def basic_auth(request, call_next):
-    if not (_WEB_USER and _WEB_PW) or request.url.path in _OPEN_PATHS:
-        return await call_next(request)
-
-    head = request.headers.get("authorization", "")
-    if head.startswith("Basic "):
-        try:
-            raw = base64.b64decode(head[6:]).decode("utf-8")
-            user, _, pw = raw.partition(":")
-            if (secrets.compare_digest(user, _WEB_USER)
-                    and secrets.compare_digest(pw, _WEB_PW)):
-                return await call_next(request)
-        except Exception:
-            pass          # 형식이 깨진 헤더 — 아래에서 다시 물어본다
-    return Response(status_code=401, content="인증이 필요합니다",
-                    headers={"WWW-Authenticate": 'Basic realm="SAB Trend"'})
-
 
 # ── SPA ──
 # 화면은 web/static의 SPA가 그린다(sobiz web/ 패턴). 서버는 JSON만 낸다.
@@ -314,7 +277,6 @@ def _log_db() -> None:
 def diag() -> dict[str, Any]:
     """설정이 먹었는지 확인하는 화면. 인증이 켜져 있으면 인증 뒤에 있다."""
     s = db_status()
-    s["auth"] = bool(_WEB_USER and _WEB_PW)
     s["warm_cache"] = os.getenv("WARM_CACHE", "1") != "0"
     return s
 

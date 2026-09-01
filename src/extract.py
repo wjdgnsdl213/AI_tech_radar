@@ -197,6 +197,52 @@ def replace_keywords(rows: Iterable[tuple[int, str | None, list[str], bool]],
     return len(payload)
 
 
+def _run_low_memory(rows, extract, args, engine) -> None:
+    """두 번 훑는 대신 메모리를 아낀다 — 컨테이너용.
+
+    ★ 왜 필요한가
+      기본 경로는 85,000건의 키워드를 **한꺼번에** 리스트에 들고 있다가
+      df 필터에서 복사본을 하나 더 만든다. 실측 최대 RSS 924MB다.
+      메모리가 작은 배포 환경(512MB~1GB)에서는 여기서 OOM으로 죽고,
+      화면에는 연관어·급상승·기관만 조용히 비어 보인다.
+
+    ★ 어떻게 아끼나
+      df 필터는 "전체를 세어본 뒤"에만 정할 수 있어서 한 번에 못 끝낸다.
+      그래서 두 번 훑는다 — 1회차는 세기만(Counter 하나), 2회차는 다시 뽑아
+      배치 단위로 쓰고 즉시 버린다. CPU는 두 배가 되지만 메모리는 거의 안 쓴다.
+      부팅 때 한 번 도는 작업이라 시간보다 안 죽는 게 중요하다.
+    """
+    counter = Counter()
+    print(f"  [1/2] 키워드 세는 중… ({len(rows):,}건)")
+    for n, r in enumerate(rows, 1):
+        counter.update(extract(f"{r.title or ''} {r.summary or ''}"))
+        if n % 5000 == 0:
+            print(f"    {n:,}/{len(rows):,}")
+    keep = ({k for k, c in counter.items() if c >= args.min_df}
+            if args.min_df > 1 else None)
+    print(f"  고유 키워드 {len(counter):,}개"
+          + (f" → df≥{args.min_df} {len(keep):,}개" if keep is not None else ""))
+    del counter
+
+    print(f"  [2/2] 적재 중…")
+    buf, total = [], 0
+    for n, r in enumerate(rows, 1):
+        kws = extract(f"{r.title or ''} {r.summary or ''}")
+        if keep is not None:
+            kws = [k for k in kws if k in keep]
+        buf.append((r.id, r.published_week, kws, bool(r.kept)))
+        if len(buf) >= args.batch:
+            total += replace_keywords(buf, kw_engine())
+            buf.clear()          # 쓴 건 즉시 버린다 — 이게 메모리를 잡는 핵심
+        if n % 5000 == 0:
+            print(f"    {n:,}/{len(rows):,}")
+    if buf:
+        total += replace_keywords(buf, kw_engine())
+    with kw_engine().connect() as conn:
+        in_db = conn.execute(select(func.count()).select_from(item_keywords)).scalar_one()
+    print(f"  {total:,}개 적재 (테이블 총 {in_db:,}행)")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="키워드 추출 (F8 트렌드의 입력)")
     parser.add_argument("--sample", type=int, default=0, help="표본 수 (0=전체)")
@@ -204,6 +250,8 @@ def main() -> None:
     parser.add_argument("--top", type=int, default=25, help="상위 키워드 출력 수")
     parser.add_argument("--max-ngram", type=int, default=4)
     parser.add_argument("--batch", type=int, default=2000)
+    parser.add_argument("--low-memory", action="store_true",
+                        help="두 번 훑어 메모리를 아낀다 (컨테이너 배포용, 시간 2배)")
     parser.add_argument("--scope", default="all", choices=["all", "kept"],
                         help="all=전체 코퍼스(탐색용, 기본) / kept=통과분만")
     parser.add_argument("--min-df", type=int, default=2,
@@ -229,6 +277,10 @@ def main() -> None:
     print(f"대상 {len(rows):,}건 ({args.scope})  |  최대 {args.max_ngram}-gram "
           f"|  df<{args.min_df} 제외")
     extract = KeywordExtractor(args.max_ngram)
+
+    if args.low_memory and not (args.dry_run or args.sample):
+        _run_low_memory(rows, extract, args, engine)
+        return
 
     t0 = time.time()
     result: list[tuple[int, str | None, list[str], bool]] = []
