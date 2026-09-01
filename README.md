@@ -58,7 +58,55 @@ python -c "import torch; print(torch.cuda.is_available())"
 작업 스케줄러 등록(선택):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scriptsegister_tasks.ps1
+powershell -ExecutionPolicy Bypass -File scripts
+egister_tasks.ps1
+```
+
+---
+
+## 배포 (Railway 등 컨테이너 호스트)
+
+**역할을 나눈다.** 무거운 것은 GPU가 있는 PC에서 돌고, 서버는 결과를 보여주기만 한다.
+
+```
+PC (작업 스케줄러)                     컨테이너 호스트
+  수집 → 필터 → 해설  ──→ Supabase ──→  웹 서비스
+                                        keywords.db 자체 생성
+```
+
+이렇게 나누면 이미지에 **torch도 모델도 넣지 않는다**(3GB → 400MB대).
+`web.server`를 임포트해도 torch가 적재되지 않는 것을 확인했고,
+`requirements-web.txt`만 설치한 깨끗한 환경에서 전 엔드포인트가 200을 돌려주는 것도
+확인했다.
+
+| 파일 | 역할 |
+|---|---|
+| `Dockerfile` | 서빙 + kiwipiepy만. 빌드 도구는 설치 후 제거 |
+| `requirements-web.txt` | 서빙 전용 의존성 6개 |
+| `scripts/boot.sh` | 인덱스 확인 → **서버 먼저 띄우고** 인덱스는 뒤에서 생성 |
+| `railway.json` | 빌더·헬스체크 설정 |
+| `.dockerignore` | `data/`를 통째로 제외 (이미지에 500MB를 넣지 않는다) |
+
+### 설정할 환경변수
+
+| 변수 | 필수 | 설명 |
+|---|---|---|
+| `DATABASE_URL` | ✅ | Supabase 연결 문자열 |
+| `WEB_USER` · `WEB_PASSWORD` | ✅ | Basic 인증. **비우면 URL을 아는 누구나 본다** |
+| `PORT` | — | 호스트가 자동으로 넣는다 |
+
+### 볼륨 (선택)
+
+`/app/data`에 볼륨을 붙이면 `keywords.db`가 재배포 후에도 남아 부팅이 빨라진다.
+없어도 동작한다 — 부팅할 때마다 6분에 걸쳐 다시 만들고, 그동안 연관어·급상승·기관
+세 화면만 비어 있다(서버는 즉시 뜬다).
+
+### 사내망에서만 볼 거라면
+
+배포할 필요 없이 바인딩 주소만 바꾸면 된다.
+
+```bash
+python -m uvicorn web.server:app --host 0.0.0.0 --port 8000
 ```
 
 ---

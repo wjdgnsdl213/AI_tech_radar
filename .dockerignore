@@ -1,0 +1,17 @@
+# 이미지에 들어가면 안 되는 것
+#   data/ 는 통째로 뺀다 — keywords.db(310MB)·임베딩 캐시(209MB)는 컨테이너가
+#   스스로 만들거나 아예 쓰지 않는다. 이미지에 넣으면 배포마다 500MB를 옮긴다.
+.env
+.git
+.venv
+venv
+__pycache__
+*.pyc
+data/
+logs/
+reports/
+logo/
+tests/
+seeds/
+*.md
+.pytest_cache
