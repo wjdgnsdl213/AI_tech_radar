@@ -28,6 +28,7 @@ import threading
 import html as html_mod
 import io
 import os
+import re
 import secrets
 import sys
 from datetime import datetime, timezone
@@ -229,6 +230,71 @@ def _asset_version() -> str:
         if f.exists():
             stamp = max(stamp, f.stat().st_mtime)
     return str(int(stamp))
+
+
+def _mask_url(url: str) -> str:
+    """비밀번호를 가린 연결 문자열. 로그·진단 화면에 그대로 쓸 수 있게."""
+    return re.sub(r"://([^:/@]+):[^@]*@", r"://\1:***@", url or "")
+
+
+def db_status() -> dict[str, Any]:
+    """지금 어느 DB에 붙어 있고 데이터가 있는지.
+
+    ★ 이게 없어서 배포 후 한참 헤맸다.
+      DATABASE_URL이 비어 있으면 database_url()이 조용히 sqlite로 떨어진다.
+      그러면 빈 파일이 만들어지고 **오류 없이** 모든 화면이 0으로 보인다.
+      "URL은 뜨는데 데이터가 안 나온다"의 정체가 이것인데, 어디에도 표시되지
+      않아서 화면만 보고는 알 수 없었다.
+    """
+    from src.db import database_url
+
+    url = database_url()
+    out: dict[str, Any] = {
+        "url": _mask_url(url),
+        "dialect": url.split(":")[0],
+        "from_env": bool(os.getenv("DATABASE_URL")),
+    }
+    try:
+        with get_engine().connect() as c:
+            out["items"] = c.execute(select(func.count()).select_from(items)).scalar_one()
+            out["kept"] = c.execute(select(func.count()).select_from(items)
+                                    .where(items.c.kept.is_(True))).scalar_one()
+        out["ok"] = True
+    except Exception as exc:
+        out["ok"] = False
+        out["error"] = f"{type(exc).__name__}: {exc}"
+
+    kw = Path("data/keywords.db")
+    out["keywords_db"] = (f"{kw.stat().st_size / 1e6:.0f}MB" if kw.exists() else "없음")
+    return out
+
+
+@app.on_event("startup")
+def _log_db() -> None:
+    """어디에 붙었는지 **부팅 로그에 남긴다.**
+
+    배포 로그에서 이 한 줄만 보면 DATABASE_URL이 먹었는지 바로 안다.
+    """
+    s = db_status()
+    if not s["from_env"]:
+        print("[db] ⚠ DATABASE_URL 환경변수가 없습니다 — config 기본값으로 떨어졌습니다.",
+              flush=True)
+        print("[db]   배포 환경이라면 데이터가 비어 보일 것입니다. 변수를 확인하세요.",
+              flush=True)
+    print(f"[db] {s['url']}", flush=True)
+    if s["ok"]:
+        print(f"[db] 연결 OK — 전체 {s['items']:,}건 · 통과 {s['kept']:,}건", flush=True)
+    else:
+        print(f"[db] ✗ 연결 실패 — {s.get('error')}", flush=True)
+
+
+@app.get("/api/diag")
+def diag() -> dict[str, Any]:
+    """설정이 먹었는지 확인하는 화면. 인증이 켜져 있으면 인증 뒤에 있다."""
+    s = db_status()
+    s["auth"] = bool(_WEB_USER and _WEB_PW)
+    s["warm_cache"] = os.getenv("WARM_CACHE", "1") != "0"
+    return s
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -109,7 +109,20 @@ digests = Table(
 
 # ── 접속 ────────────────────────────────────────────────────────────
 def load_config(path: str = "config.yaml") -> dict[str, Any]:
-    with open(path, encoding="utf-8") as f:
+    """설정을 읽는다.
+
+    ★ 현재 디렉터리에만 의존하지 않는다.
+      상대 경로로 열면 **어디서 실행하느냐**에 따라 되거나 안 된다. 배포에서
+      시작 명령의 작업 디렉터리가 다르면 임포트 단계에서 FileNotFoundError로
+      죽는데, 로그만 보고는 원인이 경로라는 걸 알기 어렵다.
+      먼저 현재 위치에서 찾고, 없으면 저장소 뿌리(이 파일의 상위)에서 찾는다.
+    """
+    p = Path(path)
+    if not p.exists():
+        alt = Path(__file__).resolve().parents[1] / path
+        if alt.exists():
+            p = alt
+    with open(p, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
