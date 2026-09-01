@@ -151,7 +151,23 @@ def get_engine(url: str | None = None) -> Engine:
             path = url.split("///")[-1]
             if path and path != ":memory:":
                 Path(path).parent.mkdir(parents=True, exist_ok=True)
-        _engine = create_engine(url, future=True)
+        # ★ 풀 크기를 제한한다.
+        #   Supabase 세션 모드 풀러는 **클라이언트 15개**가 상한이다. SQLAlchemy
+        #   기본값(pool_size 5 + overflow 10)이면 한 프로세스가 그 15개를 통째로
+        #   먹을 수 있다. 그러면 두 번째 프로세스(웹 + 파이프라인, 또는 배포본 +
+        #   로컬)가 통째로 막힌다 — 실측으로 EMAXCONNSESSION을 봤다.
+        #   웹 한 대가 3~5개만 쓰면 충분하다(요청이 짧고 캐시가 앞에 있다).
+        #
+        # ★ pool_pre_ping: 풀러는 놀고 있는 연결을 조용히 끊는다. 이게 없으면
+        #   한동안 안 쓰다가 첫 요청에서 죽은 연결을 잡아 오류가 난다.
+        # ★ pool_recycle: 30분마다 갈아 끼워 오래된 연결이 남지 않게 한다.
+        kw: dict[str, Any] = {"future": True}
+        if not url.startswith("sqlite"):
+            kw.update(pool_size=int(os.getenv("DB_POOL_SIZE", "3")),
+                      max_overflow=int(os.getenv("DB_POOL_OVERFLOW", "2")),
+                      pool_pre_ping=True, pool_recycle=1800,
+                      pool_timeout=30)
+        _engine = create_engine(url, **kw)
         if url.startswith("sqlite"):
             with _engine.begin() as conn:
                 conn.exec_driver_sql("PRAGMA journal_mode=WAL")
