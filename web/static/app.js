@@ -29,14 +29,40 @@ const tags = ax => (ax || []).map(a =>
 
 /* ── 탭 ── */
 const loaded = new Set();
-function showTab(name) {
+/* 주소는 '#tab' 또는 '#analysis/trend' 두 꼴이다.
+   서브탭을 주소에 안 담으면 뒤로 가기가 '분석' 안 어디로 돌아갈지 정할 수 없다. */
+function routeOf() {
+  const [tab, sub] = (location.hash || '#home').slice(1).split('/');
+  return { tab: LOADERS[tab] ? tab : 'home', sub: SUB_LOADERS[sub] ? sub : '' };
+}
+
+function showTab(name, sub) {
+  if (name === 'analysis' && !sub) {
+    // 메뉴로 들어올 때는 보던 탭을 유지한다 — 매번 '교차'로 튕기면 성가시다
+    const cur = $('.subtab.active');
+    sub = (cur && cur.dataset.sub) || 'cross';
+  }
   $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
-  location.hash = name;
+  // ★ 주소를 먼저 맞춘다. hashchange가 이걸 보고 "이미 그 화면"인지 판단한다.
+  const want = name + (sub ? '/' + sub : '');
+  if (location.hash.slice(1) !== want) location.hash = want;
   closeNav();
   window.scrollTo(0, 0);        // 화면을 갈아탔는데 스크롤이 중간에 남아 있으면 길을 잃는다
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
+  if (sub) showSub(sub, true);
 }
+
+/* ★ 뒤로 가기를 살린다.
+   showTab은 location.hash를 바꾸므로 브라우저 기록은 원래 쌓이고 있었다.
+   그런데 그 변화를 듣는 곳이 없어서, 뒤로 가면 주소만 되돌아가고 화면은
+   그대로 남았다(실측: 홈 → 급상승 '전체 보기' → 뒤로 가기 → 홈으로 안 감).
+   showTab이 스스로 바꾼 해시로는 아래가 아무 일도 하지 않는다 — 값이 같아
+   hashchange 자체가 안 뜨고, 떠도 이미 그 화면이라 렌더가 멱등이다. */
+window.addEventListener('hashchange', () => {
+  const r = routeOf();
+  showTab(r.tab, r.sub);
+});
 
 /* 메뉴 접기.
    넓은 화면에서는 아이콘만 남기고(기둥을 좁힌다), 좁은 화면(820px 이하)에서는
@@ -77,7 +103,7 @@ document.body.addEventListener('click', e => {
   const want = b.dataset.tab;
   // 교차·기관·급상승은 이제 '분석' 안의 탭이다. 홈 카드의 '전체 보기'처럼
   // 예전 이름으로 부르는 곳이 여럿이라, 이름을 바꾸는 대신 여기서 넘겨준다.
-  if (SUB_LOADERS[want]) { showTab('analysis'); showSub(want); return; }
+  if (SUB_LOADERS[want]) { showTab('analysis', want); return; }
   showTab(want);
 });
 
@@ -1212,9 +1238,13 @@ document.body.addEventListener('click', async e => {
 const SUB_LOADERS = { cross: loadCross, orgs: loadOrgs, trend: loadTrend };
 const subLoaded = new Set();
 
-function showSub(name) {
+function showSub(name, fromTab) {
   $$('.subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
   $$('.subpanel').forEach(p => p.classList.toggle('active', p.id === 'sub-' + name));
+  // 탭 전환에서 불려 온 거면 주소는 이미 맞다. 여기서 또 쓰면 기록이 두 번 쌓인다.
+  if (!fromTab && location.hash.slice(1) !== 'analysis/' + name) {
+    location.hash = 'analysis/' + name;
+  }
   if (!subLoaded.has(name)) { subLoaded.add(name); (SUB_LOADERS[name] || (() => {}))(); }
 }
 $$('.subtab').forEach(b => (b.onclick = () => showSub(b.dataset.sub)));
@@ -1246,7 +1276,7 @@ document.body.addEventListener('click', e => {
 });
 
 const LOADERS = {
-  analysis: () => showSub('cross'),
+  analysis: () => {},          // 서브탭은 showTab이 정한다
   news: loadNews,
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
@@ -1264,6 +1294,6 @@ const LOADERS = {
   const wanted = new URLSearchParams(location.search).get('week');
   if (wanted) { loaded.add('digest'); await loadDigest(wanted); }
   loadWeekOptions();          // 사이드바에 늘 보이므로 탭과 무관하게 채운다
-  const tab = (location.hash || '#home').slice(1);
-  showTab(LOADERS[tab] ? tab : 'home');
+  const r = routeOf();
+  showTab(r.tab, r.sub);
 })();

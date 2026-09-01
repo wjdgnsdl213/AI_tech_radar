@@ -134,6 +134,10 @@ input:focus,select:focus{outline:none;border-color:var(--blue);
 button{background:var(--blue);color:#fff;border:0;padding:9px 20px;border-radius:7px;
   cursor:pointer;font-weight:600;transition:background .12s}
 button:hover{background:var(--blue-dark)}
+/* ⚠ 위 규칙은 <button> 전부에 걸린다. 링크처럼 생긴 버튼(.linkish·.subtab)은
+   글자가 파란데 배경까지 진한 파랑이 깔려 글자가 사라졌다(실측: 홈의 '전체 보기').
+   background를 안 쓰는 게 아니라 **안 덮어쓰는** 게 문제라, 그런 버튼마다
+   자기 배경을 명시해 둔다. 아래 .linkish:hover / .subtab:hover 참고. */
 .btn-ghost{border:1px solid var(--line);padding:8px 15px;border-radius:7px;
   color:var(--ink-2);background:#fff;font-weight:500}
 .btn-ghost:hover{border-color:var(--blue-line);color:var(--blue);text-decoration:none}
@@ -335,7 +339,7 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .home-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
 .linkish{background:none;border:0;color:var(--blue);font-size:14px;cursor:pointer;
   padding:2px 4px;font-family:inherit;font-weight:600}
-.linkish:hover{text-decoration:underline}
+.linkish:hover{text-decoration:underline;background:var(--blue-soft);border-radius:5px}
 
 .hrow{display:flex;align-items:baseline;gap:10px;padding:9px 2px;
   border-bottom:1px solid var(--line);font-size:15.5px}
@@ -504,7 +508,7 @@ td.rank{width:auto;text-align:center;padding-right:0}
 .subtab{background:none;border:0;border-bottom:2px solid transparent;
   padding:10px 16px;font-size:15.5px;font-weight:600;color:var(--mut);
   cursor:pointer;font-family:inherit;margin-bottom:-1px}
-.subtab:hover{color:var(--ink)}
+.subtab:hover{color:var(--ink);background:var(--bg)}
 .subtab.active{color:var(--blue-dark);border-bottom-color:var(--blue)}
 .subpanel{display:none}
 .subpanel.active{display:block}

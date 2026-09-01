@@ -686,9 +686,11 @@ def home() -> dict[str, Any]:
     return {
         "week": week, "week_label": week_label(week) if week else "",
         "lead": d.get("lead"), "total_kept": d.get("total_kept", 0),
+        # 홈의 세 카드는 다섯 줄로 맞춘다. 법령 6 / 급상승 10으로 두었더니
+        # 나란히 놓인 두 카드의 높이가 눈에 띄게 어긋났다. 전체는 각 화면에서 본다.
         "crossing": sec.get("crossing", [])[:5],
-        "regulatory": _regulatory(6, 0, "")["items"],
-        "trending": (tr.get("rows") or [])[:10],
+        "regulatory": _regulatory(5, 0, "")["items"],
+        "trending": (tr.get("rows") or [])[:5],
         "health": health,
     }
 
