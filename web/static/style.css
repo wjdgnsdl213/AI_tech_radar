@@ -393,6 +393,20 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 #search-other .reg-item{padding:10px 2px}
 
 /* ── 순위 · 도움말 ──────────────────────────────────────────────── */
+/* 한 달 보기의 요약 숫자. 여섯 칸이 한 줄에 들어가되 좁아지면 접힌다 —
+   달마다 축이 셋 다 나오지는 않으므로 칸 수가 고정이 아니다. */
+.mv-stats{display:flex;flex-wrap:wrap;gap:10px}
+.mv-stats .st{flex:1 1 130px;background:var(--bg);border:1px solid var(--line-soft);
+  border-radius:8px;padding:12px 14px}
+.mv-stats .st b{display:block;font-size:22px;color:var(--ink);
+  font-variant-numeric:tabular-nums;line-height:1.25}
+.mv-stats .st b.up{color:var(--blue)}
+.mv-stats .st b.down{color:var(--red)}
+.mv-stats .st span{font-size:13px;color:var(--mut)}
+/* 리뷰가 없는 달의 안내문 — 본문과 같은 무게로 두면 해설로 읽힌다 */
+#mv-lead.mut{color:var(--mut);font-style:normal}
+
+
 .rank{flex:none;width:26px;text-align:right;font-variant-numeric:tabular-nums;
   color:var(--mut-2);font-weight:700;font-size:14px}
 .rank.top{color:var(--blue)}

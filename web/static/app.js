@@ -32,25 +32,31 @@ const loaded = new Set();
 /* 주소는 '#tab' 또는 '#analysis/trend' 두 꼴이다.
    서브탭을 주소에 안 담으면 뒤로 가기가 '분석' 안 어디로 돌아갈지 정할 수 없다. */
 function routeOf() {
-  const [tab, sub] = (location.hash || '#home').slice(1).split('/');
-  return { tab: LOADERS[tab] ? tab : 'home', sub: SUB_LOADERS[sub] ? sub : '' };
+  const [tab, seg] = (location.hash || '#home').slice(1).split('/');
+  const t = LOADERS[tab] ? tab : 'home';
+  // 두 번째 조각의 뜻이 탭마다 다르다 — 분석이면 서브탭, 달 보기면 달 코드다.
+  if (t === 'analysis') return { tab: t, seg: SUB_LOADERS[seg] ? seg : '' };
+  if (t === 'month') return { tab: t, seg: /^\d{4}-\d{2}$/.test(seg || '') ? seg : '' };
+  return { tab: t, seg: '' };
 }
 
-function showTab(name, sub) {
-  if (name === 'analysis' && !sub) {
+function showTab(name, seg) {
+  if (name === 'analysis' && !seg) {
     // 메뉴로 들어올 때는 보던 탭을 유지한다 — 매번 '교차'로 튕기면 성가시다
     const cur = $('.subtab.active');
-    sub = (cur && cur.dataset.sub) || 'cross';
+    seg = (cur && cur.dataset.sub) || 'cross';
   }
   $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
   // ★ 주소를 먼저 맞춘다. hashchange가 이걸 보고 "이미 그 화면"인지 판단한다.
-  const want = name + (sub ? '/' + sub : '');
+  const want = name + (seg ? '/' + seg : '');
   if (location.hash.slice(1) !== want) location.hash = want;
   closeNav();
   window.scrollTo(0, 0);        // 화면을 갈아탔는데 스크롤이 중간에 남아 있으면 길을 잃는다
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
-  if (sub) showSub(sub, true);
+  if (name === 'analysis' && seg) showSub(seg, true);
+  // ★ 달 보기는 loaded 캐시를 타면 안 된다 — 달을 바꿔도 첫 달만 보이게 된다.
+  if (name === 'month') loadMonthView(seg);
 }
 
 /* ★ 뒤로 가기를 살린다.
@@ -61,7 +67,7 @@ function showTab(name, sub) {
    hashchange 자체가 안 뜨고, 떠도 이미 그 화면이라 렌더가 멱등이다. */
 window.addEventListener('hashchange', () => {
   const r = routeOf();
-  showTab(r.tab, r.sub);
+  showTab(r.tab, r.seg);
 });
 
 /* 메뉴 접기.
@@ -177,29 +183,109 @@ async function loadDigest(week) {
       <div class="wtask-r"><span class="wtask-k">확인</span><span>${esc(t.ask || '')}</span></div>
     </div>`).join('');
   renderDigest();
-  if ($('#week-select').options.length === 0) loadWeekOptions(DIGEST.week);
-  else $('#week-select').value = DIGEST.week;
+  loadWeekOptions(DIGEST.week);   // 달까지 같이 맞춘다 — 아래 주석 참고
   if (!$('#side-bridge').dataset.done) loadSideBridge();
 }
 
-/* 회차는 별도 탭이 아니라 주차 선택으로 둔다 — 지난 주를 보는 건 별도 화면이
-   필요한 일이 아니라 같은 화면의 날짜만 바꾸는 일이다.
+/* ── 지난 회차: 달 → 주차 2단 ─────────────────────────────────────
+ * 주차가 365개다. 평면 select로는 작년에 닿을 수 없고, 60개로 잘라도
+ * 스크롤로 훑기엔 길다. 달로 한 겹 접으면 어느 규모에서도 목록이 짧다.
+ *
+ * ★ 목록은 한 번만 받는다. 달을 바꿀 때마다 왕복하면 선택창이 굼떠 보인다 —
+ *   원격 DB라 왕복 하나가 곧 지연이다. 85개월 365주차가 한 응답에 들어온다. */
+let MONTHS = null;
 
-   ★ 시작할 때 채운다. 전에는 '이번 주' 탭을 열어야 채워졌는데, 이 선택창은
-     사이드바에 **늘 보인다.** 홈에서 시작하면 비어 있어서 고장으로 보였다.
-     보이는 것과 채워지는 시점이 어긋나면 그건 버그로 읽힌다. */
-async function loadWeekOptions(cur) {
-  const w = await api('/api/weeks', { limit: 60 });
-  $('#week-select').innerHTML = w.weeks.map(x =>
-    `<option value="${esc(x.week)}" ${x.week === cur ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+async function loadWeekOptions(curWeek) {
+  // 목록은 한 번만 받는다. 이 함수는 지면을 열 때마다 불리지만 왕복은 첫 번만이다.
+  if (!MONTHS) MONTHS = (await api('/api/months')).months || [];
+  if (!MONTHS.length) return;
+  // ★ 주차만 맞추면 안 된다. 그 주차가 다른 달이면 지금 주차 목록에 아예 없어서
+  //   select.value 대입이 조용히 무시되고, 선택창이 엉뚱한 곳을 가리킨 채 남는다.
+  //   그 주차가 속한 달을 먼저 고르고 주차 목록을 다시 채운다.
+  const cur = curWeek ? MONTHS.find(m => m.weeks.some(w => w.week === curWeek)) : null;
+  const m = cur || MONTHS[0];
+  $('#month-nav').innerHTML = MONTHS.map(x =>
+    `<option value="${esc(x.month)}" ${x.month === m.month ? 'selected' : ''}
+      >${esc(x.label)} (${x.n})</option>`).join('');
+  fillWeeks(m.month, curWeek);
 }
+
+function fillWeeks(month, curWeek) {
+  const m = MONTHS.find(x => x.month === month);
+  if (!m) return;
+  $('#week-select').innerHTML = m.weeks.map(w =>
+    `<option value="${esc(w.week)}" ${w.week === curWeek ? 'selected' : ''}
+      >${esc(w.label)} (${w.n})</option>`).join('');
+}
+
+// 달을 고르면 그 달 화면으로. 주차 목록도 그 달 것으로 갈아 끼운다.
+$('#month-nav').onchange = e => {
+  fillWeeks(e.target.value);
+  showTab('month', e.target.value);
+};
 $('#week-select').onchange = e => {
-  // 홈에서 주차를 고르면 그 주차 지면으로 넘어가야 한다 — 고르기만 하고
-  // 아무 일도 안 일어나면 선택창이 왜 있는지 알 수 없다.
+  // 고르기만 하고 아무 일도 안 일어나면 선택창이 왜 있는지 알 수 없다
   showTab('digest');
   loaded.add('digest');
   loadDigest(e.target.value);
 };
+
+/* 한 달 보기.
+   ★ 리뷰 글이 없는 달이 대부분이다(85개월 중 1개). 그래도 숫자는 전부 지금
+     계산된다 — 없는 건 글뿐이라고 화면에 적고, 나머지는 그대로 보여준다.
+     없는 해설을 지어내지 않는다. */
+async function loadMonthView(month) {
+  const v = await api('/api/month_view', month ? { month } : {});
+  if (v.empty) { $('#mv-title').textContent = '데이터가 없습니다'; return; }
+  $('#mv-title').textContent = v.label;
+  $('#mv-sub').textContent = `통과 ${num(v.kept)}건 · ${v.weeks.length}개 주차`;
+
+  $('#mv-lead-card').hidden = false;
+  $('#mv-lead').textContent = v.lead
+    || `이 달은 AI 월간 리뷰가 아직 없습니다. 아래 숫자는 지금 DB에서 계산한 실제 값입니다.`;
+  $('#mv-lead').classList.toggle('mut', !v.lead);
+
+  const d = v.delta;
+  const arrow = d == null ? '' : (d > 0 ? '▲' : d < 0 ? '▼' : '–');
+  const cls = d == null ? '' : (d > 0 ? 'up' : d < 0 ? 'down' : '');
+  $('#mv-stats').innerHTML = `
+    <div class="mv-stats">
+      <div class="st"><b>${num(v.kept)}</b><span>통과 기사</span></div>
+      <div class="st"><b>${v.weeks.length}</b><span>주차</span></div>
+      <div class="st"><b class="${cls}">${d == null ? '—' : arrow + ' ' + num(Math.abs(d))}</b>
+        <span>${v.prev_label ? esc(v.prev_label) + ' 대비' : '전월 대비'}</span></div>
+      ${v.axes.map(a => `<div class="st"><b>${num(a.n)}</b>
+        <span>${esc(label(a.axis))}</span></div>`).join('')}
+    </div>`;
+
+  $('#mv-weeks').innerHTML = v.weeks.length
+    ? v.weeks.map(w => `<div class="hrow">
+        <span class="k" data-week="${esc(w.week)}">${esc(w.label)}</span>
+        <span class="n">${num(w.n)}건</span></div>`).join('')
+    : '<div class="empty">주차가 없습니다.</div>';
+
+  $('#mv-orgs').innerHTML = v.orgs.length
+    ? v.orgs.map((o, i) => `<div class="hrow">
+        <span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>
+        <span class="k" data-kwpop="${esc(o.keyword)}">${esc(o.keyword)}</span>
+        <span class="n">${num(o.n)}건</span></div>`).join('')
+    : '<div class="empty">기관이 없습니다.</div>';
+
+  $('#mv-top').innerHTML = v.top.length
+    ? `<div class="items" style="padding:0;border:0;margin:0">
+        ${v.top.map(itemHTML).join('')}</div>`
+    : '<div class="empty">항목이 없습니다.</div>';
+}
+
+// 달 화면의 주차를 누르면 그 주 지면으로 — 숫자만 보고 끝나면 확인할 방법이 없다
+document.body.addEventListener('click', e => {
+  const b = e.target.closest('#mv-weeks [data-week]');
+  if (!b) return;
+  showTab('digest');
+  loaded.add('digest');
+  loadDigest(b.dataset.week);
+});
+
 $('#axis-chips').onclick = e => {
   const b = e.target.closest('[data-axis]');
   if (b) { activeAxis = b.dataset.axis; renderDigest(); }
@@ -1277,6 +1363,7 @@ document.body.addEventListener('click', e => {
 
 const LOADERS = {
   analysis: () => {},          // 서브탭은 showTab이 정한다
+  month: () => {},             // 달은 showTab이 매번 다시 그린다
   news: loadNews,
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
@@ -1295,5 +1382,5 @@ const LOADERS = {
   if (wanted) { loaded.add('digest'); await loadDigest(wanted); }
   loadWeekOptions();          // 사이드바에 늘 보이므로 탭과 무관하게 채운다
   const r = routeOf();
-  showTab(r.tab, r.sub);
+  showTab(r.tab, r.seg);
 })();

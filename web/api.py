@@ -12,7 +12,7 @@ sobiz web/ 패턴과 같다.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -653,6 +653,129 @@ def monthly(month: str = Query("")) -> dict[str, Any]:
             "weeks": len(mine), "kept": n}
 
 
+@router.get("/months")
+def months() -> dict[str, Any]:
+    """달 → 그 달의 주차. 사이드바 '지난 회차'가 2단으로 쓰는 목록.
+
+    ★ 주차를 평면으로 늘어놓으면 못 쓴다.
+      코퍼스에 백필분까지 들어와 주차가 365개다. 60개만 잘라 보여주고 있었는데,
+      그러면 작년은 아예 닿을 수 없고 60개도 스크롤로 훑기엔 길다.
+      달로 접으면 어느 규모에서도 목록이 12칸 안쪽이다.
+
+    ★ 한 번에 다 준다. 달을 고를 때마다 왕복하면 선택창이 굼떠 보인다 —
+      원격 DB라 왕복 하나가 곧 지연이다. 85개월 365주차를 합쳐도 한 응답이다.
+
+    review는 그 달의 AI 리뷰가 실제로 있는지다. 없는 달을 골랐을 때 화면이
+    비는 게 고장인지 아닌지, 화면이 스스로 말할 수 있어야 한다.
+    """
+    from src.insight import _week_month
+
+    with get_engine().connect() as c:
+        rows = c.execute(
+            select(items.c.published_week, func.count())
+            .where(items.c.kept.is_(True), items.c.published_week.isnot(None))
+            .group_by(items.c.published_week)).all()
+        reviewed = {w for (w,) in c.execute(select(digests.c.week))
+                    if w and len(w) == 7 and w[4] == "-"}
+
+    per: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for w, n in rows:
+        m = _week_month(w)
+        if m:
+            per[m].append({"week": w, "label": week_label(w), "n": n})
+
+    out = []
+    for m in sorted(per, reverse=True):
+        weeks = sorted(per[m], key=lambda x: x["week"], reverse=True)
+        out.append({"month": m, "label": f"{m[:4]}년 {int(m[5:])}월",
+                    "n": sum(x["n"] for x in weeks), "weeks": weeks,
+                    "review": m in reviewed})
+    return {"months": out}
+
+
+@router.get("/month_view")
+def month_view(month: str = Query("")) -> dict[str, Any]:
+    """한 달을 한 화면으로. 리뷰 글 + 그 달의 실제 숫자.
+
+    ★ 리뷰 글이 없는 달이 대부분이다(85개월 중 1개). 그렇다고 빈 화면을 낼 이유는
+      없다 — 숫자는 전부 DB에서 지금 계산된다. 글이 없으면 글만 없다고 적는다.
+      없는 해설을 지어내지 않는다. 근거 없는 문장 하나가 이 화면의 신뢰를 죽인다.
+    """
+    from src.insight import _week_month
+
+    with get_engine().connect() as c:
+        allw = [(w, n) for w, n in c.execute(
+            select(items.c.published_week, func.count())
+            .where(items.c.kept.is_(True), items.c.published_week.isnot(None))
+            .group_by(items.c.published_week))]
+        by_month: dict[str, list[tuple[str, int]]] = defaultdict(list)
+        for w, n in allw:
+            m = _week_month(w)
+            if m:
+                by_month[m].append((w, n))
+        if not month:
+            month = max(by_month) if by_month else ""
+        if not month or month not in by_month:
+            return {"month": month, "label": "", "empty": True}
+
+        mine = sorted(w for w, _ in by_month[month])
+        row = c.execute(select(digests.c.lead, digests.c.generated_at)
+                        .where(digests.c.week == month)).first()
+        kept = sum(n for _, n in by_month[month])
+
+        # 축별 — 이 달에 어떤 주제가 얼마나 있었나
+        ax = dict(c.execute(
+            select(item_axes.c.axis, func.count(func.distinct(item_axes.c.item_id)))
+            .select_from(item_axes.join(items, items.c.id == item_axes.c.item_id))
+            .where(items.c.kept.is_(True), items.c.published_week.in_(mine))
+            .group_by(item_axes.c.axis)).all())
+
+        # 전월 대비 — [예시]가 아니라 실제 값이다
+        prev = _prev_month(month)
+        prev_kept = sum(n for _, n in by_month.get(prev, []))
+
+        top = c.execute(
+            select(items.c.id, items.c.title, items.c.url, items.c.source,
+                   items.c.published_at, items.c.cross_score, items.c.insight)
+            .where(items.c.kept.is_(True), items.c.published_week.in_(mine))
+            .order_by(func.coalesce(items.c.cross_score, 0).desc(),
+                      items.c.published_at.desc()).limit(8)).all()
+        axmap = _axes_of(c, [r.id for r in top])
+
+    # 그 달에 많이 나온 기관 — kw_week를 주차로 걸러 더한다
+    with get_engine().connect() as c:
+        from src.extract import is_org_keyword
+        orgrows = c.execute(select(kw_week.c.keyword, func.sum(kw_week.c.n))
+                            .where(kw_week.c.week.in_(mine))
+                            .group_by(kw_week.c.keyword)).all()
+    orgs_ = sorted(((k, int(n)) for k, n in orgrows if is_org_keyword(k)),
+                   key=lambda x: -x[1])[:8]
+
+    return {
+        "month": month, "label": f"{month[:4]}년 {int(month[5:])}월",
+        "lead": row[0] if row else None,
+        "generated": str(row[1])[:16] if row and row[1] else "",
+        "weeks": [{"week": w, "label": week_label(w),
+                   "n": dict(by_month[month]).get(w, 0)} for w in sorted(mine, reverse=True)],
+        "kept": kept,
+        "prev": prev, "prev_label": f"{prev[:4]}년 {int(prev[5:])}월" if prev else "",
+        "prev_kept": prev_kept,
+        "delta": (kept - prev_kept) if prev_kept else None,
+        "axes": [{"axis": a, "n": ax.get(a, 0)} for a in ("ai", "bigdata", "smallbiz")],
+        "orgs": [{"keyword": k, "n": n} for k, n in orgs_],
+        "top": [{"id": r.id, "title": r.title or "", "url": r.url or "",
+                 "source": r.source, "kept": True,
+                 "published": str(r.published_at)[:10] if r.published_at else "",
+                 "cross_score": r.cross_score, "insight": r.insight or None,
+                 "axes": sorted(axmap.get(r.id, []))} for r in top],
+    }
+
+
+def _prev_month(month: str) -> str:
+    y, m = int(month[:4]), int(month[5:])
+    return f"{y - 1:04d}-12" if m == 1 else f"{y:04d}-{m - 1:02d}"
+
+
 @router.get("/home")
 def home() -> dict[str, Any]:
     """메인 화면이 쓰는 것들을 **한 번에** 낸다.
@@ -686,11 +809,12 @@ def home() -> dict[str, Any]:
     return {
         "week": week, "week_label": week_label(week) if week else "",
         "lead": d.get("lead"), "total_kept": d.get("total_kept", 0),
-        # 홈의 세 카드는 다섯 줄로 맞춘다. 법령 6 / 급상승 10으로 두었더니
-        # 나란히 놓인 두 카드의 높이가 눈에 띄게 어긋났다. 전체는 각 화면에서 본다.
+        # 법령은 다섯 줄. 급상승은 열 줄을 유지한다 — 순위 목록이라 다섯 줄로
+        # 자르면 "10위 안"이라는 감각이 사라진다. 카드 높이가 어긋나는 건
+        # 급상승 줄이 법령 줄보다 낮아 실제로는 크게 벌어지지 않는다.
         "crossing": sec.get("crossing", [])[:5],
         "regulatory": _regulatory(5, 0, "")["items"],
-        "trending": (tr.get("rows") or [])[:5],
+        "trending": (tr.get("rows") or [])[:10],
         "health": health,
     }
 

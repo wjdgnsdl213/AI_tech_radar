@@ -56,6 +56,9 @@
   </nav>
   <div class="nav-foot">
     <label class="navweek"><span>지난 회차</span>
+      <!-- 주차가 365개라 평면 목록으로는 못 고른다. 달로 한 겹 접는다.
+           달을 고르면 그 달 화면으로 가고, 아래에서 주차를 고르면 그 주 지면으로. -->
+      <select id="month-nav"></select>
       <select id="week-select"></select>
     </label>
   </div>
@@ -115,6 +118,31 @@
     </div>
   </section>
 
+
+  <!-- ⓪-b 한 달 보기 — 메뉴에 없다. 사이드바 '지난 회차'에서만 닿는다.
+       메뉴를 다섯 개로 줄여둔 걸 되돌리지 않으면서 달 단위 조회를 붙이는 방법이다. -->
+  <section class="panel" id="panel-month">
+    <div class="page-head"><h1 id="mv-title">—</h1>
+      <span class="mut" id="mv-sub"></span></div>
+
+    <div class="card lead-card" id="mv-lead-card" hidden>
+      <div class="sec-h"><h2>이 달의 흐름</h2></div>
+      <div class="lead" id="mv-lead"></div>
+    </div>
+
+    <div class="card"><div class="panel-head"><h2>이 달 요약</h2></div>
+      <div id="mv-stats"></div></div>
+
+    <div class="home-grid">
+      <div class="card"><div class="panel-head"><h2>주차별 통과</h2></div>
+        <div id="mv-weeks"></div></div>
+      <div class="card"><div class="panel-head"><h2>많이 나온 기관</h2></div>
+        <div id="mv-orgs"></div></div>
+    </div>
+
+    <div class="card"><div class="panel-head"><h2>이 달의 상위 기사</h2></div>
+      <div id="mv-top"></div></div>
+  </section>
   <!-- ① 이번 주 -->
   <section class="panel" id="panel-digest">
     <div class="page-head">
