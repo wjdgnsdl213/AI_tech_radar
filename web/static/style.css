@@ -298,18 +298,23 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 .sidenav.fold .nav-head{padding:6px 13px 30px}
 
 
-/* ★ 본문을 가운데로 모은다.
-   메뉴가 왼쪽에 고정되어 있으면 남은 폭 전체에 내용이 깔려서 왼쪽으로 쏠려
-   보인다. 안쪽에 최대 폭을 두고 auto 여백으로 가운데 정렬한다. */
-/* ★ 본문을 **화면 기준** 가운데에 놓는다.
-   왼쪽에 메뉴만큼 여백을 주고 오른쪽에도 같은 폭을 padding으로 주면, 본문 상자의
-   중심이 정확히 50vw가 된다 — 메뉴를 접든 펴든(--nav-cur가 바뀌든) 그대로다.
-   transform:translateX로 당기는 방법도 있지만 쓰면 안 된다: transform은 그 안의
-   position:fixed 기준을 바꿔버려서, 스크롤 컨테이너를 피해 fixed로 빼둔
-   설명 말풍선이 다시 엉뚱한 곳에 뜬다. */
+/* ★ 본문을 **메뉴 오른쪽 영역** 기준으로 가운데 놓는다.
+   한때 '화면 기준 가운데'로 뒀었다 — 오른쪽에 메뉴 폭만큼 padding을 더 줘서
+   본문 상자의 중심을 50vw에 맞추는 방식이다. 계산은 맞았는데 눈에는 틀렸다:
+   메뉴가 왼쪽을 채우고 있으니 남는 여백이 한쪽으로만 몰린다. 실측(--page-max 1560)
+       1536px 화면  왼쪽 32px  |  본문 968px  |  오른쪽 284px
+       1920px 화면  왼쪽 32px  |  본문 1352px |  오른쪽 284px
+   폭과 무관하게 **오른쪽이 메뉴 폭(252px)만큼 항상 더 넓다.** 그래서 본문이
+   메뉴에 달라붙어 보인다 — 사용자가 두 번 지적한 게 정확히 이 증상이다.
+   여백은 좌우 대칭이어야 한다. padding을 양쪽 같게 두고 .inner의 auto 여백이
+   남은 폭을 반씩 나눠 갖게 한다.
+
+   ⚠ transform:translateX로 당기지 말 것. transform은 그 안의 position:fixed
+     기준을 바꿔버려서, 스크롤 컨테이너를 피해 fixed로 빼둔 설명 말풍선이
+     다시 엉뚱한 곳에 뜬다(실측). */
 .wrap{flex:1;margin-left:var(--nav-cur);min-width:0;
-  padding:26px 32px 64px;padding-right:calc(32px + var(--nav-cur));
-  transition:margin-left .16s,padding-right .16s}
+  padding:26px 32px 64px;
+  transition:margin-left .16s}
 .inner{max-width:var(--page-max);margin:0 auto}
 
 /* 검색 — 본문 맨 위 가운데 */
