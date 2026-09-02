@@ -174,13 +174,7 @@ function renderDigest() {
     : '<div class="empty">해당 주제에 항목이 없습니다.</div>';
 
   // 사이드: 이번 주 급상승
-  $('#side-trend').innerHTML = (d.trending || []).length
-    ? d.trending.slice(0, 10).map(t =>
-        `<div class="mini" data-kw="${esc(t.keyword)}">
-           <span class="k">${esc(t.keyword)}</span>
-           <span class="v">${t.count}건${t.is_new ? ' <span class="new">신규</span>' : ''}</span>
-         </div>`).join('')
-    : '<div class="empty">—</div>';
+  $('#side-trend').innerHTML = trendGroupsHTML(d.trend_groups, false);
 }
 
 async function loadDigest(week) {
@@ -1135,6 +1129,21 @@ document.addEventListener('keydown', e => {
 });
 
 /* ── 시작 ── */
+/* 축 묶음별 급상승. 홈 카드와 이번 주 사이드가 같은 함수를 쓴다 —
+   자리마다 다르게 그리면 같은 주를 보는데 목록이 달라 보인다. */
+function trendGroupsHTML(groups, ranked) {
+  if (!groups || !groups.length) return '<div class="empty">데이터가 없습니다.</div>';
+  return groups.map(g => `<div class="trend-g">
+      <div class="trend-g-h">${esc(g.label)}</div>
+      ${g.rows.length ? g.rows.map((r, i) => `<div class="hrow">
+          ${ranked ? `<span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>` : ''}
+          <span class="k" data-kwpop="${esc(r.keyword)}">${esc(r.keyword)}</span>
+          ${r.is_new ? '<span class="new">신규</span>' : ''}
+          <span class="n">${r.count}건 · ${r.score.toFixed(1)}배</span></div>`).join('')
+        : '<div class="empty">이 축에는 급상승이 없습니다.</div>'}
+    </div>`).join('');
+}
+
 /* ── ⓪ 홈 ────────────────────────────────────────────────────────
  * "이번 주에 무슨 일이 있었나"가 이 한 화면에서 끝나야 한다.
  * 원격 DB라 왕복 하나가 곧 지연이므로 /api/home 한 번으로 다 받는다. */
@@ -1150,13 +1159,7 @@ async function loadHome() {
     $('#home-lead-t').textContent = h.lead;   // 줄바꿈은 .lead의 white-space가 살린다
   }
 
-  $('#home-trend').innerHTML = (h.trending || []).length
-    ? h.trending.map((r, i) => `<div class="hrow">
-        <span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>
-        <span class="k" data-kwpop="${esc(r.keyword)}">${esc(r.keyword)}</span>
-        ${r.is_new ? '<span class="new">신규</span>' : ''}
-        <span class="n">${r.count}건 · ${r.score.toFixed(1)}배</span></div>`).join('')
-    : '<div class="empty">데이터가 없습니다.</div>';
+  $('#home-trend').innerHTML = trendGroupsHTML(h.trend_groups, true);
 
   loadMonth();      // 별도 호출 — 월간은 홈보다 훨씬 덜 바뀐다
   $('#home-reg').innerHTML = regHTML(h.regulatory || [], true);

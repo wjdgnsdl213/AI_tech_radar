@@ -349,6 +349,11 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
   padding:2px 4px;font-family:inherit;font-weight:600}
 .linkish:hover{text-decoration:underline;background:var(--blue-soft);border-radius:5px}
 
+/* 축 묶음 머리글 — 목록 안에서 구획만 나눈다. 카드 제목(h2)보다 가벼워야
+   한 카드 안에 제목이 둘 있는 것처럼 보이지 않는다. */
+.trend-g + .trend-g{margin-top:14px}
+.trend-g-h{font-size:12.5px;font-weight:700;color:var(--mut);letter-spacing:-.1px;
+  padding-bottom:5px;border-bottom:1px solid var(--line)}
 .hrow{display:flex;align-items:baseline;gap:10px;padding:9px 2px;
   border-bottom:1px solid var(--line);font-size:15.5px}
 .hrow:last-child{border-bottom:0}

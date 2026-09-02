@@ -13,6 +13,7 @@ sobiz web/ 패턴과 같다.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from functools import lru_cache
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -133,6 +134,7 @@ def digest(week: str = Query("")) -> dict[str, Any]:
         "week": week, "week_label": week_label(week),
         "lead": d.get("lead"), "tasks": tasks, "total_kept": d["total_kept"],
         "sections": sections, "trending": d.get("trending", []),
+        "trend_groups": _trend_groups(week, 5),
         "empty": not d["crossing"] and not any(d["by_axis"].values()),
     }
 
@@ -168,6 +170,60 @@ def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
     }
 
 
+# 급상승을 보여주는 자리가 셋이다(홈 카드 · 이번 주 사이드 · 분석 탭).
+# 축 구성이 자리마다 다르면 같은 주를 보는데 목록이 달라 보인다. 여기서 한 번 정한다.
+TREND_GROUPS = (("ai,bigdata", "AI·빅데이터"), ("smallbiz", "소상공인"))
+
+
+def _trend_groups(week: str, per: int = 5) -> list[dict[str, Any]]:
+    """축 묶음별 급상승. 후보 목록은 캐시를 타므로 묶음이 늘어도 왕복이 안 는다."""
+    out = []
+    for axis, label in TREND_GROUPS:
+        try:
+            rows = trend(week=week, top=per, axis=axis).get("rows", [])
+        except Exception:
+            rows = []
+        out.append({"axis": axis, "label": label, "rows": rows})
+    return out
+
+@lru_cache(maxsize=1)
+def _axis_terms() -> dict[str, tuple[str, ...]]:
+    """축마다의 어휘. config의 axes[*].keywords를 쉼표로 풀어 소문자·무공백으로 만든다.
+
+    ★ config에는 한 줄에 여러 개가 쉼표로 묶여 있다('AI, 인공지능, LLM, 생성형').
+      줄 단위로 그냥 쓰면 매칭이 통째로 실패한다(실측: 후보 60개 중 0개 통과).
+    """
+    out: dict[str, tuple[str, ...]] = {}
+    for ax, spec in (CFG.get("axes") or {}).items():
+        terms: list[str] = []
+        for group in (spec.get("keywords") or []):
+            terms += [t.strip().lower().replace(" ", "")
+                      for t in str(group).split(",") if t.strip()]
+        out[ax] = tuple(terms)
+    return out
+
+
+def _on_axis(keyword: str, axes: list[str]) -> bool:
+    """키워드 **자체**가 그 축의 어휘를 품고 있나.
+
+    ★ 기사에 붙은 축만 보면 안 된다. 지자체 예산 기사가 예산 항목으로
+      '인공지능(AI)'을 한 번 언급하면 그 기사는 정당하게 ai축이 되고, 거기 같이
+      나온 '예산정책'·'거점국립대'·'메리츠증권'이 AI 급상승 상위를 차지한다
+      (실측 지적: "AI와 무슨 관련이 있는지 모르겠다").
+      축 태깅이 틀린 게 아니라 **일반 명사가 딸려 오는 것**이라, 축 점유율로는
+      못 거른다 — 예산정책은 ai 점유가 95%였다.
+
+    그래서 키워드 문자열 자체를 본다. 'AI서버'·'공공마이데이터'는 남고
+    '예산정책'·'부산대'는 빠진다. 후보 1,847개 중 222개가 남아 지면은 충분하다.
+
+    ⚠ 축 어휘에 없는 인접어(IoT·클라우드·반도체)도 같이 빠진다. 넣고 싶으면
+      config의 axes[*].keywords에 추가하면 된다 — 판정의 출처가 거기 한 곳이다.
+    """
+    k = (keyword or "").lower().replace(" ", "")
+    terms = _axis_terms()
+    return any(t in k for ax in axes for t in terms.get(ax, ()))
+
+
 @router.get("/trend")
 def trend(week: str = Query(""), top: int = Query(20),
           axis: str = Query("")) -> dict[str, Any]:
@@ -201,18 +257,20 @@ def trend(week: str = Query(""), top: int = Query(20),
     if not week:
         return {"week": None, "rows": []}
     back = int(tcfg.get("compare_weeks", 4))
-    rows = rising(week, back, int(tcfg.get("min_weekly_freq", 5)))
+    # ★ 후보 전체를 캐시한다. rising()이 배포본에서 한 번에 11초 걸린다 —
+    #   칩을 눌러도 화면이 11초 동안 그대로라 "탭 내용이 똑같다"로 읽혔다(실측 지적).
+    #   축 거르기와 자르기는 캐시된 목록 위에서 하므로 칩 전환이 즉시 끝난다.
+    freq = int(tcfg.get("min_weekly_freq", 5))
+    rows = ego_cache.get_or_call(("rising", week, back, freq),
+                                 lambda: rising(week, back, freq))
     # 쉼표로 여러 축을 받는다 — 'ai,bigdata'처럼. 팀 이름이 AI·빅데이터팀이라
     # 그 둘은 한 묶음으로 보는 게 실제 업무 단위와 맞는다.
     want = [a for a in (axis or "").split(",") if a.strip()]
     if want:
-        with get_engine().connect() as c:
-            keys = [r["keyword"] for r in rows]
-            ok = {k for k, in c.execute(
-                select(kw_meta.c.keyword)
-                .where(kw_meta.c.keyword.in_(keys), kw_meta.c.axis.in_(want)))}
-        rows = [r for r in rows if r["keyword"] in ok]
-    rows = rows[:top]
+        rows = [r for r in rows if _on_axis(r["keyword"], want)]
+    # ★ 자른 뒤에 거르면 안 된다. 상위 25개에 빅데이터가 0개라 탭이 빈 채로 나온다.
+    #   캐시된 목록을 그대로 넘기면 아래에서 series를 붙이며 캐시를 오염시킨다.
+    rows = [dict(r) for r in rows[:top]]
     axis_weeks = list(reversed(prev_weeks(week, back))) + [week]
     for r in rows[:8]:
         # 차트 축에 그대로 쓰이므로 사람이 읽는 표기를 함께 싣는다.
@@ -856,6 +914,9 @@ def home(week: str = Query("")) -> dict[str, Any]:
         "crossing": sec.get("crossing", [])[:5],
         "regulatory": _regulatory(5, 0, "")["items"],
         "trending": (tr.get("rows") or [])[:10],
+        # 축을 나눠 함께 보낸다. 섞으면 AI가 목록을 독차지해 소상공인 신호가
+        # 통째로 묻힌다(실측: 상위 25개 중 ai 24 / smallbiz 1 / bigdata 0).
+        "trend_groups": _trend_groups(week, 5),
         "health": health,
     }
 
