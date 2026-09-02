@@ -56,9 +56,9 @@
   </nav>
   <div class="nav-foot">
     <label class="navweek"><span>지난 회차</span>
-      <!-- 주차가 365개라 평면 목록으로는 못 고른다. 달로 한 겹 접는다.
-           달을 고르면 그 달 화면으로 가고, 아래에서 주차를 고르면 그 주 지면으로. -->
-      <select id="month-nav"></select>
+      <!-- 한 창에 달과 주차를 같이 담는다. optgroup이 주차를 달 안쪽으로
+           들여써 주므로 계층이 그대로 보인다. '○월 전체'는 그 달 화면으로,
+           주차는 그 주로 간다. -->
       <select id="week-select"></select>
     </label>
   </div>

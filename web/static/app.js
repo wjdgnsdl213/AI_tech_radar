@@ -183,52 +183,66 @@ async function loadDigest(week) {
       <div class="wtask-r"><span class="wtask-k">확인</span><span>${esc(t.ask || '')}</span></div>
     </div>`).join('');
   renderDigest();
-  loadWeekOptions(DIGEST.week);   // 달까지 같이 맞춘다 — 아래 주석 참고
+  loadWeekOptions(DIGEST.week);   // 선택창을 지금 보는 주차에 맞춘다
   if (!$('#side-bridge').dataset.done) loadSideBridge();
 }
 
-/* ── 지난 회차: 달 → 주차 2단 ─────────────────────────────────────
- * 주차가 365개다. 평면 select로는 작년에 닿을 수 없고, 60개로 잘라도
- * 스크롤로 훑기엔 길다. 달로 한 겹 접으면 어느 규모에서도 목록이 짧다.
+/* ── 지난 회차: 한 창에 달 → 주차 ─────────────────────────────────
+ * 주차가 365개다. 평면 목록으로는 작년에 닿을 수 없고 훑기도 어렵다.
+ * optgroup으로 달마다 묶으면 주차가 달 안쪽으로 들여써지고, 머리글을 따라
+ * 건너뛸 수 있다. 선택창 두 개로 나눴다가 하나로 합쳤다 — 달을 고르고 다시
+ * 주차를 고르는 두 번의 조작이, 목록이 길어진 것보다 성가셨다.
  *
- * ★ 목록은 한 번만 받는다. 달을 바꿀 때마다 왕복하면 선택창이 굼떠 보인다 —
- *   원격 DB라 왕복 하나가 곧 지연이다. 85개월 365주차가 한 응답에 들어온다. */
+ * ★ 목록은 한 번만 받는다. 85개월 365주차가 한 응답에 들어온다 —
+ *   원격 DB라 왕복 하나가 곧 지연이다.
+ *
+ * 값에 접두사를 붙여 무엇을 골랐는지 구분한다: 'm:2026-08' / 'w:2026-W35'.
+ * 접두사가 없으면 '2026-08'과 '2026-W35'를 길이로 구별해야 해서, 형식이
+ * 조금만 바뀌어도 조용히 어긋난다. */
 let MONTHS = null;
+let CUR_WEEK = '';        // 지금 보고 있는 주차. 홈·이번 주가 같이 본다.
 
 async function loadWeekOptions(curWeek) {
-  // 목록은 한 번만 받는다. 이 함수는 지면을 열 때마다 불리지만 왕복은 첫 번만이다.
+  // 목록은 한 번만 받는다. 이 함수는 화면을 열 때마다 불리지만 왕복은 첫 번만이다.
   if (!MONTHS) MONTHS = (await api('/api/months')).months || [];
   if (!MONTHS.length) return;
-  // ★ 주차만 맞추면 안 된다. 그 주차가 다른 달이면 지금 주차 목록에 아예 없어서
-  //   select.value 대입이 조용히 무시되고, 선택창이 엉뚱한 곳을 가리킨 채 남는다.
-  //   그 주차가 속한 달을 먼저 고르고 주차 목록을 다시 채운다.
-  const cur = curWeek ? MONTHS.find(m => m.weeks.some(w => w.week === curWeek)) : null;
-  const m = cur || MONTHS[0];
-  $('#month-nav').innerHTML = MONTHS.map(x =>
-    `<option value="${esc(x.month)}" ${x.month === m.month ? 'selected' : ''}
-      >${esc(x.label)} (${x.n})</option>`).join('');
-  fillWeeks(m.month, curWeek);
+  if (curWeek) CUR_WEEK = curWeek;
+  const sel = CUR_WEEK || (MONTHS[0].weeks[0] || {}).week || '';
+  $('#week-select').innerHTML = MONTHS.map(m => `
+    <optgroup label="${esc(m.label)}">
+      <option value="m:${esc(m.month)}">${esc(m.label)} 전체 (${num(m.n)})</option>
+      ${m.weeks.map(w => `<option value="w:${esc(w.week)}"
+        ${w.week === sel ? 'selected' : ''}>${esc(shortWeek(w.label))} (${num(w.n)})</option>`).join('')}
+    </optgroup>`).join('');
 }
 
-function fillWeeks(month, curWeek) {
-  const m = MONTHS.find(x => x.month === month);
-  if (!m) return;
-  $('#week-select').innerHTML = m.weeks.map(w =>
-    `<option value="${esc(w.week)}" ${w.week === curWeek ? 'selected' : ''}
-      >${esc(w.label)} (${w.n})</option>`).join('');
-}
+// 'YYYY년 M월 N주차' → 'N주차'. 그룹 머리글이 이미 달을 말하고 있다.
+const shortWeek = lab => (lab || '').replace(/^\d{4}년\s*\d+월\s*/, '') || lab;
 
-// 달을 고르면 그 달 화면으로. 주차 목록도 그 달 것으로 갈아 끼운다.
-$('#month-nav').onchange = e => {
-  fillWeeks(e.target.value);
-  showTab('month', e.target.value);
-};
 $('#week-select').onchange = e => {
-  // 고르기만 하고 아무 일도 안 일어나면 선택창이 왜 있는지 알 수 없다
-  showTab('digest');
-  loaded.add('digest');
-  loadDigest(e.target.value);
+  const v = e.target.value || '';
+  if (v.startsWith('m:')) showTab('month', v.slice(2));
+  else if (v.startsWith('w:')) selectWeek(v.slice(2));
 };
+
+/* 주차를 고르는 건 **화면을 옮기는 게 아니라 보고 있는 주를 바꾸는** 조작이다.
+   홈에서 골랐으면 홈이 그 주로 바뀌어야 한다 — 선택창은 7월을 가리키는데
+   화면은 9월이면 고장으로 읽힌다(실측 지적). */
+function selectWeek(week) {
+  CUR_WEEK = week;
+  // ★ 두 화면이 같은 주차를 본다. 지금 안 보는 쪽은 '다시 받아야 함'으로 표시한다.
+  //   loaded에 남아 있으면 나중에 그 탭을 열어도 옛 주차 화면이 그대로 나온다 —
+  //   "주차를 바꿨는데 홈은 안 바뀐다"가 정확히 이것이었다.
+  loaded.delete('home');
+  loaded.delete('digest');
+  if (routeOf().tab === 'home') { loaded.add('home'); loadHome(); return; }
+  // ★ loaded에 먼저 넣는다. 안 그러면 showTab이 LOADERS.digest를 불러
+  //   주차 없이 최신 주를 한 번 더 받아오고, 두 응답이 경쟁해 엉뚱한 주가
+  //   남는다. 늦게 도착한 쪽이 이긴다.
+  loaded.add('digest');
+  showTab('digest');
+  loadDigest(week);
+}
 
 /* 한 달 보기.
    ★ 리뷰 글이 없는 달이 대부분이다(85개월 중 1개). 그래도 숫자는 전부 지금
@@ -1068,7 +1082,10 @@ document.addEventListener('keydown', e => {
  * "이번 주에 무슨 일이 있었나"가 이 한 화면에서 끝나야 한다.
  * 원격 DB라 왕복 하나가 곧 지연이므로 /api/home 한 번으로 다 받는다. */
 async function loadHome() {
-  const h = await api('/api/home');
+  // 고른 주차를 그대로 본다. 안 고쳤으면 CUR_WEEK가 비어 있고 서버가 최신 주를 준다.
+  const h = await api('/api/home', CUR_WEEK ? { week: CUR_WEEK } : {});
+  CUR_WEEK = h.week || CUR_WEEK;
+  loadWeekOptions(CUR_WEEK);      // 선택창이 화면과 다른 주차를 가리키면 고장으로 읽힌다
   $('#home-title').textContent = h.week_label || '—';
   $('#home-sub').textContent = h.total_kept ? `이번 주 통과 ${num(h.total_kept)}건` : '';
   if (h.lead) {
@@ -1366,7 +1383,7 @@ const LOADERS = {
   month: () => {},             // 달은 showTab이 매번 다시 그린다
   news: loadNews,
   home: loadHome, reg: loadReg,
-  digest: () => loadDigest(), search: initSearch, graph: loadGraph, trend: loadTrend,
+  digest: () => loadDigest(CUR_WEEK), search: initSearch, graph: loadGraph, trend: loadTrend,
 };
 
 (async () => {

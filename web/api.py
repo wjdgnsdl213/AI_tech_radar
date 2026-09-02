@@ -777,16 +777,21 @@ def _prev_month(month: str) -> str:
 
 
 @router.get("/home")
-def home() -> dict[str, Any]:
+def home(week: str = Query("")) -> dict[str, Any]:
     """메인 화면이 쓰는 것들을 **한 번에** 낸다.
 
     원격 DB(Supabase)라 왕복 하나가 곧 지연이다. 화면을 열 때마다 5~6번 부르면
     체감이 확 나빠져서, 홈이 필요한 만큼만 모아 한 응답으로 돌려준다.
+
+    ★ week를 받는다. 사이드바에서 주차를 바꿨는데 홈만 최신 주에 머물러 있으면,
+      선택창은 7월을 가리키는데 화면은 9월이라 고장으로 읽힌다(실측 지적).
+      '지난 회차'는 화면을 옮기는 게 아니라 **보고 있는 주차를 바꾸는** 조작이다.
+      수집 현황만은 늘 지금 값이다 — 수집기가 멈췄는지는 주차와 무관한 정보다.
     """
     from src.digest import latest_week
 
     with get_engine().connect() as c:
-        week = latest_week(c) or ""
+        week = (week or "").strip() or (latest_week(c) or "")
         # 소스별 수집 현황 — 수집기가 조용히 멈춘 걸 알아채는 유일한 화면이다.
         #   스케줄러가 "성공"으로 보고하면서 실제로는 아무것도 안 받는 상황이
         #   가능하므로(잠금 버그가 실제로 그랬다) 여기서 눈에 보이게 둔다.
@@ -803,7 +808,10 @@ def home() -> dict[str, Any]:
     d = digest(week=week) if week else {"sections": [], "lead": None, "total_kept": 0}
     sec = {s["key"]: s["items"] for s in d.get("sections", [])}
     try:
-        tr = trend(week="", top=10)
+        # ★ 고른 주차를 그대로 넘긴다. 예전엔 week=""로 박혀 있어서 홈이 과거
+        #   주차를 보고 있어도 급상승만 최신 주를 보여줬다 — 한 화면 안에서
+        #   두 주차가 섞이는 게 제일 나쁘다.
+        tr = trend(week=week, top=10)
     except Exception:
         tr = {"rows": [], "week_label": ""}
     return {
