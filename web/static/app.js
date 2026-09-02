@@ -57,6 +57,21 @@ function showTab(name, seg) {
   if (name === 'analysis' && seg) showSub(seg, true);
   // ★ 달 보기는 loaded 캐시를 타면 안 된다 — 달을 바꿔도 첫 달만 보이게 된다.
   if (name === 'month') loadMonthView(seg);
+  // 주차를 보는 화면으로 왔으면 선택창도 주차를 가리켜야 한다. 화면이 캐시에서
+  // 그대로 살아나면 다시 그릴 일이 없어, 달 화면에서 넘어왔을 때 선택창만
+  // '○월 전체'에 남는다(실측 지적).
+  if (name === 'home' || name === 'digest') syncPicker();
+}
+
+/* 선택창을 지금 보고 있는 주차에 맞춘다. */
+function syncPicker() {
+  const sel = $('#week-select');
+  if (!sel || !CUR_WEEK) return;
+  const want = 'w:' + CUR_WEEK;
+  sel.value = want;
+  // 그 주차가 접힌 달에 있으면 옵션 자체가 없어 대입이 조용히 무시된다.
+  // 그때는 그 달을 펴서 다시 그린다.
+  if (sel.value !== want) loadWeekOptions(CUR_WEEK);
 }
 
 /* ★ 뒤로 가기를 살린다.
@@ -238,9 +253,21 @@ const shortWeek = lab => (lab || '').replace(/^\d{4}년\s*\d+월\s*/, '') || lab
 
 $('#week-select').onchange = e => {
   const v = e.target.value || '';
-  if (v.startsWith('m:')) showTab('month', v.slice(2));
+  if (v.startsWith('m:')) selectMonth(v.slice(2));
   else if (v.startsWith('w:')) selectWeek(v.slice(2));
 };
+
+/* 달을 고르면 '보고 있는 기간'이 그 달이 된다.
+   ★ 주차 문맥도 그 달로 옮긴다. 7월 전체를 보다가 홈을 누르면 홈이 9월을
+     보여주던 게 이 때문이었다 — 달을 골라도 CUR_WEEK가 안 움직였다.
+     그 달의 가장 최근 주로 옮겨 두면 화면을 바꿔도 보던 기간이 이어진다. */
+function selectMonth(month) {
+  const m = (MONTHS || []).find(x => x.month === month);
+  if (m && m.weeks.length) CUR_WEEK = m.weeks[0].week;   // weeks는 최신순
+  loaded.delete('home');
+  loaded.delete('digest');
+  showTab('month', month);
+}
 
 /* 주차를 고르는 건 **화면을 옮기는 게 아니라 보고 있는 주를 바꾸는** 조작이다.
    홈에서 골랐으면 홈이 그 주로 바뀌어야 한다 — 선택창은 7월을 가리키는데
@@ -268,6 +295,10 @@ function selectWeek(week) {
 async function loadMonthView(month) {
   const v = await api('/api/month_view', month ? { month } : {});
   if (v.empty) { $('#mv-title').textContent = '데이터가 없습니다'; return; }
+  // ★ 선택창은 **지금 보고 있는 것**을 비춘다. 달 화면이면 '○월 전체'가 잡혀야
+  //   한다. 목록이 아직 안 왔을 수 있으니 먼저 채우고 값을 넣는다.
+  await loadWeekOptions();
+  $('#week-select').value = 'm:' + v.month;
   $('#mv-title').textContent = v.label;
   $('#mv-sub').textContent = `통과 ${num(v.kept)}건 · ${v.weeks.length}개 주차`;
 
