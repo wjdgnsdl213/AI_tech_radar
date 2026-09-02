@@ -314,25 +314,15 @@ def keyword_series(kw: str = Query(...), weeks: int = Query(8)) -> dict[str, Any
         for w, n in series(kw, axis)]}
 
 
-@router.get("/graph")
-def graph(top: int = Query(24)) -> dict[str, Any]:
-    """연관어 그래프. 브릿지 노드가 이 화면의 읽는 법이다."""
-    from src.graph import bridges, build, load_data
-    g = CFG.get("graph", {})
-    docs, axes = load_data()
-    if not docs:
-        return {"nodes": [], "edges": [], "bridges": [], "empty": True}
-    G = build(docs, axes, int(g.get("min_df", 15)), int(g.get("min_cooc", 5)),
-              float(g.get("npmi_cut", 0.25)), int(g.get("max_nodes", 400)))
-    br = bridges(G, top, int(g.get("min_degree", 8)))
-    keep = {n["keyword"] for n in G["nodes"].values() if n["degree"] >= 3}
-    return {
-        "nodes": [n for n in G["nodes"].values() if n["keyword"] in keep],
-        "edges": [e for e in G["edges"]
-                  if e["source"] in keep and e["target"] in keep],
-        "bridges": br, "empty": False,
-    }
-
+# ── /graph(브릿지 노드)는 걷어냈다 ────────────────────────────────
+# 브릿지 점수 = 다른 축으로 향하는 간선 비중. 축을 잇는 키워드가 곧 과제 후보라는
+# 가설이었는데, 실제로 뜬 건 '유치·메뉴·파일·최저·언어' 같은 일반 명사였다.
+# 흔한 말일수록 여러 축의 기사에 골고루 나오므로 **브릿지 점수가 사실상
+# 일반성 점수로 작동한다** — 구조적인 문제라 임계값을 만져서 될 일이 아니다.
+#
+# 같은 질문("여러 축을 걸치는 게 뭔가")에 /cross 화면이 기사 수준에서 직접
+# 답한다. 키워드 수준의 간접 지표를 함께 둘 이유가 없다.
+# 계산 자체는 src/graph.py에 CLI로 남아 있다(python -m src.graph).
 
 @router.get("/suggest")
 def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:

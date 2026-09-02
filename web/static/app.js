@@ -193,7 +193,6 @@ async function loadDigest(week) {
     </div>`).join('');
   renderDigest();
   loadWeekOptions(DIGEST.week);   // 선택창을 지금 보는 주차에 맞춘다
-  if (!$('#side-bridge').dataset.done) loadSideBridge();
 }
 
 /* ── 지난 회차: 한 창에 달 → 주차 ─────────────────────────────────
@@ -346,16 +345,6 @@ $('#axis-chips').onclick = e => {
   const b = e.target.closest('[data-axis]');
   if (b) { activeAxis = b.dataset.axis; renderDigest(); }
 };
-
-async function loadSideBridge() {
-  const g = await api('/api/graph', { top: 8 });
-  $('#side-bridge').dataset.done = '1';
-  $('#side-bridge').innerHTML = (g.bridges || []).length
-    ? g.bridges.map(b => `<div class="mini" data-kw="${esc(b.keyword)}">
-        <span class="k">${esc(b.keyword)}</span>
-        <span class="v">${b.spans.map(s => esc(label(s))).join(' · ')}</span></div>`).join('')
-    : '<div class="empty">—</div>';
-}
 
 /* ── ② 검색 ── */
 const params = () => ({
