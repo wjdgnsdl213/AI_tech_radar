@@ -202,13 +202,15 @@ def trend(week: str = Query(""), top: int = Query(20),
         return {"week": None, "rows": []}
     back = int(tcfg.get("compare_weeks", 4))
     rows = rising(week, back, int(tcfg.get("min_weekly_freq", 5)))
-    axis = (axis or "").strip()
-    if axis:
+    # 쉼표로 여러 축을 받는다 — 'ai,bigdata'처럼. 팀 이름이 AI·빅데이터팀이라
+    # 그 둘은 한 묶음으로 보는 게 실제 업무 단위와 맞는다.
+    want = [a for a in (axis or "").split(",") if a.strip()]
+    if want:
         with get_engine().connect() as c:
             keys = [r["keyword"] for r in rows]
             ok = {k for k, in c.execute(
                 select(kw_meta.c.keyword)
-                .where(kw_meta.c.keyword.in_(keys), kw_meta.c.axis == axis))}
+                .where(kw_meta.c.keyword.in_(keys), kw_meta.c.axis.in_(want)))}
         rows = [r for r in rows if r["keyword"] in ok]
     rows = rows[:top]
     axis_weeks = list(reversed(prev_weeks(week, back))) + [week]

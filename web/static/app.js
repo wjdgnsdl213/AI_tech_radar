@@ -912,7 +912,7 @@ document.body.addEventListener('mouseover', e => {
   tip.style.top = top + 'px';
 });
 
-let TREND_AXIS = '';     // '' = 전체
+let TREND_AXIS = 'ai,bigdata';   // 기본은 팀의 주 축. 칩과 같은 값이어야 한다.
 
 async function loadTrend() {
   const t = await api('/api/trend', { top: 20, axis: TREND_AXIS });
