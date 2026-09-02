@@ -400,8 +400,11 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
   border-radius:8px;padding:12px 14px}
 .mv-stats .st b{display:block;font-size:22px;color:var(--ink);
   font-variant-numeric:tabular-nums;line-height:1.25}
-.mv-stats .st b.up{color:var(--blue)}
-.mv-stats .st b.down{color:var(--red)}
+/* ★ 상승이 빨강, 하락이 파랑이다. 국내 증시·통계 표기 관행이고, 팀이 매일
+   보는 색이 그쪽이다. 서구권(상승=초록/파랑)과 반대라 그대로 두면 매번
+   거꾸로 읽힌다. */
+.mv-stats .st b.up{color:var(--red)}
+.mv-stats .st b.down{color:var(--blue)}
 .mv-stats .st span{font-size:13px;color:var(--mut)}
 /* 리뷰가 없는 달의 안내문 — 본문과 같은 무게로 두면 해설로 읽힌다 */
 #mv-lead.mut{color:var(--mut);font-style:normal}
