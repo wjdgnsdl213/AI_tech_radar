@@ -282,6 +282,14 @@
     </div>
     <div class="subpanel" id="sub-trend">
       <div class="mut sub-head" id="trend-week"></div>
+    <!-- 축을 나눠 볼 수 있어야 한다. 섞으면 AI가 지면을 독차지해서
+         빅데이터·소상공인 신호가 통째로 묻힌다(실측: 상위 25개 중 ai 24). -->
+    <div class="chip-row" id="trend-axis">
+      <button class="chip active" data-taxis="">전체</button>
+      <button class="chip" data-taxis="ai">AI</button>
+      <button class="chip" data-taxis="bigdata">빅데이터</button>
+      <button class="chip" data-taxis="smallbiz">소상공인</button>
+    </div>
     <div class="card">
       <div id="trend-body"><div class="empty">불러오는 중…</div></div>
     </div>

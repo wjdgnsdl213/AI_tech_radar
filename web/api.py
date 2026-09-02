@@ -169,7 +169,29 @@ def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
 
 
 @router.get("/trend")
-def trend(week: str = Query(""), top: int = Query(20)) -> dict[str, Any]:
+def trend(week: str = Query(""), top: int = Query(20),
+          axis: str = Query("")) -> dict[str, Any]:
+    """급상승 키워드. axis를 주면 그 축의 키워드만 낸다.
+
+    ★ 왜 축을 나눌 수 있어야 하나 (실측 2026-09-02)
+      섞어서 뽑으면 AI가 지면을 독차지한다. 9월 1주차 상위 25개의 축 분포가
+      **ai 24 / smallbiz 1 / bigdata 0**이었다. 코퍼스 자체는 smallbiz 56%인데도
+      그렇다 — 소상공인 어휘(대출·지원·상권)는 주마다 안정적이라 '급상승'하지
+      않고, AI 쪽은 신제품·행사로 매주 새 말이 튀기 때문이다.
+
+      그래서 팀에 정작 중요한 신호가 통째로 묻혔다. 축을 나눠 보면 이런 게 나온다:
+          빅데이터  공공마이데이터 22건 · 통계데이터 · 건강돌봄 · 돌봄플랫폼
+          소상공인  모태펀드출자 · 특별채무조정 · 상생배달 · 스마트농업
+      섞은 목록에는 이 중 하나도 없었다.
+
+    ★ 축은 kw_meta에 이미 있는 값을 쓴다 — 그 키워드가 가장 많이 나온 축이다.
+      "그 축 기사들 안에서의 급상승"을 제대로 재려면 kw_week를 축별로 쪼개야
+      하는데, 46만 행이 세 배가 된다. DB가 417MB/500MB라 그럴 여유가 없고,
+      실측해 보니 근사로도 위 목록이 그대로 나온다.
+
+    ★ 자르기 전에 거른다. top으로 먼저 자르고 축을 거르면 빅데이터 탭이
+      빈 채로 나온다 — 상위 25개에 빅데이터가 0개였다.
+    """
     from src.trend import prev_weeks, rising, series
     tcfg = CFG.get("trend", {})
     if not week:
@@ -179,14 +201,23 @@ def trend(week: str = Query(""), top: int = Query(20)) -> dict[str, Any]:
     if not week:
         return {"week": None, "rows": []}
     back = int(tcfg.get("compare_weeks", 4))
-    rows = rising(week, back, int(tcfg.get("min_weekly_freq", 5)))[:top]
+    rows = rising(week, back, int(tcfg.get("min_weekly_freq", 5)))
+    axis = (axis or "").strip()
+    if axis:
+        with get_engine().connect() as c:
+            keys = [r["keyword"] for r in rows]
+            ok = {k for k, in c.execute(
+                select(kw_meta.c.keyword)
+                .where(kw_meta.c.keyword.in_(keys), kw_meta.c.axis == axis))}
+        rows = [r for r in rows if r["keyword"] in ok]
+    rows = rows[:top]
     axis_weeks = list(reversed(prev_weeks(week, back))) + [week]
     for r in rows[:8]:
         # 차트 축에 그대로 쓰이므로 사람이 읽는 표기를 함께 싣는다.
         # 'W31'은 몇 월인지 알 수 없다.
         r["series"] = [{"week": w, "label": week_label(w), "n": n}
                        for w, n in series(r["keyword"], axis_weeks)]
-    return {"week": week, "week_label": week_label(week),
+    return {"week": week, "week_label": week_label(week), "axis": axis,
             # 화면이 "직전 N주 평균과 비교"라고 정확히 쓸 수 있게 같이 낸다
             "compare_weeks": back,
             "weeks": [{"week": w, "label": week_label(w)} for w in axis_weeks],

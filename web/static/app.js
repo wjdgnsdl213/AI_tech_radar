@@ -912,12 +912,19 @@ document.body.addEventListener('mouseover', e => {
   tip.style.top = top + 'px';
 });
 
+let TREND_AXIS = '';     // '' = 전체
+
 async function loadTrend() {
-  const t = await api('/api/trend', { top: 20 });
+  const t = await api('/api/trend', { top: 20, axis: TREND_AXIS });
   TREND = t.rows || [];
   $('#trend-week').textContent = t.week_label || '';
   const max = Math.max(...t.rows.map(r => r.score));
-  if (!t.rows?.length) { $('#trend-body').innerHTML = await emptyOrBuilding('데이터가 없습니다.'); return; }
+  if (!t.rows?.length) {
+    $('#trend-body').innerHTML = TREND_AXIS
+      ? '<div class="empty">이 축에서는 급상승한 키워드가 없습니다.</div>'
+      : await emptyOrBuilding('데이터가 없습니다.');
+    return;
+  }
   $('#trend-body').innerHTML = `<div class="tblwrap"><table>
       <tr><th style="width:44px;text-align:center">순위</th><th>키워드</th>
         <th>이번 주</th>
@@ -1388,6 +1395,14 @@ document.body.addEventListener('click', async e => {
  * 메뉴 항목이 여덟 개까지 늘자 무엇이 어디 있는지 찾기 어려워졌다. 이 셋은
  * 전부 "쌓인 데이터를 각도만 바꿔 보는" 화면이라 한 자리에 묶는 게 맞다.
  * 검색은 본문 맨 위 검색창이 이미 모든 화면에서 닿으므로 메뉴에서 뺐다. */
+$('#trend-axis').onclick = e => {
+  const b = e.target.closest('[data-taxis]');
+  if (!b) return;
+  TREND_AXIS = b.dataset.taxis || '';
+  $$('#trend-axis .chip').forEach(c => c.classList.toggle('active', c === b));
+  loadTrend();
+};
+
 const SUB_LOADERS = { cross: loadCross, orgs: loadOrgs, trend: loadTrend };
 const subLoaded = new Set();
 
