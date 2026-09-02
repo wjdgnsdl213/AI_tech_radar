@@ -248,7 +248,7 @@ def trend(week: str = Query(""), top: int = Query(20),
     ★ 자르기 전에 거른다. top으로 먼저 자르고 축을 거르면 빅데이터 탭이
       빈 채로 나온다 — 상위 25개에 빅데이터가 0개였다.
     """
-    from src.trend import prev_weeks, rising, series
+    from src.trend import prev_weeks, rising
     tcfg = CFG.get("trend", {})
     if not week:
         with get_engine().connect() as c:
@@ -272,11 +272,22 @@ def trend(week: str = Query(""), top: int = Query(20),
     #   캐시된 목록을 그대로 넘기면 아래에서 series를 붙이며 캐시를 오염시킨다.
     rows = [dict(r) for r in rows[:top]]
     axis_weeks = list(reversed(prev_weeks(week, back))) + [week]
-    for r in rows[:8]:
-        # 차트 축에 그대로 쓰이므로 사람이 읽는 표기를 함께 싣는다.
-        # 'W31'은 몇 월인지 알 수 없다.
-        r["series"] = [{"week": w, "label": week_label(w), "n": n}
-                       for w, n in series(r["keyword"], axis_weeks)]
+    # ★ 시계열은 **한 번에** 읽는다. 키워드마다 series()를 부르면 원격 DB에
+    #   여덟 번 왕복해서, 캐시가 걸린 뒤에도 배포본이 5초씩 걸렸다(실측).
+    #   같은 표에서 IN 하나로 가져오면 왕복이 한 번이다.
+    heads = [r["keyword"] for r in rows[:8]]
+    if heads:
+        with get_engine().connect() as c:
+            grid: dict[tuple[str, str], int] = {
+                (k, w): int(n) for k, w, n in c.execute(
+                    select(kw_week.c.keyword, kw_week.c.week, kw_week.c.n)
+                    .where(kw_week.c.keyword.in_(heads),
+                           kw_week.c.week.in_(axis_weeks)))}
+        for r in rows[:8]:
+            # 차트 축에 그대로 쓰이므로 사람이 읽는 표기를 함께 싣는다.
+            # 'W31'은 몇 월인지 알 수 없다.
+            r["series"] = [{"week": w, "label": week_label(w),
+                            "n": grid.get((r["keyword"], w), 0)} for w in axis_weeks]
     return {"week": week, "week_label": week_label(week), "axis": axis,
             # 화면이 "직전 N주 평균과 비교"라고 정확히 쓸 수 있게 같이 낸다
             "compare_weeks": back,
