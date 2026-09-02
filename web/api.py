@@ -22,7 +22,7 @@ from sqlalchemy import and_, func, or_, select
 
 from src.db import (digests, get_engine, item_axes, items, kw_item, kw_meta,
                     kw_neighbor, kw_week, load_config)
-from src.digest import week_label
+from src.digest import humanize_weeks, week_label
 from web.cache import ego_cache
 
 router = APIRouter(prefix="/api")
@@ -740,7 +740,9 @@ def monthly(month: str = Query("")) -> dict[str, Any]:
 
     return {"month": month, "label": label(month) if month else "",
             "months": [{"month": x, "label": label(x)} for x in months],
-            "lead": row[0] if row else None,
+            # 여기도 같은 글이다. 두 화면이 다른 표기를 내면 같은 리뷰인지 모른다.
+            "lead": (humanize_weeks(row[0], int(month[:4]))
+                     if row and row[0] and month else None),
             "generated": str(row[1])[:16] if row and row[1] else "",
             "weeks": len(mine), "kept": n}
 
@@ -845,7 +847,9 @@ def month_view(month: str = Query("")) -> dict[str, Any]:
 
     return {
         "month": month, "label": f"{month[:4]}년 {int(month[5:])}월",
-        "lead": row[0] if row else None,
+        # AI가 쓴 글에 'W34~W35'가 그대로 박혀 나온다. 읽는 순간 사람 표기로 바꾼다 —
+        # 표기 하나 때문에 sonnet 호출을 다시 할 일이 아니다.
+        "lead": humanize_weeks(row[0], int(month[:4])) if row and row[0] else None,
         "generated": str(row[1])[:16] if row and row[1] else "",
         "weeks": [{"week": w, "label": week_label(w),
                    "n": dict(by_month[month]).get(w, 0)} for w in sorted(mine, reverse=True)],

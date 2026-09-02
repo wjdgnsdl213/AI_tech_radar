@@ -489,6 +489,7 @@ L3_RULES = """\
 - 각 줄은 `· `로 시작한다. **4~6줄.**
 - 줄 하나는 70~100자.
 - 마지막 한 줄은 규제·법령 동향이 자료에 있을 때만 그것을 다룬다.
+- 주차는 **'8월 4주차'처럼 사람이 읽는 표기**로 쓴다. 'W35' 같은 ISO 표기를 쓰지 않는다.
 
 반드시 지킬 것:
 - 주어진 자료에 있는 사실만 쓴다. 목록에 없는 사건·기관·수치를 끌어오지 않는다.
@@ -742,11 +743,14 @@ def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
           f"상위 {len(rows)}건 · 규제 {len(regs)}건  |  모델 {model}")
 
     NL = chr(10)
+    # ★ 재료에 ISO 주차를 넣으면 모델이 그대로 따라 쓴다 — 실제로 저장된 리뷰에
+    #   'W34~W35 걸쳐'가 박혀 나왔다. 사람이 읽는 표기로 넣어 주면 그대로 쓴다.
+    from src.digest import week_label as _wl
     parts = [f"[{month} 주간 요약들]"]
     for w, lead in leads:
-        parts.append(f"({w})" + NL + lead)
+        parts.append(f"({_wl(w)})" + NL + lead)
     parts.append(NL + "[그 달 상위 항목]")
-    parts += [f"- ({r.published_week}) {r.title}" for r in rows]
+    parts += [f"- ({_wl(r.published_week)}) {r.title}" for r in rows]
     if regs:
         parts.append(NL + "[그 달 법령·규제]")
         parts += [f"- {str(x.published_at)[:10]} {x.title}" for x in regs]

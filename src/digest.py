@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import html as html_mod
+import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -250,6 +251,34 @@ def save(d: dict[str, Any]) -> None:
 
 
 # ── 렌더 ────────────────────────────────────────────────────────────
+_WEEK_IN_TEXT = re.compile(r"\b(?:(\d{4})-)?[Ww](\d{1,2})(?!\d)")
+
+
+def humanize_weeks(text: str, year: int | None = None) -> str:
+    """글 속의 'W35'·'2026-W35'를 '8월 4주차'로 바꾼다.
+
+    ★ AI가 쓴 월간 리뷰에 'W34~W35 걸쳐'처럼 ISO 주차가 그대로 박혀 나온다.
+      프롬프트에 재료를 '(2026-W35)'로 넣어 줬으니 모델이 그대로 따라 쓴 것이다.
+      재료 쪽은 고쳤지만, 이미 저장된 글은 다시 만들지 않으면 안 바뀐다 —
+      월간 리뷰 한 편에 sonnet 호출이 들어가므로 표기 하나 때문에 다시 돌릴 일이
+      아니다. 그래서 **읽는 순간 바꾼다.**
+
+    연도가 글에 없으면(대개 그렇다) year로 보완한다. 그것도 없으면 그냥 둔다 —
+    엉뚱한 해의 주차로 바꾸느니 원문이 낫다.
+
+    본문 안에서는 해가 자명하므로 'o월 o주차'까지만 쓴다.
+    """
+    def sub(m: "re.Match[str]") -> str:
+        y = int(m.group(1)) if m.group(1) else year
+        w = int(m.group(2))
+        # 주차는 1~53이다. 벗어나면 주차 표기가 아니라 다른 무엇이다(W99 같은 제품명).
+        if not y or not 1 <= w <= 53:
+            return m.group(0)
+        lab = week_label(f"{y:04d}-W{w:02d}")
+        return lab.split("년 ", 1)[1] if "년 " in lab else lab
+    return _WEEK_IN_TEXT.sub(sub, text or "")
+
+
 def week_label(week: str) -> str:
     """'2026-W35' → '2026년 8월 4주차'. 사람이 읽는 표기.
 

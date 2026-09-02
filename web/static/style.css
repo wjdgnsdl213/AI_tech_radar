@@ -351,6 +351,11 @@ td.n{white-space:nowrap;color:var(--mut);font-size:14px;font-variant-numeric:tab
 
 /* 축 묶음 머리글 — 목록 안에서 구획만 나눈다. 카드 제목(h2)보다 가벼워야
    한 카드 안에 제목이 둘 있는 것처럼 보이지 않는다. */
+/* 불러오는 중 — 옛 내용을 지운 자리다. 완전히 비면 화면이 무너져 보이므로
+   높이를 잡아 두고, 깜빡임으로 '기다리는 중'임을 알린다. */
+.empty.loading{min-height:120px;display:flex;align-items:center;
+  justify-content:center;animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
 .trend-g + .trend-g{margin-top:14px}
 .trend-g-h{font-size:12.5px;font-weight:700;color:var(--mut);letter-spacing:-.1px;
   padding-bottom:5px;border-bottom:1px solid var(--line)}

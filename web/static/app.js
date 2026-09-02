@@ -898,7 +898,12 @@ document.body.addEventListener('mouseover', e => {
 let TREND_AXIS = 'ai,bigdata';   // 기본은 팀의 주 축. 칩과 같은 값이어야 한다.
 
 async function loadTrend() {
-  const t = await api('/api/trend', { top: 20, axis: TREND_AXIS });
+  // ★ 어느 축을 요청했는지 붙잡아 둔다. 느린 응답이 도착했을 때 사용자가 이미
+  //   다른 축으로 옮겼다면 그 응답은 버려야 한다 — 안 그러면 소상공인 화면에
+  //   AI 목록이 뒤늦게 덮인다.
+  const want = TREND_AXIS;
+  const t = await api('/api/trend', { top: 20, axis: want });
+  if (want !== TREND_AXIS) return;
   TREND = t.rows || [];
   $('#trend-week').textContent = t.week_label || '';
   const max = Math.max(...t.rows.map(r => r.score));
@@ -1393,9 +1398,14 @@ document.body.addEventListener('click', async e => {
  * 검색은 본문 맨 위 검색창이 이미 모든 화면에서 닿으므로 메뉴에서 뺐다. */
 $('#trend-axis').onclick = e => {
   const b = e.target.closest('[data-taxis]');
-  if (!b) return;
+  if (!b || b.classList.contains('active')) return;
   TREND_AXIS = b.dataset.taxis || '';
   $$('#trend-axis .chip').forEach(c => c.classList.toggle('active', c === b));
+  /* ★ 옛 목록을 즉시 지운다.
+     응답이 올 때까지 이전 축의 표가 그대로 남아 있으면, 두 축의 키워드가
+     같은 것으로 읽힌다(실측 지적: "AI→소상공인으로 바꿔도 AI에 머물러 있어서
+     둘이 똑같은 줄 알았다"). 화면이 비어 있는 편이 틀린 내용보다 낫다. */
+  $('#trend-body').innerHTML = '<div class="empty loading">불러오는 중…</div>';
   loadTrend();
 };
 
