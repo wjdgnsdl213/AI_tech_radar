@@ -1112,7 +1112,9 @@ document.body.addEventListener('click', async e => {
       <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}</div>
       <a class="btn-src" href="${esc(d.url)}" target="_blank" rel="noopener">
         ${isLaw ? '법제처 원문 보기' : '원문 기사 보기'} <span>↗</span></a>
-      ${d.insight ? `<div class="item-i"><svg class="ico"><use href="#i-bulb"/></svg> ${esc(d.insight)}</div>` : ''}
+      ${d.insight ? `<div class="item-i">
+        <div class="item-i-h"><svg class="ico"><use href="#i-bulb"/></svg> AI 요약</div>
+        <div class="item-i-b">${esc(d.insight)}</div></div>` : ''}
       <p style="font-size:15px;margin-top:14px">${esc(d.summary || '')}</p>
       ${isLaw ? '' : `<div class="sec-title">비슷한 기사</div>
       <div class="items" style="padding:0;box-shadow:none;margin:0">

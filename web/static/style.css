@@ -91,9 +91,17 @@ a:hover{text-decoration:underline}
 .item-t{font-weight:600;font-size:17.5px;line-height:1.52;letter-spacing:-.25px}
 .item-m{font-size:14px;color:var(--mut);margin-top:6px;display:flex;
   align-items:center;gap:6px;flex-wrap:wrap}
+/* ★ 아이콘을 본문 줄 안에 두지 않는다.
+   해설이 개조식이라 줄마다 '· '로 시작하는데, 아이콘이 첫 줄 앞에 붙어 있으면
+   첫 번째 '·'만 오른쪽으로 밀리고 나머지는 왼쪽에 붙는다. 목록이 어긋나 보여
+   "맨 앞에 이상한 게 하나 들어가 있다"로 읽힌다(실측 지적).
+   머리글로 빼면 줄이 전부 맞고, 이게 AI가 쓴 글이라는 표시도 분명해진다. */
 .item-i{margin-top:9px;font-size:15px;line-height:1.75;color:var(--ink-2);
   background:var(--blue-soft);border-left:2px solid var(--blue-line);
-  padding:9px 13px;border-radius:0 6px 6px 0;white-space:pre-line}
+  padding:9px 13px;border-radius:0 6px 6px 0}
+.item-i-h{font-size:12.5px;font-weight:700;color:var(--blue);
+  letter-spacing:-.1px;margin-bottom:4px;line-height:1.4}
+.item-i-b{white-space:pre-line}
 .tag{display:inline-block;font-size:12.5px;padding:2px 8px;border-radius:4px;
   color:#fff;font-weight:600;letter-spacing:-.1px}
 .tag.ai{background:var(--ax-ai)} .tag.bigdata{background:var(--ax-bigdata)}
