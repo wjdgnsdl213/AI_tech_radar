@@ -888,8 +888,14 @@ def home(week: str = Query("")) -> dict[str, Any]:
         #   스케줄러가 "성공"으로 보고하면서 실제로는 아무것도 안 받는 상황이
         #   가능하므로(잠금 버그가 실제로 그랬다) 여기서 눈에 보이게 둔다.
         labels = CFG.get("source_labels") or {}
+        # ★ '지금도 수집하는 소스'만 지각을 경고한다.
+        #   sobiz_news는 자매 프로젝트에서 한 번 옮겨온 데이터라 sources 설정에
+        #   아예 없다. 그런데 마지막 수집일로만 판정하니 영구히 빨갛게 떴다 —
+        #   고칠 수 없는 경고가 늘 켜져 있으면 수집 현황 자체를 안 보게 된다.
+        live = {name for name, spec in (CFG.get("sources") or {}).items()
+                if (spec or {}).get("enabled")}
         health = [
-            {"source": s, "label": labels.get(s, s), "total": n,
+            {"source": s, "label": labels.get(s, s), "total": n, "live": s in live,
              "latest": str(p)[:10] if p else "", "collected": str(cl)[:10] if cl else ""}
             for s, n, p, cl in c.execute(
                 select(items.c.source, func.count(), func.max(items.c.published_at),

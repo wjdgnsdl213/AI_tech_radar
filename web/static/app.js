@@ -1164,10 +1164,14 @@ async function loadHome() {
     <tr><th>소스</th><th>누적</th><th>최근 발행</th><th>최근 수집</th></tr>` +
     (h.health || []).map(s => {
       const d = s.collected ? Math.round((today - new Date(s.collected)) / 86400000) : 999;
-      return `<tr><td><b>${esc(s.label || s.source)}</b></td><td>${num(s.total)}건</td>
+      // 지금도 수집하는 소스만 지각을 경고한다. 이관분은 갱신될 리 없어서
+      // 빨갛게 두면 고칠 수 없는 경고가 늘 켜져 있게 된다.
+      const late = s.live && d > 3;
+      return `<tr><td><b>${esc(s.label || s.source)}</b>
+          ${s.live ? '' : '<span class="rbadge">이관분</span>'}</td><td>${num(s.total)}건</td>
         <td>${esc(s.latest || '—')}</td>
-        <td class="${d > 3 ? 'stale' : ''}">${esc(s.collected || '—')}
-          ${d > 3 ? ` (${d}일 전)` : ''}</td></tr>`;
+        <td class="${late ? 'stale' : ''}">${esc(s.collected || '—')}
+          ${late ? ` (${d}일 전)` : ''}</td></tr>`;
     }).join('') + '</table>';
 }
 
