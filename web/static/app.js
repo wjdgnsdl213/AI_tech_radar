@@ -201,6 +201,7 @@ async function loadDigest(week) {
  * 조금만 바뀌어도 조용히 어긋난다. */
 let MONTHS = null;
 let CUR_WEEK = '';        // 지금 보고 있는 주차. 홈·이번 주가 같이 본다.
+const OPEN_MONTHS = 24;   // 주차까지 펴 두는 달 수 (그 이전은 '전체'만)
 
 async function loadWeekOptions(curWeek) {
   // 목록은 한 번만 받는다. 이 함수는 화면을 열 때마다 불리지만 왕복은 첫 번만이다.
@@ -208,12 +209,28 @@ async function loadWeekOptions(curWeek) {
   if (!MONTHS.length) return;
   if (curWeek) CUR_WEEK = curWeek;
   const sel = CUR_WEEK || (MONTHS[0].weeks[0] || {}).week || '';
-  $('#week-select').innerHTML = MONTHS.map(m => `
+  // ★ 최근 것만 주차까지 편다.
+  //   전부 펴면 450줄이라 스크롤이 길다. 뒤로 갈수록 주차 단위로 찾을 일이
+  //   줄고 달 단위로 훑게 되므로, 오래된 달은 '전체' 한 줄로만 둔다.
+  //   보고 있는 주차가 그 바깥이면 그 달은 예외로 펴 준다 — 안 그러면
+  //   선택창이 아무것도 안 고른 것처럼 비어 보인다.
+  const selMonth = (MONTHS.find(m => m.weeks.some(w => w.week === sel)) || {}).month;
+  const open = new Set(MONTHS.slice(0, OPEN_MONTHS).map(m => m.month));
+  if (selMonth) open.add(selMonth);
+
+  const rows = MONTHS.filter(m => open.has(m.month)).map(m => `
     <optgroup label="${esc(m.label)}">
       <option value="m:${esc(m.month)}">${esc(m.label)} 전체 (${num(m.n)})</option>
       ${m.weeks.map(w => `<option value="w:${esc(w.week)}"
         ${w.week === sel ? 'selected' : ''}>${esc(shortWeek(w.label))} (${num(w.n)})</option>`).join('')}
-    </optgroup>`).join('');
+    </optgroup>`);
+  const rest = MONTHS.filter(m => !open.has(m.month));
+  if (rest.length) {
+    rows.push(`<optgroup label="그 이전 — 달 단위">
+      ${rest.map(m => `<option value="m:${esc(m.month)}"
+        >${esc(m.label)} (${num(m.n)})</option>`).join('')}</optgroup>`);
+  }
+  $('#week-select').innerHTML = rows.join('');
 }
 
 // 'YYYY년 M월 N주차' → 'N주차'. 그룹 머리글이 이미 달을 말하고 있다.
