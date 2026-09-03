@@ -576,7 +576,7 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
         cur = c.execute(select(func.max(items.c.published_week))
                         .where(items.c.kept.is_(True))).scalar_one_or_none()
         if not cur:
-            return {"rows": [], "weeks": []}
+            return {"rows": [], "brief": "", "weeks": []}
         span = [cur, *prev_weeks(cur, max(0, weeks - 1))]
         rows = c.execute(
             select(kw_week.c.keyword, kw_week.c.week, kw_week.c.n)
@@ -601,7 +601,15 @@ def orgs(weeks: int = Query(8), limit: int = Query(40)) -> dict[str, Any]:
                     "series": [{"week": w, "label": week_label(w), "n": per.get(w, 0)}
                                for w in sorted(span)]})
     out.sort(key=lambda r: (-r["weeks"], -r["total"]))
-    return {"rows": out[:limit],
+    # 종합 글이 있으면 함께 낸다. 표는 '누가 몇 건'까지만 말하고 '무엇을 하고
+    # 있나'는 못 말한다 — 40곳을 곳마다 읽게 하는 대신 한 편으로 묶어 둔 것이다.
+    brief = ""
+    with get_engine().connect() as c:
+        body = c.execute(select(digests.c.body)
+                         .where(digests.c.week == cur)).scalar_one_or_none()
+    if isinstance(body, dict):
+        brief = body.get("org_brief") or ""
+    return {"rows": out[:limit], "brief": brief,
             "weeks": [{"week": w, "label": week_label(w)} for w in sorted(span)]}
 
 

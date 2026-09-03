@@ -1361,6 +1361,9 @@ $('#cross-axes').addEventListener('click', e => {
 async function loadOrgs() {
   const r = await api('/api/orgs', { weeks: 8, limit: 40 });
   $('#orgs-sub').textContent = `최근 8주 · ${r.rows.length}곳`;
+  // 종합 글은 있을 때만 띄운다 — 없는 달에 빈 카드가 남으면 고장으로 보인다
+  $('#orgs-brief-card').hidden = !r.brief;
+  if (r.brief) $('#orgs-brief').textContent = r.brief;
   if (!r.rows.length) { $('#orgs-body').innerHTML = await emptyOrBuilding('반복 등장한 기관이 없습니다.'); return; }
   const wk = r.weeks || [];
   const max = Math.max(1, ...r.rows.flatMap(x => x.series.map(s => s.n)));

@@ -687,6 +687,136 @@ def run_week_tasks(cfg: dict[str, Any], week: str | None = None) -> list[dict[st
     return tasks
 
 
+ORG_RULES = """\
+당신은 사내 AI·빅데이터팀에 **기관들의 움직임**을 정리해 주는 담당자다.
+최근 몇 주 동안 여러 기관이 무엇을 했는지 목록으로 받고, 그것을 종합한다.
+
+기관 목록을 그대로 되풀이하지 않는다. 목록은 이미 화면에 있다.
+당신이 할 일은 **여러 기관에 걸쳐 같은 방향으로 움직이는 것**을 찾는 일이다.
+
+써야 할 것:
+- 여러 기관이 동시에 하고 있는 일 (누가 하는지 기관명을 반드시 적는다)
+- 한 기관이 반복해서 밀고 있는 일
+- 기관 사이의 협약·연계
+
+주의:
+- 자료에 없는 사실을 만들지 않는다. 기관명과 사업명은 자료에 있는 그대로 쓴다.
+- 같은 기관이 이름이 갈려 나올 수 있다('거래위원회'와 '공정거래위원회',
+  '신용보증재단'과 '지역신용보증재단'). 같은 곳이면 온전한 이름으로 합쳐 쓴다.
+- "도입해야 한다" 같은 결론을 내리지 않는다. 무엇이 일어나고 있는지까지만 쓴다.
+
+출력 형식 (이 형식만 쓴다):
+- 각 줄은 `· `로 시작한다. **4~6줄.**
+- 줄 하나는 70~110자.
+- 머리말·맺음말·마크다운을 붙이지 않는다."""
+
+
+def run_org_brief(cfg: dict[str, Any], week: str | None = None,
+                  weeks: int = 8, top: int = 40,
+                  dry_run: bool = False) -> str | None:
+    """기관들의 움직임을 한 편으로 종합해 digests.body['org_brief']에 저장한다.
+
+    ★ 왜 기관마다가 아니라 종합인가
+      기관이 40곳이다. 곳마다 3줄이면 120줄이라, 그건 목록의 다른 형태일 뿐
+      읽히지 않는다. 값은 **여러 기관을 가로질러 볼 때** 생긴다 —
+      "누가 같은 방향으로 움직이는가"는 한 기관만 봐서는 안 보인다.
+
+    ★ 덤으로 조각난 기관명이 합쳐진다.
+      추출기가 n-gram으로 뽑다 보니 '거래위원회'와 '공정거래위원회',
+      '신용보증재단'과 '지역신용보증재단'이 따로 잡힌다. 표에서는 못 합치지만
+      글로 쓰면 모델이 온전한 이름으로 묶는다.
+
+    재료는 제목만이다(209건 약 3,700토큰). 요약까지 넣으면 열 배가 되는데,
+    "누가 무엇을 했나"는 제목에 거의 다 들어 있다.
+    """
+    from web.api import _org_items, orgs as _orgs
+
+    icfg = cfg["insight"]
+    model = icfg.get("l3_model", icfg["l2_model"])
+    profile = load_team_profile(icfg.get("team_profile_path", ""))
+
+    engine = get_engine()
+    with engine.connect() as conn:
+        week = week or conn.execute(
+            select(func.max(items.c.published_week))
+            .where(items.c.kept.is_(True))).scalar_one_or_none()
+    if not week:
+        print("  통과 항목이 없습니다")
+        return None
+
+    rows = _orgs(weeks, top).get("rows", [])
+    if not rows:
+        print("  기관이 없습니다")
+        return None
+
+    NL = chr(10)
+    parts = [f"[최근 {weeks}주 기관별 등장 기사]"]
+    n_title = 0
+    for r in rows:
+        # 최근 2개 주차만 본다 — 8주치를 다 넣으면 '지금 무엇을 하는가'가 흐려진다
+        wk = [s["week"] for s in r["series"] if s["n"]][-2:]
+        titles = []
+        for w in wk:
+            titles += [it["title"] for it in _org_items(r["keyword"], w, 3)["items"]]
+        if not titles:
+            continue
+        parts.append(f"■ {r['keyword']} ({r['total']}건 / {r['weeks']}주)")
+        parts += [f"  - {t}" for t in titles]
+        n_title += len(titles)
+    user_text = NL.join(parts)
+    print(f"  {week}  |  기관 {len(rows)}곳 · 제목 {n_title}건  |  모델 {model}")
+
+    if dry_run:
+        print(NL + "  ── 기관 종합 프롬프트 ──" + NL + user_text[:1000])
+        return None
+
+    client = build_client()
+    if client is None:
+        if icfg.get("fail_open", True):
+            print("  ⏭ 기관 종합 없이 진행합니다 (fail_open)")
+            return None
+        sys.exit("ANTHROPIC_API_KEY가 없습니다.")
+
+    try:
+        msg = client.messages.create(
+            model=model, max_tokens=int(icfg.get("l3_max_tokens", 4000)),
+            thinking={"type": "adaptive"},
+            system=_system_blocks(ORG_RULES, profile),
+            messages=[{"role": "user", "content": user_text}])
+    except Exception as exc:
+        print(f"  ⚠ 기관 종합 실패: {type(exc).__name__}: {str(exc)[:120]}")
+        if icfg.get("fail_open", True):
+            return None
+        raise
+
+    brief = _text_of(msg)
+    if not brief:
+        print("  ⚠ 빈 응답")
+        return None
+
+    with engine.begin() as conn:
+        exists = conn.execute(select(digests.c.week)
+                              .where(digests.c.week == week)).first()
+        if exists:
+            cur = conn.execute(select(digests.c.body)
+                               .where(digests.c.week == week)).scalar_one()
+            body = dict(cur) if isinstance(cur, dict) else {}
+            body["org_brief"] = brief
+            conn.execute(digests.update().where(digests.c.week == week)
+                         .values(body=body))
+        else:
+            conn.execute(digests.insert().values(
+                week=week, body={"org_brief": brief},
+                generated_at=datetime.now(timezone.utc)))
+
+    inp, out = PRICING.get(model, (2.0, 10.0))
+    cost = (msg.usage.input_tokens * inp + msg.usage.output_tokens * out) / 1_000_000
+    print(NL + "  ── 기관 움직임 ──" + NL + brief + NL)
+    print(f"  토큰 입력 {msg.usage.input_tokens:,} / 출력 {msg.usage.output_tokens:,}"
+          f"  ≈ ${cost:.4f}")
+    return brief
+
+
 def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     """한 달치 흐름을 만들어 digests(week='YYYY-MM')에 저장한다.
 
@@ -817,6 +947,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="L1 처리 상한 (테스트용)")
     parser.add_argument("--workers", type=int, default=4, help="L1 동시 호출 수")
     parser.add_argument("--l3", action="store_true", help="월간 리뷰만")
+    parser.add_argument("--orgs", action="store_true", help="기관 움직임 종합만")
     parser.add_argument("--month", default=None, help="L3 대상 월 (예: 2026-08)")
     parser.add_argument("--reg", action="store_true",
                         help="법령·규제 항목에 요약을 붙인다 (규제 전용 프롬프트)")
@@ -833,8 +964,12 @@ def main() -> None:
 
     # --reg는 법령 항목만 다루므로 L1 전용이다. 주간 흐름(L2)은 뉴스 기반이라
     # 여기서 같이 돌면 규제 실행마다 주간 요약이 덮어써진다.
-    do_l1 = args.l1 or args.reg or not (args.l2 or args.l3)
-    do_l2 = args.l2 or not (args.l1 or args.reg or args.l3)
+    # ★ 새 단계를 넣을 때 이 두 줄을 같이 고쳐야 한다. 안 그러면 '그 단계만'
+    #   돌리려는 실행에서 L1·L2가 딸려 돈다 — --orgs 하나에 300건 해설이
+    #   같이 돌아 $0.6이 나갔다.
+    only = args.l1 or args.reg or args.l2 or args.l3 or args.orgs
+    do_l1 = args.l1 or args.reg or not only
+    do_l2 = args.l2 or not only
     do_l3 = args.l3
 
     if do_l1:
@@ -850,6 +985,11 @@ def main() -> None:
         #   행까지 남겼다(실측: 2026-W34에 lead 없는 행이 생겼다).
         if not args.dry_run:
             run_week_tasks(cfg, args.week)
+
+    if args.orgs:
+        print(chr(10) + "==============================================================" + chr(10)
+              + "기관 움직임 종합" + chr(10) + "==============================================================")
+        run_org_brief(cfg, dry_run=args.dry_run)
 
     if do_l3:
         print('\n' + '=' * 62 + '\n' + 'L3 — 월간 리뷰' + '\n' + '=' * 62)
