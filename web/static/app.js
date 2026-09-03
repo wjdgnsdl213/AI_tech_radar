@@ -346,6 +346,34 @@ $('#axis-chips').onclick = e => {
   if (b) { activeAxis = b.dataset.axis; renderDigest(); }
 };
 
+/* 관심 키워드 — 통계로 못 잡는 것을 잡는 자리.
+   급상승은 건수 기반이라 '적게 보도되지만 중요한' 건을 영영 못 띄운다.
+   등록해 둔 말은 건수와 무관하게 여기 걸린다. */
+async function loadWatch() {
+  let w;
+  try { w = await api('/api/watch'); }
+  catch (e) { $('#home-watch').innerHTML = '<div class="empty">불러오지 못했습니다.</div>'; return; }
+  $('#watch-sub').textContent = w.keywords.length
+    ? `최근 ${w.days}일 · ${w.keywords.length}개 등록 · ${num(w.total)}건`
+    : '';
+  if (!w.keywords.length) {
+    $('#home-watch').innerHTML = '<div class="empty">'
+      + 'config.yaml의 <b>alerts.keywords</b>에 지켜볼 말을 적으면 여기 뜹니다.</div>';
+    return;
+  }
+  if (!w.groups.length) {
+    $('#home-watch').innerHTML = `<div class="empty">최근 ${w.days}일간 걸린 항목이 없습니다.</div>`;
+    return;
+  }
+  $('#home-watch').innerHTML = w.groups.map(g => `<div class="trend-g">
+      <div class="trend-g-h">${esc(g.keyword)} <span class="n">${g.rows.length}건</span></div>
+      ${g.rows.slice(0, 4).map(r => `<div class="hrow">
+          <span class="k" data-item="${r.id}">${esc(r.title)}</span>
+          ${r.is_reg ? '<span class="rbadge">법령</span>' : ''}
+          <span class="n">${esc(r.published)}</span></div>`).join('')}
+    </div>`).join('');
+}
+
 /* ── ② 검색 ── */
 const params = () => ({
   q: $('#f-q').value.trim(), axis: $('#f-axis').value,
@@ -1156,6 +1184,7 @@ async function loadHome() {
   $('#home-trend').innerHTML = trendGroupsHTML(h.trend_groups, true);
 
   loadMonth();      // 별도 호출 — 월간은 홈보다 훨씬 덜 바뀐다
+  loadWatch();      // 관심 키워드도 별도 — 홈 응답을 더 무겁게 하지 않는다
   $('#home-reg').innerHTML = regHTML(h.regulatory || [], true);
   $('#home-cross').innerHTML = (h.crossing || []).length
     ? `<div class="items" style="padding:0;border:0;margin:0">
@@ -1288,43 +1317,16 @@ $('#month-select').onchange = e => loadMonth(e.target.value);
  * 페이지 CSS와도 섞이지 않게 한다(메일은 인라인 스타일만 쓴다).
  * 수신자·키워드는 읽기 전용이다. 이 화면에는 로그인이 없어서, 같은 망의
  * 누구나 수신자를 고칠 수 있으면 안 된다. */
-async function loadNews() {
-  const n = await api('/api/newsletter');
-  $('#nl-week').textContent = n.week_label || '';
-  $('#nl-subject').textContent = n.subject || '';
-  const f = $('#nl-frame');
-  f.srcdoc = n.preview || '<p style="font-family:sans-serif;color:#64748b">'
-    + '보낼 내용이 아직 없습니다.</p>';
-
-  const s = n.smtp;
-  $('#nl-smtp').innerHTML = `
-    <div class="hrow"><span>상태</span><span class="n">
-      ${s.configured ? '<b style="color:#15803d">설정됨</b>'
-                     : '<b style="color:#b91c1c">미설정 — 발송 안 됨</b>'}</span></div>
-    <div class="hrow"><span>서버</span><span class="n">${esc(s.host || '—')}:${esc(s.port)}</span></div>
-    <div class="hrow"><span>보내는 사람</span><span class="n">${esc(s.from || '—')}</span></div>
-    <div class="hrow"><span>받는 사람</span><span class="n">${
-      s.to.length ? s.to.map(esc).join('<br>') : '—'}</span></div>
-    <div class="hrow"><span>발송 시각</span><span class="n">${esc(n.schedule.digest)}</span></div>
-    ${s.configured ? '' : `<div class="mut" style="margin-top:10px">
-      .env의 SMTP_HOST · SMTP_USER · SMTP_PASSWORD · MAIL_TO를 채우면 발송됩니다.</div>`}`;
-
-  const a = n.alerts;
-  $('#nl-alerts').innerHTML = `
-    <div class="hrow"><span>상태</span><span class="n">${a.enabled ? '켜짐' : '꺼짐'}</span></div>
-    <div class="hrow"><span>범위</span><span class="n">최근 ${a.days}일</span></div>
-    <div class="hrow"><span>발송 시각</span><span class="n">${esc(n.schedule.alert)}</span></div>
-    <div class="chip-row" style="margin-top:12px">
-      ${a.keywords.map(k => `<span class="chip">${esc(k)}</span>`).join('')
-        || '<span class="mut">등록된 키워드가 없습니다</span>'}</div>
-    <div class="mut" style="margin-top:10px">config.yaml의 alerts.keywords에서 바꿉니다.</div>`;
-}
 
 /* ── 교차 ────────────────────────────────────────────────────────
  * "팀의 업무는 세 축의 교집합에 있다"가 이 도구의 전제인데(CLAUDE.md),
  * 정작 교집합은 다이제스트 다섯 칸에만 보였다. 그 주에 30건이 있어도 5건만
  * 나오고 나머지는 어디에서도 볼 수 없었다. 여기서 전부 본다. */
-let CROSS_AXES = 2;   // '정확히 N축'. API 파라미터 이름도 axes다.
+// ★ 기본을 3축으로 둔다. 필터를 축 기준으로 바꾸며 통과분이 8.8배 늘어난 뒤
+//   2축이 1,888건이 됐다 — '교집합'이라는 이름이 무색하고, 열자마자 80건을
+//   훑어야 해서 무엇을 보라는 화면인지 알 수 없다. 3축은 64건이라 다 볼 수 있다.
+//   2축은 칩으로 그대로 남는다.
+let CROSS_AXES = 3;   // '정확히 N축'. API 파라미터 이름도 axes다.
 
 async function loadCross() {
   $('#cross-body').innerHTML = '<div class="empty">불러오는 중…</div>';
@@ -1452,7 +1454,6 @@ document.body.addEventListener('click', e => {
 const LOADERS = {
   analysis: () => {},          // 서브탭은 showTab이 정한다
   month: () => {},             // 달은 showTab이 매번 다시 그린다
-  news: loadNews,
   home: loadHome, reg: loadReg,
   digest: () => loadDigest(CUR_WEEK), search: initSearch, graph: loadGraph, trend: loadTrend,
 };

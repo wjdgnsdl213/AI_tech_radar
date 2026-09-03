@@ -120,9 +120,11 @@ def digest(week: str = Query("")) -> dict[str, Any]:
     if not week:
         return {"week": None, "empty": True}
     d = build(week, CFG)
-    sections = [{"key": "crossing", "label": "🔥 교집합", "items": d["crossing"]}]
+    # 이모지를 쓰지 않는다. 이번 주 탭은 본문 제목도 아이콘도 없는 규칙으로
+    # 통일했는데(사용자 요청), 여기만 🔥·⚠️가 남아 한 화면에 두 규칙이 섞였다.
+    sections = [{"key": "crossing", "label": "교집합", "items": d["crossing"]}]
     if d["regulatory"]:
-        sections.append({"key": "regulatory", "label": "⚠️ 규제 알림",
+        sections.append({"key": "regulatory", "label": "규제 알림",
                          "items": d["regulatory"]})
     for ax, ps in d["by_axis"].items():
         sections.append({"key": ax, "label": LABELS.get(ax, ax), "items": ps})
@@ -932,52 +934,43 @@ def home(week: str = Query("")) -> dict[str, Any]:
     }
 
 
-@router.get("/newsletter")
-def newsletter(week: str = Query("")) -> dict[str, Any]:
-    """뉴스레터 상태와 **실제로 나갈 메일 그대로**의 미리보기.
+# ── /newsletter 화면은 걷어냈다 ──────────────────────────────────
+# 보낼 수 없는 메일의 미리보기였다(smtp.configured=False). 메뉴에서는 이미
+# 내려가 있었고 패널·로더만 죽은 채로 남아 있었다.
+# 메일 발송 경로는 src/mailer.py(CLI)라 이 화면과 무관하게 살아 있다.
+# 여기 묻혀 있던 alerts.keywords는 아래 /watch로 끌어올렸다 — 설정에만 있고
+# 화면에 없어서, 이미 동작하는 기능을 아무도 못 보고 있었다.
 
-    ★ 지금까지는 메일이 어떻게 생겼는지 확인하려면 CLI를 돌려야 했다.
-      보내기 전에 눈으로 볼 수 없는 발송물은 언젠가 이상한 채로 나간다.
-      digest.render_html(mail=True)를 그대로 부른다 — 미리보기용 코드를 따로
-      두면 실제 메일과 갈라진다.
 
-    ★ 수신자·키워드는 **읽기 전용**이다.
-      이 화면에는 로그인이 없다. 같은 망에 있는 누구나 열 수 있는 화면에서
-      수신자를 고칠 수 있으면 안 된다. 바꾸는 건 .env와 config.yaml에서 한다.
+@router.get("/watch")
+def watch(days: int = Query(0)) -> dict[str, Any]:
+    """관심 키워드에 걸린 최근 항목.
+
+    ★ 통계로는 못 잡는 것을 잡는 자리다.
+      급상승은 건수 기반이라 '적게 보도되지만 중요한' 건을 영영 못 띄운다 —
+      Claude Fable 5.1 공개가 그 주에 5건뿐이라 순위 밖이었다(실측).
+      등록해 둔 말은 건수와 무관하게 걸린다.
+
+    ★ kept로 거르지 않는다. 관심 키워드는 사용자가 직접 적은 신호라
+      통계 필터보다 위다. find_hits가 규제 소스도 함께 본다.
     """
-    import os
+    from src.alerts import find_hits
 
-    from src.digest import SERVICE_NAME, build, latest_week, render_html
-
-    with get_engine().connect() as c:
-        week = week or latest_week(c) or ""
-    preview, subject = "", ""
-    if week:
-        d = build(week, CFG)
-        preview = render_html(d, mail=True, web_url=os.getenv("WEB_BASE_URL") or None)
-        # mailer가 만드는 제목과 같은 형식이어야 미리보기의 뜻이 있다
-        subject = f"[{SERVICE_NAME}] {week_label(week)} — 교집합 {len(d['crossing'])}건"
-
-    to = [x.strip() for x in (os.getenv("MAIL_TO") or "").replace(";", ",").split(",")
-          if x.strip()]
     acfg = CFG.get("alerts") or {}
-    return {
-        "week": week, "week_label": week_label(week) if week else "",
-        "subject": subject, "preview": preview,
-        "smtp": {
-            "configured": bool(os.getenv("SMTP_HOST")) and bool(to),
-            "host": os.getenv("SMTP_HOST") or "",
-            "port": os.getenv("SMTP_PORT") or "587",
-            "from": os.getenv("MAIL_FROM") or os.getenv("SMTP_USER") or "",
-            "to": to,
-        },
-        "alerts": {
-            "enabled": bool(acfg.get("enabled", True)),
-            "days": int(acfg.get("days", 7)),
-            "keywords": [k for k in (acfg.get("keywords") or []) if str(k).strip()],
-        },
-        "schedule": {"digest": "매주 월요일 07:30", "alert": "매일 06:00"},
-    }
+    kws = [k for k in (acfg.get("keywords") or []) if str(k).strip()]
+    days = int(days) or int(acfg.get("days", 7))
+    if not kws:
+        return {"days": days, "keywords": [], "groups": [], "total": 0}
+    try:
+        # seen을 비워 넘긴다 — 화면은 '아직 안 알린 것'이 아니라 '최근 걸린 것' 전부다
+        hits = find_hits(CFG, kws, days, set())
+    except Exception as exc:
+        return {"days": days, "keywords": kws, "groups": [], "total": 0,
+                "error": str(exc)[:120]}
+    groups = [{"keyword": k, "rows": v} for k, v in hits.items() if v]
+    groups.sort(key=lambda g: -len(g["rows"]))
+    return {"days": days, "keywords": kws, "groups": groups,
+            "total": sum(len(g["rows"]) for g in groups)}
 
 
 @router.get("/index_status")
