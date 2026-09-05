@@ -12,13 +12,13 @@
 
 | # | 제목 | 심각도 | 파일 | 상태 |
 |---|---|---|---|---|
-| [001](001-motion-tokens-and-reduced-motion.md) | 모션 토큰과 감쇠 기반을 깐다 | MEDIUM | css | **적용됨 · 눈확인 대기** |
-| [002](002-drawer-enter-exit.md) | 기사 서랍에 열기·닫기 모션 | MEDIUM | css + js | **적용됨 · 눈확인 대기** |
-| [003](003-modal-enter-exit.md) | 급상승 팝업에 열기·닫기 모션 | MEDIUM | css + js | **적용됨 · 눈확인 대기** |
-| [004](004-graph-zoom-continuity.md) | 연관어 지도의 버튼 줌을 잇는다 | MEDIUM | js | **적용됨 · 눈확인 대기** |
-| [005](005-mobile-scrim-matches-panel.md) | 모바일 메뉴 배경을 패널과 같이 | MEDIUM | css | **적용됨 · 눈확인 대기** |
-| [006](006-press-feedback-and-transition-all.md) | 눌림 반응 + `transition: all` 제거 | MEDIUM | css | **적용됨 · 눈확인 대기** |
-| [007](007-relayout-return-tween.md) | '배치 되돌리기'를 미끄러지게 | LOW | js | **적용됨 · 눈확인 대기** |
+| [001](001-motion-tokens-and-reduced-motion.md) | 모션 토큰과 감쇠 기반을 깐다 | MEDIUM | css | **DONE (c2b8297)** |
+| [002](002-drawer-enter-exit.md) | 기사 서랍에 열기·닫기 모션 | MEDIUM | css + js | **DONE (c2b8297)** |
+| [003](003-modal-enter-exit.md) | 급상승 팝업에 열기·닫기 모션 | MEDIUM | css + js | **DONE (c2b8297)** |
+| [004](004-graph-zoom-continuity.md) | 연관어 지도의 버튼 줌을 잇는다 | MEDIUM | js | **DONE (c2b8297)** |
+| [005](005-mobile-scrim-matches-panel.md) | 모바일 메뉴 배경을 패널과 같이 | MEDIUM | css | **DONE (c2b8297)** |
+| [006](006-press-feedback-and-transition-all.md) | 눌림 반응 + `transition: all` 제거 | MEDIUM | css | **DONE (c2b8297)** |
+| [007](007-relayout-return-tween.md) | '배치 되돌리기'를 미끄러지게 | LOW | js | **DONE (c2b8297)** |
 
 ## 실행 기록
 
