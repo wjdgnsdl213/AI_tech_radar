@@ -14,11 +14,11 @@
 |---|---|---|---|---|
 | [001](001-motion-tokens-and-reduced-motion.md) | 모션 토큰과 감쇠 기반을 깐다 | MEDIUM | css | **적용됨 · 눈확인 대기** |
 | [002](002-drawer-enter-exit.md) | 기사 서랍에 열기·닫기 모션 | MEDIUM | css + js | **적용됨 · 눈확인 대기** |
-| [003](003-modal-enter-exit.md) | 급상승 팝업에 열기·닫기 모션 | MEDIUM | css + js | TODO |
-| [004](004-graph-zoom-continuity.md) | 연관어 지도의 버튼 줌을 잇는다 | MEDIUM | js | TODO |
-| [005](005-mobile-scrim-matches-panel.md) | 모바일 메뉴 배경을 패널과 같이 | MEDIUM | css | TODO |
-| [006](006-press-feedback-and-transition-all.md) | 눌림 반응 + `transition: all` 제거 | MEDIUM | css | TODO |
-| [007](007-relayout-return-tween.md) | '배치 되돌리기'를 미끄러지게 | LOW | js | TODO |
+| [003](003-modal-enter-exit.md) | 급상승 팝업에 열기·닫기 모션 | MEDIUM | css + js | **적용됨 · 눈확인 대기** |
+| [004](004-graph-zoom-continuity.md) | 연관어 지도의 버튼 줌을 잇는다 | MEDIUM | js | **적용됨 · 눈확인 대기** |
+| [005](005-mobile-scrim-matches-panel.md) | 모바일 메뉴 배경을 패널과 같이 | MEDIUM | css | **적용됨 · 눈확인 대기** |
+| [006](006-press-feedback-and-transition-all.md) | 눌림 반응 + `transition: all` 제거 | MEDIUM | css | **적용됨 · 눈확인 대기** |
+| [007](007-relayout-return-tween.md) | '배치 되돌리기'를 미끄러지게 | LOW | js | **적용됨 · 눈확인 대기** |
 
 ## 실행 기록
 
@@ -30,6 +30,21 @@
     002·003의 Target 코드를 고쳤다(`drawerClose` 핸들 + `e.target !== p` 가드).
     003은 같은 패턴을 베끼게 돼 있어서 함께 고쳤다 — **003을 실행하기 전에
     반드시 갱신된 Target을 쓸 것.**
+- **2026-09-06 · 003 적용.** 같은 워크트리에서 이어서 실행 — 001·002가 이미
+  있어 003이 필요로 하는 토큰과 `.in` 패턴을 그대로 썼다. 수정된 `modalClose`
+  가드 패턴을 처음부터 정확히 구현했다(재사용 시 결함 없음). 워크트리 diff를
+  main 트리와 직접 비교해 001·002 부분에 드리프트가 없음을 확인한 뒤 반영.
+- **2026-09-06 · 004·007·005·006 적용.** 같은 워크트리에서 순서대로 이어서
+  실행 — JS 구역(004→007)과 CSS 구역(005→006)을 각각 계획서가 지정한 순서로
+  진행했다. 매 단계 워크트리와 main 트리를 직접 diff로 비교해 이전 단계
+  코드에 드리프트가 없는지 확인한 뒤 반영했다. 네 계획서 모두 코드 검토에서
+  결함 없이 통과했다 — `.gnode`·`.glabel`에 CSS transition을 걸지 않고
+  rAF 보간을 쓴 것(004·007), `:active` 예외 목록이 좌측 메뉴·링크형 버튼을
+  정확히 제외한 것(006), `.navscrim{display:none}`(데스크톱 규칙)이
+  그대로 남은 것(005)을 모두 코드로 확인했다.
+- **7건 전부 작업트리에 적용됨. 커밋은 하지 않았다.** 사람 눈확인이 아직이라
+  (각 계획서 Verification의 시각·조작 확인 항목) 커밋을 보류한다. 워크트리
+  `agent-aa871b063a6a49755`는 재사용 목적을 다했으므로 정리해도 된다.
 
 ## 실행 순서
 

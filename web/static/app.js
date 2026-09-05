@@ -690,9 +690,38 @@ function moveNode(kw, x, y) {
   });
 }
 
+/* 배치 되돌리기.
+   ★ CSS transition을 쓸 수 없다. moveNode가 간선의 x1/y1/x2/y2를 attribute로
+     직접 쓰는데, .gnode에만 전환을 걸면 점과 라벨만 미끄러지고 선은 튀어서
+     움직이는 동안 선이 점에서 떨어진다. 게다가 moveNode는 노드를 끌 때
+     매 프레임 불리므로(onPointerMove) 전환을 걸면 끌기가 손보다 늦어진다.
+     그래서 좌표를 여기서 보간하고 moveNode는 그대로 부른다 — 간선도 같이 온다. */
+let layoutAnim = null;
+
+function cancelLayoutAnim() {
+  if (layoutAnim) { cancelAnimationFrame(layoutAnim); layoutAnim = null; }
+}
+
 function resetLayout() {
   if (!LAYOUT) return;
-  Object.keys(LAYOUT.home).forEach(kw => moveNode(kw, ...LAYOUT.home[kw]));
+  cancelLayoutAnim();
+  const keys = Object.keys(LAYOUT.home);
+  const jump = () => keys.forEach(kw => moveNode(kw, ...LAYOUT.home[kw]));
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { jump(); return; }
+
+  const from = {};
+  keys.forEach(kw => { const p = LAYOUT.pos[kw]; if (p) from[kw] = [p[0], p[1]]; });
+  const t0 = performance.now(), ms = 320;
+  const step = now => {
+    const p = Math.min(1, (now - t0) / ms), k = 1 - Math.pow(1 - p, 3);   // ease-out
+    keys.forEach(kw => {
+      const a = from[kw], b = LAYOUT.home[kw];
+      if (!a) return;
+      moveNode(kw, a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k);
+    });
+    layoutAnim = p < 1 ? requestAnimationFrame(step) : null;
+  };
+  layoutAnim = requestAnimationFrame(step);
 }
 
 /* ── 지도 조작 ──────────────────────────────────────────────────
@@ -713,12 +742,44 @@ function applyView() {
 
 /** fx,fy = 화면상의 고정점(0~1). 그 지점이 제자리에 남도록 확대한다 —
  *  커서 아래를 보고 있다가 휠을 굴렸는데 딴 데로 튀면 길을 잃는다. */
-function zoomBy(k, fx = .5, fy = .5) {
-  if (!VIEW) return;
+function viewFor(k, fx = .5, fy = .5) {
   const w = Math.min(BASE.w * 1.2, Math.max(BASE.w * .12, VIEW.w / k));
   const h = VIEW.h * (w / VIEW.w);
-  VIEW = { x: VIEW.x + (VIEW.w - w) * fx, y: VIEW.y + (VIEW.h - h) * fy, w, h };
+  return { x: VIEW.x + (VIEW.w - w) * fx, y: VIEW.y + (VIEW.h - h) * fy, w, h };
+}
+
+/* 휠 줌 — 손가락이 곧 속도다. 보간하면 오히려 밀린다. */
+function zoomBy(k, fx = .5, fy = .5) {
+  if (!VIEW) return;
+  cancelZoom();
+  VIEW = viewFor(k, fx, fy);
   applyView();
+}
+
+/* ★ viewBox는 attribute라서 CSS transition이 안 걸린다. 값을 직접 보간한다.
+   곡선은 --ease-out(cubic-bezier(0.23,1,0.32,1))과 같은 성격의
+   3차 ease-out이다 — 빨리 출발해서 부드럽게 선다. */
+let zoomAnim = null;
+function cancelZoom() {
+  if (zoomAnim) { cancelAnimationFrame(zoomAnim); zoomAnim = null; }
+}
+
+function animateView(to, ms = 200) {
+  if (!VIEW) return;
+  cancelZoom();
+  // 움직임을 줄이도록 설정했으면 그냥 옮긴다
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    VIEW = to; applyView(); return;
+  }
+  const from = { ...VIEW }, t0 = performance.now();
+  const step = now => {
+    const p = Math.min(1, (now - t0) / ms), k = 1 - Math.pow(1 - p, 3);
+    VIEW = { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k,
+             w: from.w + (to.w - from.w) * k, h: from.h + (to.h - from.h) * k };
+    applyView();
+    zoomAnim = p < 1 ? requestAnimationFrame(step) : null;
+  };
+  zoomAnim = requestAnimationFrame(step);
 }
 
 const MAP = $('#graph-svg');
@@ -763,6 +824,8 @@ function onPointerUp() {
 
 MAP.addEventListener('pointerdown', e => {
   if (!VIEW || e.button) return;
+  cancelZoom();                             // 돌던 줌 보간을 끊는다
+  cancelLayoutAnim();                       // 되돌아가는 중이면 끊는다
   const r = MAP.getBoundingClientRect();
   if (!r.width || !r.height) return;
   moved = 0;
@@ -784,7 +847,8 @@ $('#graph-tools').addEventListener('click', e => {
   const b = e.target.closest('[data-zoom]');
   if (!b || !VIEW) return;
   const d = +b.dataset.zoom;
-  if (d === 0) { VIEW = { ...BASE }; applyView(); } else zoomBy(d > 0 ? 1.35 : 1 / 1.35);
+  if (d === 0) animateView({ ...BASE });
+  else animateView(viewFor(d > 0 ? 1.35 : 1 / 1.35));
 });
 
 /* 클릭 = 이 키워드의 기사를 옆에 띄운다 (망은 그대로).
@@ -1048,9 +1112,49 @@ function miniNet(g) {
 
 let MSERIES = null, MKW = '';     // 예시 토글이 다시 그릴 때 쓴다
 
+/* 팝업 여닫기 — 서랍(openDrawer/closeDrawer)과 같은 방식이다.
+   ★ hidden=false 직후 바로 .in을 붙이면 두 상태가 한 번에 계산돼 전환이 생략된다.
+     사이에 강제 리플로우를 한 번 끼워 끊어 준다. */
+let modalClose = null;              // 닫는 중이면 {b, done, t}
+
+function openModal() {
+  const m = $('#kwmodal');
+  /* ★ 닫는 중이었으면 그 예약을 먼저 거둔다.
+     안 거두면 다시 연 뒤에 남아 있던 setTimeout·transitionend가 발동해서
+     열린 팝업이 이유 없이 사라진다 (닫고 260ms 안에 다른 키워드를 누르면 재현). */
+  if (modalClose) {
+    clearTimeout(modalClose.t);
+    modalClose.b.removeEventListener('transitionend', modalClose.done);
+    modalClose = null;
+  }
+  m.hidden = false;
+  void m.offsetWidth;
+  m.classList.add('in');
+}
+
+function closeModal() {
+  const m = $('#kwmodal');
+  if (m.hidden || modalClose) return;
+  m.classList.remove('in');
+  const b = m.querySelector('.modal-box');
+  const done = e => {
+    /* ★ transitionend는 버블링한다. 팝업 안에는 전환이 걸린 자식이 있다
+       (.spark·.preset 등, style.css:147의 button 규칙). 패널 자신의 것만 센다.
+       .modal-box는 opacity·transform 둘 다 전환하므로 두 번 뜨는데,
+       아래에서 리스너를 바로 떼므로 두 번째는 무시된다. */
+    if (e && e.target !== b) return;
+    clearTimeout(modalClose.t);
+    b.removeEventListener('transitionend', done);
+    modalClose = null;
+    m.hidden = true;
+  };
+  modalClose = { b, done, t: setTimeout(done, 260) };
+  b.addEventListener('transitionend', done);
+}
+
 async function showKeywordModal(kw) {
   MKW = kw;
-  $('#kwmodal').hidden = false;
+  openModal();
   $('#m-title').textContent = kw;
   $('#m-sub').textContent = '';
   $('#m-demo').innerHTML = '';
@@ -1104,8 +1208,49 @@ document.body.addEventListener('click', e => {
   if (b) { e.preventDefault(); showKeywordModal(b.dataset.kwpop); }
   const d = e.target.closest('[data-demo]');
   if (d) renderMChart(d.dataset.demo === '1');
-  if (e.target.closest('[data-mclose]')) $('#kwmodal').hidden = true;
+  if (e.target.closest('[data-mclose]')) closeModal();
 });
+
+/* 서랍 여닫기.
+   ★ hidden=false 직후에 바로 .in을 붙이면 브라우저가 두 상태를 한 번에 계산해서
+     전환이 통째로 생략된다. 사이에 한 번 강제로 레이아웃을 읽어 끊어 준다. */
+let drawerClose = null;             // 닫는 중이면 {p, done, t}
+
+function openDrawer() {
+  const d = $('#drawer');
+  /* ★ 닫는 중이었으면 그 예약을 먼저 거둔다.
+     안 거두면 다시 연 뒤에 남아 있던 setTimeout·transitionend가 발동해서
+     활짝 열린 서랍이 이유 없이 사라진다 (닫고 420ms 안에 다시 열면 재현). */
+  if (drawerClose) {
+    clearTimeout(drawerClose.t);
+    drawerClose.p.removeEventListener('transitionend', drawerClose.done);
+    drawerClose = null;
+  }
+  d.hidden = false;
+  void d.offsetWidth;               // 강제 리플로우 — 이 줄이 없으면 안 움직인다
+  d.classList.add('in');
+}
+
+function closeDrawer() {
+  const d = $('#drawer');
+  if (d.hidden || drawerClose) return;
+  d.classList.remove('in');
+  const p = d.querySelector('.drawer-panel');
+  // 전환이 끝나야 display:none으로 치운다. 감쇠 설정 등으로 transitionend가
+  // 안 뜨는 경우를 대비해 시간 제한도 같이 건다.
+  const done = e => {
+    /* ★ transitionend는 버블링한다. 서랍 안에는 전환이 걸린 자식이 있다
+       (.drawer-x는 style.css의 button 규칙에 걸려 background가 전환된다).
+       그것까지 받으면 엉뚱한 때 닫힌다. 패널 자신의 전환만 센다. */
+    if (e && e.target !== p) return;
+    clearTimeout(drawerClose.t);
+    p.removeEventListener('transitionend', done);
+    drawerClose = null;
+    d.hidden = true;
+  };
+  drawerClose = { p, done, t: setTimeout(done, 420) };
+  p.addEventListener('transitionend', done);
+}
 
 /* ── 공통 클릭 ── */
 document.body.addEventListener('click', async e => {
@@ -1142,12 +1287,12 @@ document.body.addEventListener('click', async e => {
       ${isLaw ? '' : `<div class="sec-title">비슷한 기사</div>
       <div class="items" style="padding:0;box-shadow:none;margin:0">
         ${(d.related || []).map(itemHTML).join('') || '<div class="empty">없습니다.</div>'}</div>`}`;
-    $('#drawer').hidden = false;
+    openDrawer();
   }
-  if (e.target.closest('[data-close]')) $('#drawer').hidden = true;
+  if (e.target.closest('[data-close]')) closeDrawer();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { $('#drawer').hidden = true; $('#kwmodal').hidden = true; }
+  if (e.key === 'Escape') { closeDrawer(); closeModal(); }
 });
 
 /* ── 시작 ── */
