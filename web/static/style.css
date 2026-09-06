@@ -77,6 +77,11 @@ a:hover{text-decoration:underline}
 .chip:hover{border-color:var(--blue-line);color:var(--blue)}
 .chip.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:600}
 .chip .n{opacity:.65;margin-left:6px;font-size:13.5px;font-variant-numeric:tabular-nums}
+.chip.static{cursor:default}
+.chip.static:hover{border-color:var(--line);color:var(--ink-2)}
+.chip.static b{margin-left:6px;color:var(--blue);font-variant-numeric:tabular-nums}
+.reg-checklist{margin-bottom:14px}
+.reg-checklist .chip-row{margin-bottom:0}
 
 /* ── 항목 ──
    ★ 넓은 화면에서 한 줄에 제목 하나만 놓으면 오른쪽이 통째로 비어 휑해 보인다.

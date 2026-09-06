@@ -191,7 +191,7 @@ python -m src.evaluate --refresh       # 필터를 바꾼 뒤 판정만 다시 �
 | 3 | `.env`에 SMTP 4종 | 메일 push 불가 |
 | 4 | `labels.csv` 50건 라벨링 | precision 실측 불가 |
 | 5 | 시드·팀 프로파일 실제 내용 | 필터 품질이 초안 수준에 머묾 |
-| 6 | `DATA_GO_KR_KEY` | 규제 1차 출처 어댑터 (아래) |
+| 6 | ~~`DATA_GO_KR_KEY`~~ | ✅ 불필요해짐 — 법제처 API로 대체 (아래) |
 
 ## 📊 사람 라벨 50건 실측 (2026-09-01) — 임베딩 필터가 값을 못 하고 있다
 
@@ -305,18 +305,17 @@ digest의 제목 기반 `is_syndicated`는 지면 한 장만 보므로 이걸 �
 
 ---
 
-### ⚠️ F7 규제 알림은 소스가 0개다 (MVP인데 미해결)
-판정 방식은 **소스 기반**으로 확정했고 배선(`sources.<name>.regulatory: true` →
-`collect.py:_stamp_regulatory`)도 끝났다. 그런데 붙일 소스가 없다. 조사 결과:
+### ✅ F7 규제 알림 — 법제처 API로 해결됨 (2026-09-06, 26c7b22)
+공공데이터포털 키 없이도 **법제처(law.go.kr) OPEN API**로 붙었다. 개인정보위 RSS
+없음·국회 API 키 미보유 문제를 우회한 경로다. `src/sources/lawgokr.py`(목록) →
+`src/law_detail.py`(본문 보충, 정부 API만 — LLM 호출 없음) → `src/insight.py --reg`
+(AI 요약, Claude API 사용) 순서로 파이프라인에 배선 완료. `.env`의 `LAW_GO_KR_OC`가
+키 역할이고, `DATA_GO_KR_KEY`는 이제 안 쓴다.
 
-| 후보 | 상태 |
-|---|---|
-| 개인정보위 | RSS 없음. `robots.txt`가 `/bbs/`(고시·보도자료 위치)를 크롤러에 금지. **크롤링하지 않는다** |
-| 국회 의안정보 OPEN API | API 키 필요 (미보유) |
-| 공공데이터포털 | `DATA_GO_KR_KEY` 필요 (미보유) |
-
-→ **공공데이터포털에서 키를 발급받는 게 유일한 정공법이다.** 무료·즉시 발급.
-   키가 생기면 `sources/pipc.py`·`sources/assembly.py`를 붙인다(config에 자리 있음).
+⚠️ 2026-09-06 배치에서 `filter` 단계가 CUDA out of memory로 죽어 뒤 단계
+(`law_detail`·`insight --reg`·`digest`·`mailer`)가 통째로 스킵된 적이 있다.
+새로 수집된 법령 항목의 본문·AI 요약이 며칠씩 비어 있으면 이 파이프라인 중단이
+원인일 가능성이 높다 — `logs/daily_*.log`에서 "임베딩 필터 실패"를 먼저 확인할 것.
 
 ### ⚠️ 환경 함정 — brotli 1.0.9
 anthropic SDK 1.x는 httpx2를 쓰는데, httpx2의 Brotli 디코더가

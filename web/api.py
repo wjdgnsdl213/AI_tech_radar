@@ -12,6 +12,7 @@ sobiz web/ 패턴과 같다.
 
 from __future__ import annotations
 
+import re
 from collections import Counter, defaultdict
 from functools import lru_cache
 from datetime import datetime, timedelta, timezone
@@ -708,16 +709,28 @@ def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
         rows = c.execute(stmt.limit(limit)).all()
         total = c.execute(select(func.count()).select_from(items)
                           .where(*cond)).scalar_one()
+    # "▸ 확인 필요: X" — insight.py의 L1_REG_RULES가 team_profile과 명시적으로
+    # 연결될 때만 붙이는 줄이다. 새 LLM 호출 없이 이미 있는 근거 있는 줄만
+    # 모아 세므로, 이 화면 범위(days) 안에서 어떤 업무가 반복 언급됐는지 보인다.
+    # LLM이 만들지 않은 항목은 그냥 안 세는 것뿐 — 억지 집계를 만들지 않는다.
+    CHECKLIST_RE = re.compile(r"^▸\s*확인\s*필요:\s*(.+)$", re.MULTILINE)
+    checklist_tally: Counter[str] = Counter()
     out = []
     for r in rows:
         m = r.meta if isinstance(r.meta, dict) else {}
+        insight = r.insight or None
         out.append({"id": r.id, "title": r.title or "", "summary": r.summary or "",
-                    "insight": r.insight or None,
+                    "insight": insight,
                     "url": r.url or "", "source": r.source,
                     "published": str(r.published_at)[:10] if r.published_at else "",
                     "dept": m.get("부처", ""), "kind": m.get("종류", ""),
                     "revision": m.get("제개정", ""), "effective": m.get("시행일자", "")})
-    return {"items": out, "total": total, "sources": srcs}
+        if insight:
+            for tag in CHECKLIST_RE.findall(insight):
+                checklist_tally[tag.strip()] += 1
+    checklist = [{"label": k, "count": v}
+                 for k, v in checklist_tally.most_common()]
+    return {"items": out, "total": total, "sources": srcs, "checklist": checklist}
 
 
 @router.get("/monthly")
