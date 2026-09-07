@@ -715,24 +715,28 @@ def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
     # "—" 앞 이름 기준으로 묶어서, 이 화면 범위(days) 안에서 어떤 업무가
     # 어떤 법령들 때문에 걸렸는지 보여준다. LLM이 만들지 않은 항목은 그냥 안
     # 모이는 것뿐 — 억지 집계를 만들지 않는다.
+    # 항목마다 한 번만 파싱해서, 목록의 개별 배지와 상단 집계 카드가 같은
+    # 결과를 공유한다(두 번 정규식을 돌리지 않는다).
     CHECKLIST_RE = re.compile(r"^▸\s*확인\s*필요:\s*(.+)$", re.MULTILINE)
     checklist_map: dict[str, list[dict[str, Any]]] = defaultdict(list)
     out = []
     for r in rows:
         m = r.meta if isinstance(r.meta, dict) else {}
         insight = r.insight or None
+        item_checklist = []
+        if insight:
+            for line in CHECKLIST_RE.findall(insight):
+                name, _, detail = line.strip().partition("—")
+                entry = {"label": name.strip(), "detail": detail.strip()}
+                item_checklist.append(entry)
+                checklist_map[entry["label"]].append(
+                    {"id": r.id, "title": r.title or "", "detail": entry["detail"]})
         out.append({"id": r.id, "title": r.title or "", "summary": r.summary or "",
-                    "insight": insight,
+                    "insight": insight, "checklist": item_checklist,
                     "url": r.url or "", "source": r.source,
                     "published": str(r.published_at)[:10] if r.published_at else "",
                     "dept": m.get("부처", ""), "kind": m.get("종류", ""),
                     "revision": m.get("제개정", ""), "effective": m.get("시행일자", "")})
-        if insight:
-            for line in CHECKLIST_RE.findall(insight):
-                line = line.strip()
-                name, _, detail = line.partition("—")
-                checklist_map[name.strip()].append(
-                    {"id": r.id, "title": r.title or "", "detail": detail.strip()})
     checklist = [{"label": k, "count": len(v), "items": v}
                  for k, v in sorted(checklist_map.items(), key=lambda kv: -len(kv[1]))]
     return {"items": out, "total": total, "sources": srcs, "checklist": checklist}

@@ -1362,11 +1362,19 @@ function regHTML(rows, compact) {
   const today = new Date();
   return rows.map(r => {
     const days = r.published ? Math.round((today - new Date(r.published)) / 86400000) : 999;
+    // 팀 프로파일과 명시적으로 연결된 항목만 표시 — 목록을 훑을 때 어느 걸
+    // 열어봐야 할지 배지 하나로 바로 보이게 한다. 툴팁에 어느 업무·왜인지까지.
+    const check = r.checklist && r.checklist.length
+      ? `<span class="rbadge check" title="${esc(r.checklist
+          .map(c => c.label + (c.detail ? ': ' + c.detail : '')).join('\n'))}">
+          ▸ 확인 필요${r.checklist.length > 1 ? ` (${r.checklist.length})` : ''}</span>`
+      : '';
     return `<div class="reg-item">
       <a href="#" data-item="${r.id}">${esc(r.title)}</a>
       <a class="src-link" href="${esc(r.url)}" target="_blank" rel="noopener"
          title="법제처 원문">원문 ↗</a>
       <div class="reg-meta">
+        ${check}
         ${days <= 14 ? '<span class="rbadge new">최신</span>' : ''}
         ${r.dept ? `<span class="rbadge dept">${esc(r.dept)}</span>` : ''}
         ${r.kind ? `<span class="rbadge">${esc(r.kind)}</span>` : ''}
