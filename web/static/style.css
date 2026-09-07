@@ -77,11 +77,15 @@ a:hover{text-decoration:underline}
 .chip:hover{border-color:var(--blue-line);color:var(--blue)}
 .chip.active{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:600}
 .chip .n{opacity:.65;margin-left:6px;font-size:13.5px;font-variant-numeric:tabular-nums}
-.chip.static{cursor:default}
-.chip.static:hover{border-color:var(--line);color:var(--ink-2)}
-.chip.static b{margin-left:6px;color:var(--blue);font-variant-numeric:tabular-nums}
 .reg-checklist{margin-bottom:14px}
-.reg-checklist .chip-row{margin-bottom:0}
+.cl-group{padding:10px 0;border-bottom:1px solid var(--line)}
+.cl-group:last-child{border-bottom:0}
+.cl-name{font-weight:700;font-size:14.5px;margin-bottom:6px}
+.cl-name .n{color:var(--mut);font-weight:500;margin-left:4px;font-variant-numeric:tabular-nums}
+.cl-item{padding:4px 0 4px 4px}
+.cl-item a{color:var(--ink);font-size:14px;text-decoration:none;font-weight:500}
+.cl-item a:hover{color:var(--blue);text-decoration:underline}
+.cl-detail{font-size:13px;color:var(--ink-2);margin-top:2px;line-height:1.5}
 
 /* ── 항목 ──
    ★ 넓은 화면에서 한 줄에 제목 하나만 놓으면 오른쪽이 통째로 비어 휑해 보인다.

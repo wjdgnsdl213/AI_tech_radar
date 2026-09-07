@@ -1387,17 +1387,23 @@ const fmtYmd = s => (s && s.length === 8)
 let REG_RANGE = 7;
 
 /* '확인 필요' 체크리스트 — insight.py가 team_profile과 명시적으로 연결될 때만
-   붙인 태그를 API가 이미 세어서 준다(새 LLM 호출 없음). 지금 보이는 기간 안에서
-   어떤 업무가 반복 언급됐는지 한눈에 보여준다. 없으면 카드 자체를 안 그린다 —
+   "이름 — 어느 법령의 무엇이 그 업무의 무엇과 관련되는지"를 붙인 걸 API가
+   이름 기준으로 묶어서 준다(새 LLM 호출 없음). 업무별로 어떤 법령 때문에
+   걸렸는지, 왜 걸렸는지까지 한눈에 보여준다. 없으면 카드 자체를 안 그린다 —
    근거 있는 항목이 하나도 없는데 빈 칸을 채우면 억지 종합이 된다. */
-function checklistHTML(tags) {
-  if (!tags || !tags.length) return '';
+function checklistHTML(groups) {
+  if (!groups || !groups.length) return '';
   return `<div class="card reg-checklist">
     <div class="panel-head"><h2>확인 필요 업무</h2>
       <span class="mut">이 기간 법령·규제에서 팀 프로파일과 겹치는 부분만 모음</span></div>
-    <div class="chip-row">
-      ${tags.map(t => `<span class="chip static">${esc(t.label)} <b>${t.count}</b></span>`).join('')}
-    </div></div>`;
+    ${groups.map(g => `<div class="cl-group">
+        <div class="cl-name">${esc(g.label)} <span class="n">${g.count}</span></div>
+        ${g.items.map(it => `<div class="cl-item">
+            <a href="#" data-item="${it.id}">${esc(it.title)}</a>
+            ${it.detail ? `<div class="cl-detail">${esc(it.detail)}</div>` : ''}
+          </div>`).join('')}
+      </div>`).join('')}
+    </div>`;
 }
 
 async function loadReg() {
