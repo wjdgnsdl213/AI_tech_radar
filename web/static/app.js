@@ -1283,6 +1283,12 @@ document.body.addEventListener('click', async e => {
       ${d.insight ? `<div class="item-i">
         <div class="item-i-h"><svg class="ico"><use href="#i-bulb"/></svg> AI 요약</div>
         <div class="item-i-b">${esc(d.insight)}</div></div>` : ''}
+      ${d.checklist && d.checklist.length ? `<div class="item-i item-check">
+        <div class="item-i-h"><svg class="ico"><use href="#i-bell"/></svg> 확인 필요</div>
+        ${d.checklist.map(c => `<div class="cl-item">
+            <b>${esc(c.label)}</b>
+            ${c.detail ? `<div class="cl-detail">${esc(c.detail)}</div>` : ''}
+          </div>`).join('')}</div>` : ''}
       <p style="font-size:15px;margin-top:14px">${esc(d.summary || '')}</p>
       ${isLaw ? '' : `<div class="sec-title">비슷한 기사</div>
       <div class="items" style="padding:0;box-shadow:none;margin:0">
@@ -1402,8 +1408,7 @@ let REG_RANGE = 7;
 function checklistHTML(groups) {
   if (!groups || !groups.length) return '';
   return `<div class="card reg-checklist">
-    <div class="panel-head"><h2>확인 필요 업무</h2>
-      <span class="mut">이 기간 법령·규제에서 팀 프로파일과 겹치는 부분만 모음</span></div>
+    <div class="panel-head"><h2>확인 필요 업무</h2></div>
     ${groups.map(g => `<div class="cl-group">
         <div class="cl-name">${esc(g.label)} <span class="n">${g.count}</span></div>
         ${g.items.map(it => `<div class="cl-item">

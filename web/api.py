@@ -675,6 +675,24 @@ def regulatory(limit: int = Query(60), days: int = Query(0),
     return _regulatory(limit, days, q)
 
 
+# "▸ 확인 필요: 이름 — 설명" — insight.py의 L1_REG_RULES가 team_profile과
+# 명시적으로 연결될 때만, 어느 법령의 어느 부분이 그 업무의 무엇과 관련되는지
+# 까지 붙이는 줄이다. AI 요약('· ' 줄들)과 화면에서 분리해서 보여주기 위해
+# insight 텍스트에서 이 줄만 뽑아내고 나머지만 남긴다.
+_CHECKLIST_RE = re.compile(r"^▸\s*확인\s*필요:\s*(.+)$\n?", re.MULTILINE)
+
+
+def _split_checklist(insight: str | None) -> tuple[str | None, list[dict[str, str]]]:
+    if not insight:
+        return insight, []
+    checklist = []
+    for line in _CHECKLIST_RE.findall(insight):
+        name, _, detail = line.strip().partition("—")
+        checklist.append({"label": name.strip(), "detail": detail.strip()})
+    clean = _CHECKLIST_RE.sub("", insight).rstrip() or None
+    return clean, checklist
+
+
 def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
     """규제 1차 출처에서 온 항목. 관련도 필터를 태우지 않는다.
 
@@ -709,30 +727,18 @@ def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
         rows = c.execute(stmt.limit(limit)).all()
         total = c.execute(select(func.count()).select_from(items)
                           .where(*cond)).scalar_one()
-    # "▸ 확인 필요: 이름 — 설명" — insight.py의 L1_REG_RULES가 team_profile과
-    # 명시적으로 연결될 때만, 어느 법령의 어느 부분이 그 업무의 무엇과
-    # 관련되는지까지 붙이는 줄이다. 새 LLM 호출 없이 이미 있는 근거 있는 줄만
-    # "—" 앞 이름 기준으로 묶어서, 이 화면 범위(days) 안에서 어떤 업무가
-    # 어떤 법령들 때문에 걸렸는지 보여준다. LLM이 만들지 않은 항목은 그냥 안
-    # 모이는 것뿐 — 억지 집계를 만들지 않는다.
-    # 항목마다 한 번만 파싱해서, 목록의 개별 배지와 상단 집계 카드가 같은
-    # 결과를 공유한다(두 번 정규식을 돌리지 않는다).
-    CHECKLIST_RE = re.compile(r"^▸\s*확인\s*필요:\s*(.+)$", re.MULTILINE)
+    # 목록의 개별 배지와 상단 집계 카드가 같은 파싱 결과를 공유한다
+    # (_split_checklist를 두 번 정규식으로 다시 돌리지 않는다).
     checklist_map: dict[str, list[dict[str, Any]]] = defaultdict(list)
     out = []
     for r in rows:
         m = r.meta if isinstance(r.meta, dict) else {}
-        insight = r.insight or None
-        item_checklist = []
-        if insight:
-            for line in CHECKLIST_RE.findall(insight):
-                name, _, detail = line.strip().partition("—")
-                entry = {"label": name.strip(), "detail": detail.strip()}
-                item_checklist.append(entry)
-                checklist_map[entry["label"]].append(
-                    {"id": r.id, "title": r.title or "", "detail": entry["detail"]})
+        clean_insight, item_checklist = _split_checklist(r.insight)
+        for entry in item_checklist:
+            checklist_map[entry["label"]].append(
+                {"id": r.id, "title": r.title or "", "detail": entry["detail"]})
         out.append({"id": r.id, "title": r.title or "", "summary": r.summary or "",
-                    "insight": insight, "checklist": item_checklist,
+                    "insight": clean_insight, "checklist": item_checklist,
                     "url": r.url or "", "source": r.source,
                     "published": str(r.published_at)[:10] if r.published_at else "",
                     "dept": m.get("부처", ""), "kind": m.get("종류", ""),
@@ -1082,11 +1088,12 @@ def item(item_id: int) -> dict[str, Any]:
                                   .where(item_axes.c.axis.in_(my or ["_"]))))
             .order_by(items.c.cross_score.desc()).limit(8)).all() if my else []
         rax = _axes_of(c, [x.id for x in rel])
+    clean_insight, checklist = _split_checklist(r.insight)
     return {
         "id": r.id, "title": r.title, "summary": r.summary, "url": r.url,
         "source": r.source, "published": str(r.published_at)[:10] if r.published_at else "",
         "cross_score": r.cross_score, "relevance": r.relevance,
-        "insight": r.insight or None, "axes": sorted(my),
+        "insight": clean_insight, "checklist": checklist, "axes": sorted(my),
         # 법령은 부처·종류·제개정·시행일이 판단에 필요하다. meta에 들어 있다.
         "meta": r.meta if isinstance(r.meta, dict) else {},
         "related": [{"id": x.id, "title": x.title, "url": x.url, "source": x.source,
