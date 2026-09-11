@@ -16,7 +16,7 @@ import re
 from collections import Counter, defaultdict
 from functools import lru_cache
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Query
 from sqlalchemy import and_, func, or_, select
@@ -31,9 +31,15 @@ CFG = load_config()
 LABELS = {a: s.get("label", a) for a, s in CFG["axes"].items()}
 
 
+def _kst_date(value: datetime | None) -> str:
+    if value is None:
+        return ''
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone(timedelta(hours=9))).date().isoformat()
+
+
 def _parse_date(s: str) -> datetime | None:
     try:
-        return datetime.strptime(s.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return datetime.strptime(s.strip(), "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
     except (ValueError, AttributeError):
         return None
 
@@ -42,13 +48,13 @@ def search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
     """검색 조건. 화면·CSV·API가 공유해야 결과가 갈라지지 않는다."""
     conds = []
     if q:
-        conds.append(or_(items.c.title.contains(q), items.c.summary.contains(q)))
+        conds.append(or_(items.c.title.contains(q, autoescape=True), items.c.summary.contains(q, autoescape=True)))
     if kept_only:
         conds.append(items.c.kept.is_(True))
     if since and (d := _parse_date(since)):
         conds.append(items.c.published_at >= d)
     if until and (d := _parse_date(until)):
-        conds.append(items.c.published_at <= d.replace(hour=23, minute=59, second=59))
+        conds.append(items.c.published_at < d + timedelta(days=1))
     if axis in CFG["axes"]:
         conds.append(items.c.id.in_(
             select(item_axes.c.item_id).where(item_axes.c.axis == axis)))
@@ -133,9 +139,14 @@ def digest(week: str = Query("")) -> dict[str, Any]:
         body = c.execute(select(digests.c.body)
                          .where(digests.c.week == week)).scalar_one_or_none()
     tasks = (body or {}).get("tasks", []) if isinstance(body, dict) else []
+    from src.reviews import read_editorial
+    editorial = read_editorial(week)
+    if editorial:
+        tasks = editorial.get("tasks", [])
     return {
         "week": week, "week_label": week_label(week),
-        "lead": d.get("lead"), "tasks": tasks, "total_kept": d["total_kept"],
+        "lead": editorial["summary"] if editorial else d.get("lead"),
+        "tasks": tasks, "total_kept": d["total_kept"],
         "sections": sections, "trending": d.get("trending", []),
         "trend_groups": _trend_groups(week, 5),
         "empty": not d["crossing"] and not any(d["by_axis"].values()),
@@ -145,7 +156,8 @@ def digest(week: str = Query("")) -> dict[str, Any]:
 @router.get("/search")
 def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
            until: str = Query(""), kept_only: int = Query(1),
-           page: int = Query(1), size: int = Query(50)) -> dict[str, Any]:
+           page: int = Query(1), size: int = Query(50),
+           order: Literal['relevance', 'oldest', 'newest'] = 'relevance') -> dict[str, Any]:
     where = search_conds(q, axis, since, until, kept_only)
     size = max(1, min(size, 200))
     stmt = select(items.c.id, items.c.title, items.c.summary, items.c.url,
@@ -155,8 +167,13 @@ def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
     if where is not None:
         stmt, cnt = stmt.where(where), cnt.where(where)
     off = max(0, (page - 1) * size)
-    stmt = stmt.order_by(items.c.cross_score.desc(),
-                         items.c.published_at.desc()).limit(size).offset(off)
+    ordering = {
+        'oldest': (items.c.published_at.asc().nullslast(), items.c.id.asc()),
+        'newest': (items.c.published_at.desc().nullslast(), items.c.id.desc()),
+        'relevance': (items.c.cross_score.desc(),
+                      items.c.published_at.desc().nullslast(), items.c.id.desc()),
+    }
+    stmt = stmt.order_by(*ordering[order]).limit(size).offset(off)
     with get_engine().connect() as c:
         rows = c.execute(stmt).all()
         total = c.execute(cnt).scalar_one()
@@ -166,7 +183,7 @@ def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
         "items": [{
             "id": r.id, "title": r.title or "", "summary": (r.summary or "")[:300],
             "url": r.url or "", "source": r.source,
-            "published": str(r.published_at)[:10] if r.published_at else "",
+            "published": _kst_date(r.published_at),
             "cross_score": r.cross_score, "relevance": r.relevance,
             "insight": r.insight or None, "axes": sorted(ax.get(r.id, [])),
         } for r in rows],
@@ -750,39 +767,21 @@ def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
 
 @router.get("/monthly")
 def monthly(month: str = Query("")) -> dict[str, Any]:
-    """월간 리뷰. digests에 week='YYYY-MM' 키로 저장돼 있다.
-
-    ★ 고를 수 있는 달은 **리뷰가 실제로 만들어진 달**만 낸다.
-      코퍼스에는 2019년치 GeekNews 백필까지 있어서 기사 기준으로 뽑으면
-      84개월이 나오는데, 그중 대부분은 리뷰가 없어 골라도 빈 화면이 된다.
-    """
-    from src.insight import _week_month
-    with get_engine().connect() as c:
-        # 'YYYY-MM' 형태(7자)만 월간이다. 주차 키는 'YYYY-Www'로 8자다.
-        months = sorted(
-            (w for (w,) in c.execute(select(digests.c.week))
-             if w and len(w) == 7 and w[4] == "-"), reverse=True)
-        if not month:
-            month = months[0] if months else ""
-        row = c.execute(select(digests.c.lead, digests.c.generated_at)
-                        .where(digests.c.week == month)).first() if month else None
-        weeks = [w for (w,) in c.execute(select(items.c.published_week).distinct()
-                                         .where(items.c.kept.is_(True))) if w]
-        mine = [w for w in weeks if _week_month(w) == month]
-        n = c.execute(select(func.count()).select_from(items).where(
-            items.c.kept.is_(True),
-            items.c.published_week.in_(mine or ["_"]))).scalar_one() if month else 0
-
-    def label(x: str) -> str:
-        return f"{x[:4]}년 {int(x[5:])}월" if len(x) == 7 else x
-
-    return {"month": month, "label": label(month) if month else "",
-            "months": [{"month": x, "label": label(x)} for x in months],
-            # 여기도 같은 글이다. 두 화면이 다른 표기를 내면 같은 리뷰인지 모른다.
-            "lead": (humanize_weeks(row[0], int(month[:4]))
-                     if row and row[0] and month else None),
-            "generated": str(row[1])[:16] if row and row[1] else "",
-            "weeks": len(mine), "kept": n}
+    """이전 월간 API도 직접 작성 리뷰·현재 월·날짜별 집계를 공유한다."""
+    from src.reviews import available_periods, editorial_text, review_data
+    from fastapi import HTTPException
+    try:
+        v = review_data(get_engine(), "monthly", month)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ed = v["editorial"]
+    weeks = {datetime.fromisoformat(s["date"]).isocalendar()[:2] for s in v["series"]}
+    return {"month": v["period"], "label": v["label"], "kept": v["kept"],
+            "months": [{"month": p["period"], "label": p["label"]}
+                       for p in available_periods(get_engine(), "monthly")],
+            "lead": editorial_text(ed) if ed else None,
+            "generated": ed.get("generated_at", "") if ed else "",
+            "weeks": len(weeks), "status": v["status"], "as_of": ed.get("as_of", "") if ed else ""}
 
 
 @router.get("/months")
@@ -1033,40 +1032,37 @@ def cache_info() -> dict[str, Any]:
 
 
 @router.get("/keyword/{kw}")
-def keyword(kw: str, limit: int = Query(20)) -> dict[str, Any]:
+def keyword(kw: str, limit: int = Query(20), since: str = '', until: str = '', axis: str = '') -> dict[str, Any]:
     """키워드가 나온 기사들. 연관어 그래프에서 노드를 클릭하면 이걸 부른다.
 
     그래프가 "예쁜데 뭘 봐야 할지 모르겠다"로 끝나지 않으려면 노드에서 실제 기사로
     내려갈 수 있어야 한다. 브릿지 노드를 발견하는 것과 그게 왜 브릿지인지 확인하는 건
     다른 일이고, 후자가 없으면 과제 후보로 쓸 수 없다.
     """
-    with get_engine().connect() as kc:
-        ids = [i for (i,) in kc.execute(
-            select(kw_item.c.item_id).where(kw_item.c.keyword == kw))]
-    if not ids:
-        return {"keyword": kw, "total": 0, "items": []}
     # ★ kept로 거르지 않는다.
     #   키워드는 전체 코퍼스에서 뽑는데 기사만 통과분으로 좁히면 "48건인데 기사 없음"이
     #   된다(실측: Ollama 48건 중 통과 4건, Kubernetes 65건 중 4건).
     #   대신 통과분을 위로 올리고 각 항목에 표시를 단다.
+    conditions = [items.c.id.in_(select(kw_item.c.item_id).where(kw_item.c.keyword == kw))]
+    dates = search_conds('', axis, since, until, 0)
+    if dates is not None:
+        conditions.append(dates)
     with get_engine().connect() as c:
-        rows = []
-        for part in (ids[i:i + 400] for i in range(0, len(ids), 400)):
-            rows += list(c.execute(
-                select(items.c.id, items.c.title, items.c.url, items.c.source,
-                       items.c.published_at, items.c.cross_score, items.c.insight,
-                       items.c.kept)
-                .where(items.c.id.in_(part))))
-        rows.sort(key=lambda r: (not bool(r.kept), -(r.cross_score or 0),
-                                 str(r.published_at or "")), reverse=False)
-        rows = rows[:limit]
+        total = c.execute(select(func.count()).select_from(items).where(*conditions)).scalar_one()
+        rows = c.execute(select(items.c.id, items.c.title, items.c.url, items.c.source,
+                                items.c.published_at, items.c.cross_score, items.c.insight, items.c.kept)
+                         .where(*conditions).order_by(
+                             func.coalesce(items.c.kept, False).desc(),
+                             func.coalesce(items.c.cross_score, 0).desc(),
+                             items.c.published_at.desc().nullslast(), items.c.id.desc())
+                         .limit(max(1, min(limit, 200)))).all()
         ax = _axes_of(c, [r.id for r in rows])
     return {
-        "keyword": kw, "total": len(ids),
+        "keyword": kw, "total": total,
         "kept": sum(1 for r in rows if r.kept),
         "items": [{"id": r.id, "title": r.title or "", "url": r.url or "",
                    "source": r.source, "kept": bool(r.kept),
-                   "published": str(r.published_at)[:10] if r.published_at else "",
+                   "published": _kst_date(r.published_at),
                    "cross_score": r.cross_score, "insight": r.insight or None,
                    "axes": sorted(ax.get(r.id, []))} for r in rows],
     }

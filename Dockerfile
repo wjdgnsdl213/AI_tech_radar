@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir -r requirements-web.txt \
 
 COPY src/ ./src/
 COPY web/ ./web/
+COPY content/ ./content/
 COPY config.yaml ./
 COPY scripts/boot.sh ./scripts/boot.sh
 RUN chmod +x scripts/boot.sh && mkdir -p data/processed data/checkpoints data/raw logs

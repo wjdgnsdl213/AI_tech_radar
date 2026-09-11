@@ -29,14 +29,14 @@ import io
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, Query
 from fastapi.responses import (FileResponse, HTMLResponse, PlainTextResponse,
                                Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import func, select, text
 
 from pathlib import Path
 
@@ -54,6 +54,8 @@ app = FastAPI(title="SAB Trend")
 from web.api import router as api_router  # noqa: E402
 
 app.include_router(api_router)
+from web.reviews_api import router as reviews_router
+app.include_router(reviews_router)
 
 
 @app.on_event("startup")
@@ -141,14 +143,6 @@ def page(title: str, body: str) -> HTMLResponse:
         f"<a href='/legacy/weeks'>회차</a></nav>{body}</div></body></html>")
 
 
-def _parse_date(s: str) -> datetime | None:
-    """'YYYY-MM-DD'를 timezone-aware UTC로. 형식이 틀리면 조건을 아예 걸지 않는다."""
-    try:
-        return datetime.strptime(s.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    except (ValueError, AttributeError):
-        return None
-
-
 def _axes_map(conn, ids: list[int]) -> dict[int, list[str]]:
     if not ids:
         return {}
@@ -188,7 +182,7 @@ def _asset_version() -> str:
       파일이 바뀌면 URL이 바뀌므로 브라우저가 반드시 새로 받는다.
     """
     stamp = 0.0
-    for name in ("app.js", "style.css"):
+    for name in ("app.js", "style.css", "workspace.js", "workspace-store.js", "workspace.css"):
         f = _STATIC / name
         if f.exists():
             stamp = max(stamp, f.stat().st_mtime)
@@ -358,29 +352,9 @@ def weeks():
 
 
 def _search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
-    """검색 조건. 화면과 CSV가 이 함수를 공유해야 둘이 갈라지지 않는다."""
-    conds = []
-    if q:
-        conds.append(or_(items.c.title.contains(q), items.c.summary.contains(q)))
-    if kept_only:
-        conds.append(items.c.kept.is_(True))
-    # 날짜는 문자열 캐스팅으로 비교하지 않는다. published_at은 DateTime 타입이고
-    # 엔진마다 문자열 표현이 달라(SQLite 'YYYY-MM-DD HH:MM:SS' / Postgres 타임존 포함)
-    # 캐스팅 비교는 배포 엔진을 바꾸는 순간 조용히 틀린 결과를 낸다.
-    if since:
-        d = _parse_date(since)
-        if d:
-            conds.append(items.c.published_at >= d)
-    if until:
-        d = _parse_date(until)
-        if d:
-            conds.append(items.c.published_at
-                         <= d.replace(hour=23, minute=59, second=59))
-    if axis in CFG["axes"]:
-        conds.append(items.c.id.in_(
-            select(item_axes.c.item_id).where(item_axes.c.axis == axis)))
-
-    return and_(*conds) if conds else None
+    """SPA·CSV·기존 검색이 한국 시간 기준의 같은 조건을 공유한다."""
+    from web.api import search_conds
+    return search_conds(q, axis, since, until, kept_only)
 
 
 @app.get("/legacy/search", response_class=HTMLResponse)
@@ -462,9 +436,10 @@ def search_csv(q: str = Query(""), axis: str = Query(""),
     buf.write("﻿")
     w = csv.writer(buf)
     w.writerow(["발행일", "제목", "출처", "축", "교차점수", "관련도", "AI해설", "링크"])
+    from web.api import _kst_date
     for r in rows:
         w.writerow([
-            str(r.published_at)[:10] if r.published_at else "",
+            _kst_date(r.published_at),
             r.title or "", r.source,
             " ".join(LABELS.get(a, a) for a in sorted(axes.get(r.id, []))),
             f"{r.cross_score:.1f}" if r.cross_score is not None else "",

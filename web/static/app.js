@@ -29,38 +29,80 @@ const tags = ax => (ax || []).map(a =>
 
 /* ── 탭 ── */
 const loaded = new Set();
-/* 주소는 '#tab' 또는 '#analysis/trend' 두 꼴이다.
-   서브탭을 주소에 안 담으면 뒤로 가기가 '분석' 안 어디로 돌아갈지 정할 수 없다. */
+let EXPLORE_CONTEXT = NavigationState.emptyContext();
+const SEARCH_GUARD = NavigationState.createRequestGuard();
+const TIMELINE_GUARD = NavigationState.createRequestGuard();
+const EGO_GUARD = NavigationState.createRequestGuard();
+const KEYWORD_GUARD = NavigationState.createRequestGuard();
+const SEARCH_OTHER_GUARD = NavigationState.createRequestGuard();
+
+/* 옛 주소도 여기서 새 4개 목적지로 정규화한다. */
 function routeOf() {
-  const [tab, seg] = (location.hash || '#home').slice(1).split('/');
-  const t = LOADERS[tab] ? tab : 'home';
-  // 두 번째 조각의 뜻이 탭마다 다르다 — 분석이면 서브탭, 달 보기면 달 코드다.
-  if (t === 'analysis') return { tab: t, seg: SUB_LOADERS[seg] ? seg : '' };
-  if (t === 'month') return { tab: t, seg: /^\d{4}-\d{2}$/.test(seg || '') ? seg : '' };
-  return { tab: t, seg: '' };
+  return NavigationState.parseRoute(location.hash, location.search);
 }
 
-function showTab(name, seg) {
-  if (name === 'analysis' && !seg) {
-    // 메뉴로 들어올 때는 보던 탭을 유지한다 — 매번 '교차'로 튕기면 성가시다
-    const cur = $('.subtab.active');
-    seg = (cur && cur.dataset.sub) || 'cross';
+function showTab(name, seg, routed) {
+  // 내부의 오래된 버튼도 4개 목적지로 보낸다. 저장된 링크와 같은 호환 계층이다.
+  if (['home','digest','reviews','month'].includes(name)) {
+    const mode = name === 'month' || String(seg || '').startsWith('monthly') ? 'monthly' : 'weekly';
+    const period = name === 'month' ? (seg || '') : String(seg || '').split(':')[1] || (mode === 'weekly' ? CUR_WEEK : '');
+    name = 'briefing'; seg = mode + (period ? ':' + period : '');
+  } else if (['search','graph','issues','analysis','trend'].includes(name)) {
+    if (name === 'issues' && seg) EXPLORE_CONTEXT.q = decodeURIComponent(seg);
+    seg = name === 'search' ? 'articles' : name === 'graph' ? 'graph' : name === 'issues' ? 'timeline'
+      : 'discovery:' + (name === 'trend' ? 'trend' : (seg || 'trend'));
+    name = 'explore';
   }
-  $$('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
-  // ★ 주소를 먼저 맞춘다. hashchange가 이걸 보고 "이미 그 화면"인지 판단한다.
-  const want = name + (seg ? '/' + seg : '');
+  const [briefMode, briefPeriod = ''] = name === 'briefing' ? String(seg || 'weekly').split(':') : [];
+  const route = routed || (name === 'briefing'
+    ? {tab:'briefing',mode:briefMode === 'monthly' ? 'monthly' : 'weekly',period:briefPeriod}
+    : name === 'explore' ? {tab:'explore',mode:seg || 'start',context:params()}
+    : {tab:name,mode:seg || ''});
+  if (route.tab === 'explore') applyExploreContext(route.context || params());
+  name = route.tab;
+  const mode = route.mode || '';
+  if (name !== 'explore' || mode !== 'articles') { SEARCH_GUARD.invalidate(); SEARCH_OTHER_GUARD.invalidate(); }
+  if (name !== 'explore' || mode !== 'timeline') TIMELINE_GUARD.invalidate();
+  if (name !== 'explore' || mode !== 'graph') { EGO_GUARD.invalidate(); KEYWORD_GUARD.invalidate(); }
+  const physical = name === 'briefing' ? 'briefing' : name === 'explore'
+    ? (mode === 'articles' ? 'search' : mode === 'timeline' ? 'timeline' : mode === 'graph' ? 'graph'
+      : mode.startsWith('discovery:') ? 'analysis' : 'explore') : name;
+  const exploreError = name === 'explore' ? NavigationState.contextError(route.context || params()) : '';
+  if (name === 'explore' && mode === 'graph' && (exploreError || !EXPLORE_CONTEXT.q)) {
+    EGO_GUARD.invalidate(); KEYWORD_GUARD.invalidate();
+  }
+  $$('.nav-item').forEach(b => {
+    b.classList.toggle('active', b.dataset.tab === name);
+    b.setAttribute('aria-selected', String(b.dataset.tab === name));
+  });
+  $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + physical));
+  $('#explore-context').hidden = name !== 'explore';
+  $('#top-form').hidden = name === 'explore';
+  $('#explore-error').textContent = exploreError;
+  if (name === 'explore' && mode === 'graph' && (exploreError || !EXPLORE_CONTEXT.q)) {
+    clearGraph(exploreError || '연관어를 볼 주제를 입력해 주세요.');
+  }
+  $$('.explore-views [data-explore-view]').forEach(b => {
+    const on = b.dataset.exploreView === mode;
+    b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
+  });
+  const want = NavigationState.routeHash(route);
   if (location.hash.slice(1) !== want) location.hash = want;
   closeNav();
   window.scrollTo(0, 0);        // 화면을 갈아탔는데 스크롤이 중간에 남아 있으면 길을 잃는다
+  if (name === 'briefing') Workspace.loadReviews(`${route.mode}:${route.period || ''}`);
+  if (name === 'explore' && !exploreError) {
+    if (mode === 'articles') runSearch(1);
+    else if (mode === 'timeline') runTimeline(1);
+    else if (mode === 'graph') {
+      loadGraph();
+      if (EXPLORE_CONTEXT.q) loadEgo(EXPLORE_CONTEXT.q);
+    }
+    else if (mode.startsWith('discovery:')) showSub(mode.split(':')[1], true);
+    else loadExploreStart();
+  }
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
-  if (name === 'analysis' && seg) showSub(seg, true);
-  // ★ 달 보기는 loaded 캐시를 타면 안 된다 — 달을 바꿔도 첫 달만 보이게 된다.
-  if (name === 'month') loadMonthView(seg);
-  // 주차를 보는 화면으로 왔으면 선택창도 주차를 가리켜야 한다. 화면이 캐시에서
-  // 그대로 살아나면 다시 그릴 일이 없어, 달 화면에서 넘어왔을 때 선택창만
-  // '○월 전체'에 남는다(실측 지적).
-  if (name === 'home' || name === 'digest') syncPicker();
+  if (name === 'workspace') Workspace.loadWorkspace(seg);
 }
 
 /* 선택창을 지금 보고 있는 주차에 맞춘다. */
@@ -82,7 +124,7 @@ function syncPicker() {
    hashchange 자체가 안 뜨고, 떠도 이미 그 화면이라 렌더가 멱등이다. */
 window.addEventListener('hashchange', () => {
   const r = routeOf();
-  showTab(r.tab, r.seg);
+  showTab(r.tab, r.mode, r);
 });
 
 /* 메뉴 접기.
@@ -96,6 +138,7 @@ const NARROW = () => window.innerWidth <= 820;
 function closeNav() {
   $('#sidenav').classList.remove('open');
   $('#navscrim').classList.remove('open');
+  $('#mobile-menu').setAttribute('aria-expanded', 'false');
 }
 
 function setFold(on) {
@@ -113,6 +156,12 @@ $('#nav-fold').onclick = () => {
   }
 };
 $('#navscrim').onclick = closeNav;
+$('#mobile-menu').onclick = () => {
+  const open = !$('#sidenav').classList.contains('open');
+  $('#sidenav').classList.toggle('open', open);
+  $('#navscrim').classList.toggle('open', open);
+  $('#mobile-menu').setAttribute('aria-expanded', String(open));
+};
 // 접어둔 상태는 다음에 열 때도 유지된다 — 매번 다시 접게 하면 성가시다
 try { if (localStorage.getItem('navFold') === '1') setFold(true); } catch (e) { /* 무시 */ }
 
@@ -124,7 +173,7 @@ document.body.addEventListener('click', e => {
   const want = b.dataset.tab;
   // 교차·기관·급상승은 이제 '분석' 안의 탭이다. 홈 카드의 '전체 보기'처럼
   // 예전 이름으로 부르는 곳이 여럿이라, 이름을 바꾸는 대신 여기서 넘겨준다.
-  if (SUB_LOADERS[want]) { showTab('analysis', want); return; }
+  if (SUB_LOADERS[want]) { showTab('explore', 'discovery:' + want); return; }
   showTab(want);
 });
 
@@ -132,10 +181,9 @@ document.body.addEventListener('click', e => {
 $('#top-form').onsubmit = e => {
   e.preventDefault();
   const q = $('#top-q').value.trim();
-  showTab('search');
-  if (!loaded.has('search')) { loaded.add('search'); initSearch(); }
   $('#f-q').value = q;      // 검색 패널의 입력창 id는 f-q 다
-  runSearch();
+  EXPLORE_CONTEXT = params();
+  showTab('explore', q ? 'articles' : 'start');
 };
 
 function itemHTML(p) {
@@ -144,6 +192,7 @@ function itemHTML(p) {
       <a href="#" data-item="${p.id}">${esc(p.title)}</a>
       <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
          title="원문으로 이동">원문 ↗</a>
+      ${Workspace.articleButton(p)}
     </div>
     <div class="item-m">${tags(p.axes)} ${esc(p.source)} · ${esc(p.published)}
       ${p.insight ? '<span class="has-ai"><svg class="ico"><use href="#i-bulb"/></svg> 해설</span>' : ''}</div>
@@ -179,7 +228,7 @@ function renderDigest() {
 
 async function loadDigest(week) {
   DIGEST = await api('/api/digest', { week: week || '' });
-  if (DIGEST.lead) { $('#lead').textContent = DIGEST.lead; $('#lead-card').hidden = false; }
+  if (DIGEST.lead) { $('#lead').innerHTML = ReviewFormat.render(DIGEST.lead); $('#lead-card').hidden = false; }
   else $('#lead-card').hidden = true;
   /* 주간 과제 후보 — 흐름 요약 바로 아래.
      흐름은 "무슨 일이 있었나", 이건 "그래서 눈여겨볼 게 무엇인가"다.
@@ -192,6 +241,8 @@ async function loadDigest(week) {
       <div class="wtask-r"><span class="wtask-k">확인</span><span>${esc(t.ask || '')}</span></div>
     </div>`).join('');
   renderDigest();
+  $('#digest-title').insertAdjacentHTML('afterend', `<button class="preset" data-week-review data-review-open="weekly:${esc(DIGEST.week)}">주간 비교 리뷰 보기</button>`);
+  $$('#digest-title ~ [data-week-review]').slice(0,-1).forEach(b => b.remove());
   loadWeekOptions(DIGEST.week);   // 선택창을 지금 보는 주차에 맞춘다
 }
 
@@ -244,7 +295,7 @@ async function loadWeekOptions(curWeek) {
 // 'YYYY년 M월 N주차' → 'N주차'. 그룹 머리글이 이미 달을 말하고 있다.
 const shortWeek = lab => (lab || '').replace(/^\d{4}년\s*\d+월\s*/, '') || lab;
 
-$('#week-select').onchange = e => {
+if ($('#week-select')) $('#week-select').onchange = e => {
   const v = e.target.value || '';
   if (v.startsWith('m:')) selectMonth(v.slice(2));
   else if (v.startsWith('w:')) selectWeek(v.slice(2));
@@ -286,50 +337,8 @@ function selectWeek(week) {
      계산된다 — 없는 건 글뿐이라고 화면에 적고, 나머지는 그대로 보여준다.
      없는 해설을 지어내지 않는다. */
 async function loadMonthView(month) {
-  const v = await api('/api/month_view', month ? { month } : {});
-  if (v.empty) { $('#mv-title').textContent = '데이터가 없습니다'; return; }
-  // ★ 선택창은 **지금 보고 있는 것**을 비춘다. 달 화면이면 '○월 전체'가 잡혀야
-  //   한다. 목록이 아직 안 왔을 수 있으니 먼저 채우고 값을 넣는다.
-  await loadWeekOptions();
-  $('#week-select').value = 'm:' + v.month;
-  $('#mv-title').textContent = v.label;
-  $('#mv-sub').textContent = `통과 ${num(v.kept)}건 · ${v.weeks.length}개 주차`;
-
-  $('#mv-lead-card').hidden = false;
-  $('#mv-lead').textContent = v.lead
-    || `이 달은 AI 월간 리뷰가 아직 없습니다. 아래 숫자는 지금 DB에서 계산한 실제 값입니다.`;
-  $('#mv-lead').classList.toggle('mut', !v.lead);
-
-  const d = v.delta;
-  const arrow = d == null ? '' : (d > 0 ? '▲' : d < 0 ? '▼' : '–');
-  const cls = d == null ? '' : (d > 0 ? 'up' : d < 0 ? 'down' : '');
-  $('#mv-stats').innerHTML = `
-    <div class="mv-stats">
-      <div class="st"><b>${num(v.kept)}</b><span>통과 기사</span></div>
-      <div class="st"><b>${v.weeks.length}</b><span>주차</span></div>
-      <div class="st"><b class="${cls}">${d == null ? '—' : arrow + ' ' + num(Math.abs(d))}</b>
-        <span>${v.prev_label ? esc(v.prev_label) + ' 대비' : '전월 대비'}</span></div>
-      ${v.axes.map(a => `<div class="st"><b>${num(a.n)}</b>
-        <span>${esc(label(a.axis))}</span></div>`).join('')}
-    </div>`;
-
-  $('#mv-weeks').innerHTML = v.weeks.length
-    ? v.weeks.map(w => `<div class="hrow">
-        <span class="k" data-week="${esc(w.week)}">${esc(w.label)}</span>
-        <span class="n">${num(w.n)}건</span></div>`).join('')
-    : '<div class="empty">주차가 없습니다.</div>';
-
-  $('#mv-orgs').innerHTML = v.orgs.length
-    ? v.orgs.map((o, i) => `<div class="hrow">
-        <span class="rank${i < 3 ? ' top' : ''}">${i + 1}</span>
-        <span class="k" data-kwpop="${esc(o.keyword)}">${esc(o.keyword)}</span>
-        <span class="n">${num(o.n)}건</span></div>`).join('')
-    : '<div class="empty">기관이 없습니다.</div>';
-
-  $('#mv-top').innerHTML = v.top.length
-    ? `<div class="items" style="padding:0;border:0;margin:0">
-        ${v.top.map(itemHTML).join('')}</div>`
-    : '<div class="empty">항목이 없습니다.</div>';
+  // 같은 달의 해설·집계를 리뷰 페이지에서 함께 제공한다.
+  showTab('reviews', 'monthly' + (month ? ':' + month : ''));
 }
 
 // 달 화면의 주차를 누르면 그 주 지면으로 — 숫자만 보고 끝나면 확인할 방법이 없다
@@ -378,8 +387,23 @@ async function loadWatch() {
 const params = () => ({
   q: $('#f-q').value.trim(), axis: $('#f-axis').value,
   since: $('#f-since').value.trim(), until: $('#f-until').value.trim(),
+  order: $('#timeline-order').value,
   kept_only: 1,
 });
+function applyExploreContext(context) {
+  EXPLORE_CONTEXT = NavigationState.normalizeContext(context);
+  $('#f-q').value = EXPLORE_CONTEXT.q;
+  $('#f-axis').value = EXPLORE_CONTEXT.axis;
+  $('#f-since').value = EXPLORE_CONTEXT.since;
+  $('#f-until').value = EXPLORE_CONTEXT.until;
+  $('#timeline-order').value = EXPLORE_CONTEXT.order;
+  $('#ego-q').value = EXPLORE_CONTEXT.q;
+}
+function replaceExploreHash(mode) {
+  EXPLORE_CONTEXT = NavigationState.normalizeContext(params());
+  const hash = NavigationState.routeHash({tab:'explore',mode,context:EXPLORE_CONTEXT});
+  history.replaceState(null, '', '#' + hash);
+}
 
 /* 한 화면에 50줄은 끝까지 훑기 전에 지친다. 25줄이면 한 화면에 들어온다.
    대신 쪽수가 늘어나므로 번호 페이지가 같이 필요하다. */
@@ -404,33 +428,83 @@ function renderPager(page, total, size) {
 }
 
 async function runSearch(page = 1) {
-  const p = { ...params(), page, size: PAGE_SIZE };
+  const p = { ...params(), order:'relevance', page, size: PAGE_SIZE };
+  const ticket = SEARCH_GUARD.begin(p);
+  EXPLORE_CONTEXT = NavigationState.normalizeContext(p);
+  replaceExploreHash('articles');
   $('#search-body').innerHTML = '<div class="empty">검색 중…</div>';
   // 같은 검색어가 법령·연관어에도 걸리는지 함께 찾는다 (첫 페이지에서만)
   if (page === 1) loadSearchOther((p.q || '').trim());
-  const r = await api('/api/search', p);
-  const from = (page - 1) * r.size;
-  $('#search-count').textContent = r.total
-    ? `${num(r.total)}건 중 ${from + 1}~${from + r.items.length}` : '';
-  $('#search-body').innerHTML = r.items.length
-    ? `<div class="tblwrap"><table><tr><th>날짜</th><th>제목</th><th>주제</th><th>출처</th></tr>` +
-      r.items.map(p => `<tr>
+  try {
+    const r = await api('/api/search', p);
+    if (!SEARCH_GUARD.isCurrent(ticket, p) || routeOf().tab !== 'explore' || routeOf().mode !== 'articles') return;
+    const from = (page - 1) * r.size;
+    $('#search-count').textContent = r.total
+      ? `${num(r.total)}건 중 ${from + 1}~${from + r.items.length}` : '';
+    $('#search-body').innerHTML = r.items.length
+      ? `<div class="tblwrap"><table><tr><th>날짜</th><th>제목</th><th>주제</th><th>출처</th></tr>` +
+        r.items.map(p => `<tr>
         <td class="n">${esc(p.published)}</td>
         <td class="t"><a href="#" data-item="${p.id}">${esc(p.title)}</a>
           <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
              title="원문으로 이동">원문 ↗</a>
+          ${Workspace.articleButton(p)}
           ${p.insight ? `<span class="snip"><svg class="ico"><use href="#i-bulb"/></svg> ${esc(p.insight)}</span>`
             : (p.summary ? `<span class="snip">${esc(p.summary)}</span>` : '')}</td>
         <td>${tags(p.axes)}</td>
         <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
-    : '<div class="empty">결과가 없습니다.</div>';
-
-  renderPager(page, r.total, r.size);
-  $('#f-csv').href = '/search.csv?' + new URLSearchParams(params()).toString();
+      : '<div class="empty">선택한 조건에 맞는 선별 기사가 없습니다.</div>';
+    renderPager(page, r.total, r.size);
+    $('#f-csv').href = '/search.csv?' + new URLSearchParams(params()).toString();
+    Workspace.refreshSaveButtons();
+  } catch (e) {
+    if (!SEARCH_GUARD.isCurrent(ticket, p)) return;
+    $('#search-count').textContent = '';
+    $('#search-body').innerHTML = `<div class="empty">기사를 불러오지 못했습니다.<br>${esc(e.message)}<br><button class="preset" data-search-retry>다시 시도</button></div>`;
+  }
 }
-$('#search-form').onsubmit = e => { e.preventDefault(); runSearch(1); };
 $('#search-pager').onclick = e => {
   const b = e.target.closest('[data-page]'); if (b) runSearch(+b.dataset.page);
+};
+$('#search-body').onclick = e => { if (e.target.closest('[data-search-retry]')) runSearch(1); };
+
+function timelinePager(page, total, size) {
+  const last = Math.max(1, Math.ceil(total / size));
+  $('#timeline-pager').innerHTML = last <= 1 ? '' : `<button data-timeline-page="${page-1}" ${page===1?'disabled':''}>← 이전</button><span>${page} / ${last}</span><button data-timeline-page="${page+1}" ${page===last?'disabled':''}>다음 →</button>`;
+}
+async function runTimeline(page = 1) {
+  const p = {...params(), page, size:PAGE_SIZE};
+  const ticket = TIMELINE_GUARD.begin(p);
+  EXPLORE_CONTEXT = NavigationState.normalizeContext(p);
+  replaceExploreHash('timeline');
+  if (!p.q) {
+    $('#timeline-body').innerHTML = '<div class="empty">시간 흐름을 볼 주제를 입력해 주세요.</div>';
+    $('#timeline-pager').innerHTML = '';
+    return;
+  }
+  $('#timeline-body').innerHTML = '<div class="empty">시간순 기사를 불러오는 중…</div>';
+  try {
+    const r = await api('/api/search', p);
+    if (!TIMELINE_GUARD.isCurrent(ticket, p) || routeOf().tab !== 'explore' || routeOf().mode !== 'timeline') return;
+    let day = '';
+    $('#timeline-body').innerHTML = `<div class="panel-head"><h2>${esc(p.q)}</h2><span class="mut">${num(r.total)}건</span></div>` + (r.items.map(article => {
+      const heading = article.published !== day ? `<h3 class="issue-day">${esc(article.published)}</h3>` : '';
+      day = article.published;
+      return heading + `<div class="issue-item">${itemHTML(article)}${article.summary ? `<p>${esc(article.summary)}</p>` : ''}</div>`;
+    }).join('') || '<div class="work-empty">선택한 기간에 일치하는 기사가 없습니다.</div>');
+    timelinePager(page, r.total, r.size);
+    Workspace.refreshSaveButtons();
+  } catch (e) {
+    if (!TIMELINE_GUARD.isCurrent(ticket, p)) return;
+    $('#timeline-body').innerHTML = `<div class="work-empty">시간 흐름을 불러오지 못했습니다.<br>${esc(e.message)}<br><button class="preset" data-timeline-page="1">다시 시도</button></div>`;
+  }
+}
+$('#timeline-pager').onclick = e => {
+  const b = e.target.closest('[data-timeline-page]'); if (b && !b.disabled) runTimeline(+b.dataset.timelinePage);
+};
+$('#timeline-order').onchange = () => showTab('explore', 'timeline');
+$('#timeline-body').onclick = e => {
+  const b = e.target.closest('[data-timeline-page]'); if (b) runTimeline(+b.dataset.timelinePage);
 };
 
 const PRESETS = [['최근 1개월', 30], ['최근 3개월', 90], ['최근 1년', 365], ['전체 기간', 0]];
@@ -447,9 +521,49 @@ function initSearch() {
       $('#f-until').value = new Date().toISOString().slice(0, 10);
       $('#f-since').value = new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
     }
-    runSearch(1);
+    const mode = routeOf().tab === 'explore' ? routeOf().mode : 'articles';
+    if (mode === 'timeline') runTimeline(1);
+    else if (mode === 'articles') runSearch(1);
+    else if (mode === 'graph') showTab('explore','graph');
   };
-  runSearch(1);
+}
+
+$('#search-form').onsubmit = e => {
+  e.preventDefault();
+  const current = routeOf();
+  const mode = current.tab === 'explore' && ['articles','timeline','graph'].includes(current.mode) ? current.mode : 'articles';
+  showTab('explore', mode);
+};
+$('.explore-views').onclick = e => {
+  const b = e.target.closest('[data-explore-view]');
+  if (b) showTab('explore', b.dataset.exploreView);
+};
+document.body.addEventListener('click', e => {
+  const d = e.target.closest('[data-discovery]');
+  if (d) showTab('explore', 'discovery:' + d.dataset.discovery);
+  const q = e.target.closest('[data-start-q]');
+  if (q) { $('#f-q').value = q.dataset.startQ; showTab('explore','articles'); }
+  if (e.target.closest('[data-follow-current]')) Workspace.followTopic($('#f-q').value.trim());
+});
+
+async function loadExploreStart() {
+  Workspace.renderFollowing();
+  $('#explore-rising').innerHTML = '<div class="empty">급상승 주제를 불러오는 중…</div>';
+  $('#server-watch').innerHTML = '<div class="empty">설정 알림 키워드를 불러오는 중…</div>';
+  try {
+    const t = await api('/api/trend', {top:10,axis:'ai,bigdata'});
+    $('#explore-rising').innerHTML = `<p class="mut">${esc(t.week_label || '최신 주간')} · AI·빅데이터</p>` + ((t.rows || []).map((r,i) => `<button class="rise-start" data-start-q="${esc(r.keyword)}"><span>${i+1}</span><b>${esc(r.keyword)}</b><em>${num(r.count)}건</em></button>`).join('') || '<div class="empty">급상승 주제가 없습니다.</div>');
+  } catch (e) {
+    $('#explore-rising').innerHTML = '<div class="empty">급상승 주제를 불러오지 못했습니다.</div>';
+  }
+  try {
+    const w = await api('/api/watch');
+    $('#server-watch').innerHTML = (w.keywords || []).length
+      ? `<p class="mut">최근 ${num(w.days)}일 · 설정 ${num(w.keywords.length)}개 · 일치 ${num(w.total)}건</p><div class="work-chips">${w.keywords.map(q => `<span><button data-start-q="${esc(q)}">${esc(q)}</button></span>`).join('')}</div>`
+      : '<div class="empty">서버에 설정된 알림 키워드가 없습니다.</div>';
+  } catch (e) {
+    $('#server-watch').innerHTML = '<div class="empty">설정 알림 키워드를 불러오지 못했습니다.</div>';
+  }
 }
 
 /* ── ③ 연관어 네트워크 (검색형) ──
@@ -468,19 +582,42 @@ async function loadSuggest() {
 
 let EGO = null, egoSel = null;
 
+function clearGraph(message) {
+  EGO = null; egoSel = null; BASE = VIEW = null;
+  $('#graph-tools').hidden = true; $('#kw-card').hidden = true;
+  $('#graph-svg').innerHTML = `<div class="empty">${esc(message)}</div>`;
+}
+
 async function loadEgo(kw, hops) {
   if (!kw) return;
+  $('#f-q').value = kw;
   $('#ego-q').value = kw;
+  EXPLORE_CONTEXT = NavigationState.normalizeContext(params());
+  replaceExploreHash('graph');
   hops = hops || +($('#ego-hops')?.value || 1);
+  const requestContext = {kw,hops,axis:EXPLORE_CONTEXT.axis,since:EXPLORE_CONTEXT.since,until:EXPLORE_CONTEXT.until};
+  const ticket = EGO_GUARD.begin(requestContext);
+  KEYWORD_GUARD.invalidate();
   $('#graph-svg').innerHTML = '<div class="empty">그리는 중…</div>';
-  const g = await api('/api/ego', { kw, hops, per_hop: hops > 1 ? 8 : 14 });
-  if (g.empty) {
-    // 이전 검색의 지도 상태가 남으면 휠·드래그가 없는 그림을 계속 만진다
+  let g;
+  try { g = await api('/api/ego', { kw, hops, per_hop: hops > 1 ? 8 : 14 }); }
+  catch (e) {
+    if (!EGO_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph') return;
     EGO = null; BASE = VIEW = null;
     $('#graph-tools').hidden = true;
-    $('#graph-svg').innerHTML = (await indexState()).ready
+    $('#graph-svg').innerHTML = `<div class="empty">연관어를 불러오지 못했습니다.<br>${esc(e.message)}<br><button class="preset" data-graph-retry="${esc(kw)}">다시 시도</button></div>`;
+    return;
+  }
+  if (!EGO_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph') return;
+  if (g.empty) {
+    const emptyHTML = (await indexState()).ready
       ? `<div class="empty">'${esc(kw)}' — ${esc(g.reason || '결과가 없습니다.')}</div>`
       : await emptyOrBuilding('');
+    if (!EGO_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph') return;
+    // 이전 검색의 지도 상태가 남으면 휠·드래그가 없는 그림을 계속 만진다
+    EGO = null; egoSel = null; BASE = VIEW = null;
+    $('#graph-tools').hidden = true; $('#kw-card').hidden = true;
+    $('#graph-svg').innerHTML = emptyHTML;
     return;
   }
   EGO = g;
@@ -489,11 +626,11 @@ async function loadEgo(kw, hops) {
   // 보는 사람은 그냥 알록달록한 점으로 읽는다.
   $('#graph-legend').innerHTML = Object.entries(AXES || {})
     .map(([k, v]) => `<b><i style="background:var(--ax-${k})"></i>${esc(v.label || k)}</b>`)
-    .join('') + '<b class="mut">점 크기 = 기사 수</b>';
+    .join('');
   $('#ego-hops').value = hops;
   $('#hop-label').textContent = RANGE_LABEL[hops] || hops;
   const far = g.nodes.filter(n => n.hop >= 2).length;
-  $('#graph-stat').textContent = `${g.nodes.length}개 키워드 · ${g.edges.length}개 연결`
+  $('#graph-stat').textContent = `전체 수집 자료 기준 · ${g.nodes.length}개 키워드 · ${g.edges.length}개 연결`
     + (far ? ` · 2단계 ${far}개` : '');
   drawEgo(g);
   selectNode(g.center);
@@ -937,9 +1074,24 @@ async function showKeyword(kw) {
     ? near.map(k => `<button class="chip" data-node="${esc(k)}">${esc(k)}</button>`).join('')
     : '';
 
-  const r = await api('/api/keyword/' + encodeURIComponent(kw), { limit: 40 });
+  const requestContext = {kw,axis:EXPLORE_CONTEXT.axis,since:EXPLORE_CONTEXT.since,until:EXPLORE_CONTEXT.until};
+  const ticket = KEYWORD_GUARD.begin(requestContext);
+  let r;
+  try {
+    r = await api('/api/keyword/' + encodeURIComponent(kw), {
+      limit: 40, axis: requestContext.axis,
+      since: requestContext.since, until: requestContext.until
+    });
+  } catch (e) {
+    if (!KEYWORD_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph' || egoSel !== kw) return;
+    $('#kw-body').innerHTML = `<div class="empty">수집 기사를 불러오지 못했습니다.<br>${esc(e.message)}</div>`;
+    return;
+  }
+  if (!KEYWORD_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph' || egoSel !== kw) return;
+  const selectedRange = requestContext.since || requestContext.until
+    ? ` · 선택 기간 ${requestContext.since || '처음'}~${requestContext.until || '현재'}` : ' · 전체 기간';
   $('#kw-count').textContent = r.total
-    ? `기사 ${num(r.total)}건` + (r.kept ? ` · 다이제스트 ${r.kept}건` : '') : '';
+    ? `수집 기사 ${num(r.total)}건${selectedRange}` : `수집 기사 0건${selectedRange}`;
   $('#kw-body').innerHTML = r.items.length
     ? `<div class="items" style="padding:0;border:0;margin:0">
         ${r.items.map(itemHTML).join('')}</div>`
@@ -965,7 +1117,7 @@ const RISE_TIP = (weeks) => `이번 주 비중 ÷ 직전 ${weeks}주 평균 비�
 직전에 한 번도 안 나온 신규 키워드는
 상승폭이 이번 주 건수와 같아집니다.`;
 
-const infoIcon = (tip) => `<i class="info">?<span class="tip">${esc(tip)}</span></i>`;
+const infoIcon = tip => UIHelp.render(tip);
 
 /* 말풍선 위치를 손으로 잡는다.
    CSS만으로 두면 .tblwrap(overflow-x:auto) 같은 스크롤 컨테이너가 잘라내서
@@ -1254,12 +1406,15 @@ function closeDrawer() {
 
 /* ── 공통 클릭 ── */
 document.body.addEventListener('click', async e => {
+  const retry = e.target.closest('[data-graph-retry]');
+  if (retry) return loadEgo(retry.dataset.graphRetry);
   const kw = e.target.closest('[data-kw]');
   if (kw) {
     e.preventDefault();
+    $('#f-q').value = kw.dataset.kw;
+    EXPLORE_CONTEXT = NavigationState.normalizeContext(params());
     if (!$('#panel-graph').classList.contains('active')) {
-      showTab('graph');
-      if (!loaded.has('graph')) { loaded.add('graph'); await loadGraph(); }
+      showTab('explore', 'graph');
     }
     return loadEgo(kw.dataset.kw);   // 망도 그 키워드 중심으로 다시 그린다
   }
@@ -1267,6 +1422,7 @@ document.body.addEventListener('click', async e => {
   if (it) {
     e.preventDefault();
     const d = await api('/api/item/' + it.dataset.item);
+    Workspace.registerArticle(d);
     const m = d.meta || {};
     const isLaw = !!m.target;      // 법령 어댑터가 붙이는 표식
     const badges = isLaw ? `
@@ -1280,6 +1436,7 @@ document.body.addEventListener('click', async e => {
       <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}</div>
       <a class="btn-src" href="${esc(d.url)}" target="_blank" rel="noopener">
         ${isLaw ? '법제처 원문 보기' : '원문 기사 보기'} <span>↗</span></a>
+      ${Workspace.articleButton(d)}
       ${d.insight ? `<div class="item-i">
         <div class="item-i-h"><svg class="ico"><use href="#i-bulb"/></svg> AI 요약</div>
         <div class="item-i-b">${esc(d.insight)}</div></div>` : ''}
@@ -1329,8 +1486,8 @@ async function loadHome() {
   $('#home-sub').textContent = h.total_kept ? `이번 주 통과 ${num(h.total_kept)}건` : '';
   if (h.lead) {
     $('#home-lead').hidden = false;
-    $('#home-lead-t').textContent = h.lead;   // 줄바꿈은 .lead의 white-space가 살린다
-  }
+    $('#home-lead-t').innerHTML = `${ReviewFormat.render(h.lead)}<p><button class="preset" data-review-open="weekly:${esc(h.week)}">주간 리뷰·근거 보기</button></p>`;
+  } else $('#home-lead').hidden = true;
 
   $('#home-trend').innerHTML = trendGroupsHTML(h.trend_groups, true);
 
@@ -1358,6 +1515,22 @@ async function loadHome() {
         <td class="${late ? 'stale' : ''}">${esc(s.collected || '—')}
           ${late ? ` (${d}일 전)` : ''}</td></tr>`;
     }).join('') + '</table>';
+}
+
+async function loadCollectionHealth() {
+  const box = $('#home-health');
+  try {
+    const h = await api('/api/home');
+    const today = new Date();
+    box.innerHTML = `<table class="health"><tr><th>소스</th><th>누적</th><th>최근 발행</th><th>최근 수집</th></tr>` +
+      (h.health || []).map(s => {
+        const d = s.collected ? Math.round((today - new Date(s.collected)) / 86400000) : 999;
+        const late = s.live && d > 3;
+        return `<tr><td><b>${esc(s.label || s.source)}</b>${s.live ? '' : ' <span class="rbadge">이관분</span>'}</td><td>${num(s.total)}건</td><td>${esc(s.latest || '—')}</td><td class="${late ? 'stale' : ''}">${esc(s.collected || '—')}${late ? ` (${d}일 전)` : ''}</td></tr>`;
+      }).join('') + '</table>';
+  } catch (e) {
+    box.innerHTML = '<span class="mut">수집 상태를 불러오지 못했습니다.</span>';
+  }
 }
 
 /* ── ③-b 법령·규제 ───────────────────────────────────────────────
@@ -1442,20 +1615,20 @@ $('#reg-range').addEventListener('click', e => {
    법령은 건수가 적어 3건까지 그대로 펼치고, 나머지는 그쪽 화면으로 넘긴다. */
 async function loadSearchOther(q) {
   const box = $('#search-other');
+  const requestContext = {q,axis:EXPLORE_CONTEXT.axis,since:EXPLORE_CONTEXT.since,until:EXPLORE_CONTEXT.until};
+  const ticket = SEARCH_OTHER_GUARD.begin(requestContext);
   if (!q) { box.innerHTML = ''; return; }
   $('#search-title').textContent = `'${q}' 검색`;
   let reg = { items: [], total: 0 };
   try { reg = await api('/api/regulatory', { limit: 3, q }); } catch (e) { /* 무시 */ }
+  if (!SEARCH_OTHER_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'articles') return;
 
   const regCard = reg.total ? `<div class="card">
       <div class="panel-head"><h2><svg class="ico"><use href="#i-law"/></svg> 법령·규제 ${num(reg.total)}건</h2>
         <button class="linkish" data-regq="${esc(q)}">전체 보기</button></div>
       ${regHTML(reg.items, true)}</div>` : '';
 
-  box.innerHTML = regCard + `<div class="card xrow">
-      <span class="mut">'${esc(q)}'의 연관어 망을 그려볼 수 있습니다</span>
-      <button class="preset" data-kw="${esc(q)}"><svg class="ico"><use href="#i-graph"/></svg> 연관어 네트워크로 보기</button>
-    </div>`;
+  box.innerHTML = regCard;
 }
 // '전체 보기' → 법령 화면을 그 검색어로 연다
 document.body.addEventListener('click', async e => {
@@ -1476,19 +1649,17 @@ document.body.addEventListener('click', async e => {
  * 이어졌나"다. 홈의 '이번 주 흐름' 바로 아래에 둔다 — 네댓 줄짜리 글이라
  * 페이지를 따로 만들 분량이 아니고, 읽는 순서로도 그 자리가 맞다. */
 async function loadMonth(month) {
-  const m = await api('/api/monthly', month ? { month } : {});
-  if (!m.lead) { $('#home-month').hidden = true; return; }
   $('#home-month').hidden = false;
-  // textContent에 태그를 넣으면 글자 그대로 보인다 — 아이콘은 innerHTML이어야 한다
-  $('#month-title').innerHTML =
-    `<svg class="ico"><use href="#i-calendar"/></svg> ${esc(m.label)} 리뷰`;
-  $('#month-select').innerHTML = (m.months || [])
-    .map(x => `<option value="${esc(x.month)}"${x.month === m.month ? ' selected' : ''}>
-      ${esc(x.label)}</option>`).join('');
-  $('#month-lead').textContent = m.lead;
-  // 보고서는 SPA 밖의 인쇄용 문서다 — 새 탭으로 연다
-  $('#rep-html').href = '/report?month=' + encodeURIComponent(m.month);
-  $('#rep-md').href = '/report.md?month=' + encodeURIComponent(m.month);
+  try {
+    const [m,p] = await Promise.all([api('/api/reviews', {kind:'monthly',period:month||''}),api('/api/reviews/periods',{kind:'monthly'})]);
+    $('#month-title').innerHTML = `<svg class="ico"><use href="#i-calendar"/></svg> ${esc(m.label)} 리뷰 <span class="review-status">${m.status==='in_progress'?'진행 중':m.status==='final'?'확정본':'기간 종료'}</span>`;
+    $('#month-select').innerHTML = p.periods.map(x=>`<option value="${esc(x.period)}" ${x.period===m.period?'selected':''}>${esc(x.label)}</option>`).join('');
+    $('#month-lead').innerHTML = `${ReviewFormat.render(m.editorial?.summary||'이번 달 해설은 준비 중입니다. 현재까지 수집된 자료는 리뷰에서 확인할 수 있습니다.')}<p class="review-meta">집계 ${esc(m.start)}~${esc(m.through)} · 기사 ${num(m.kept)}건 · 해설 기준 ${esc(m.editorial?.as_of||'기록 없음')}</p><button class="preset" data-review-open="monthly:${esc(m.period)}">전체 리뷰·근거 보기</button>`;
+    $('#rep-html').href = '/report?month=' + encodeURIComponent(m.period);
+    $('#rep-md').href = '/report.md?month=' + encodeURIComponent(m.period);
+  } catch(e) {
+    $('#month-lead').textContent = '월간 리뷰를 불러오지 못했습니다. 리뷰 메뉴에서 다시 확인해 주세요.';
+  }
 }
 $('#month-select').onchange = e => loadMonth(e.target.value);
 
@@ -1602,9 +1773,7 @@ function showSub(name, fromTab) {
   $$('.subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
   $$('.subpanel').forEach(p => p.classList.toggle('active', p.id === 'sub-' + name));
   // 탭 전환에서 불려 온 거면 주소는 이미 맞다. 여기서 또 쓰면 기록이 두 번 쌓인다.
-  if (!fromTab && location.hash.slice(1) !== 'analysis/' + name) {
-    location.hash = 'analysis/' + name;
-  }
+  if (!fromTab) { showTab('explore', 'discovery:' + name); return; }
   if (!subLoaded.has(name)) { subLoaded.add(name); (SUB_LOADERS[name] || (() => {}))(); }
 }
 $$('.subtab').forEach(b => (b.onclick = () => showSub(b.dataset.sub)));
@@ -1633,27 +1802,23 @@ async function emptyOrBuilding(fallback) {
 }
 document.body.addEventListener('click', e => {
   if (e.target.closest('[data-idxretry]')) { IDX = null; location.reload(); }
+  if (e.target.closest('[data-init-retry]')) location.reload();
 });
 
 const LOADERS = {
-  analysis: () => {},          // 서브탭은 showTab이 정한다
-  month: () => {},             // 달은 showTab이 매번 다시 그린다
-  home: loadHome, reg: loadReg,
-  digest: () => loadDigest(CUR_WEEK), search: initSearch, graph: loadGraph, trend: loadTrend,
+  briefing: () => {}, explore: () => {}, workspace: () => {}, reg: loadReg,
 };
 
 (async () => {
   try {
     AXES = (await api('/api/meta')).axes;
   } catch (err) {
-    $('#digest-body').innerHTML =
-      `<div class="empty">서버에 연결하지 못했습니다.<br><code>${esc(err.message)}</code></div>`;
+    $('#app-init-error').innerHTML = NavigationState.initErrorHTML(err);
+    $('#app-init-error').hidden = false;
     return;
   }
-  // 메일의 '전체 보기'가 ?week=2026-W35#digest 로 들어온다
-  const wanted = new URLSearchParams(location.search).get('week');
-  if (wanted) { loaded.add('digest'); await loadDigest(wanted); }
-  loadWeekOptions();          // 사이드바에 늘 보이므로 탭과 무관하게 채운다
+  initSearch();
+  loadCollectionHealth();
   const r = routeOf();
-  showTab(r.tab, r.seg);
+  showTab(r.tab, r.mode, r);
 })();

@@ -140,6 +140,11 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
             select(digests.c.lead).where(digests.c.week == week)
         ).scalar_one_or_none()
 
+    from src.reviews import read_editorial, editorial_text
+    editorial = read_editorial(week)
+    if editorial:
+        lead = editorial_text(editorial)
+
     def pack(r) -> dict[str, Any]:
         return {
             "id": r.id, "title": r.title or "", "summary": r.summary or "",
@@ -218,7 +223,7 @@ def build(week: str, cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "week": week,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "lead": lead,
+        "lead": lead, "editorial": editorial,
         "labels": labels,
         "total_kept": len(packed),
         "crossing": crossing,
@@ -240,8 +245,10 @@ def save(d: dict[str, Any]) -> None:
     }
     with engine.begin() as conn:
         exists = conn.execute(
-            select(digests.c.week).where(digests.c.week == d["week"])).first()
+            select(digests.c.body).where(digests.c.week == d["week"])).first()
         if exists:
+            # 다이제스트 재발행은 과제 후보·기관 해설을 삭제하면 안 된다.
+            body = {**(exists[0] or {}), **body}
             conn.execute(digests.update().where(digests.c.week == d["week"])
                          .values(body=body, generated_at=datetime.now(timezone.utc)))
         else:
@@ -314,7 +321,8 @@ def render_markdown(d: dict[str, Any], mail: bool = False,
     out: list[str] = [f"# 📡 {SERVICE_NAME} | {_week_title(d['week'])}", ""]
 
     if d.get("lead"):
-        out += ["## 이번 주 흐름", "", d["lead"], ""]
+        from src.review_format import editorial_md
+        out += ["## 이번 주 흐름", "", editorial_md(d['editorial']) if d.get('editorial') else d["lead"], ""]
 
     def block(p: dict[str, Any], n: int | None = None) -> list[str]:
         head = f"{n}. " if n else "- "
@@ -379,9 +387,10 @@ def render_html(d: dict[str, Any], mail: bool = False,
         f'{e(_week_title(d["week"]))} · 통과 {d["total_kept"]}건</div>',
     ]
     if d.get("lead"):
-        lead_html = "<br>".join(e(l) for l in d["lead"].splitlines() if l.strip())
+        from src.review_format import editorial_html, render_points
+        lead_html = editorial_html(d['editorial']) if d.get('editorial') else render_points(d['lead'])
         parts.append('<div style="background:#eff6ff;border-left:3px solid #3b82f6;'
-                     'padding:12px 14px;margin:0 0 20px;font-size:14px;line-height:1.7">'
+                     'padding:12px 14px;margin:0 0 20px;font-size:14px;line-height:1.7;overflow-wrap:anywhere">'
                      f'{lead_html}</div>')
 
     def card(p: dict[str, Any]) -> str:

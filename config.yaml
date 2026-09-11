@@ -372,6 +372,7 @@ filter:
 # ── AI 해설 (3주차) ─────────────────────────────────────────────────
 insight:
   enabled: true
+  review_mode: manual         # 주간·월간 리뷰 및 과제 후보는 content/reviews에서 직접 작성. L1은 별도.
   # ⚠️ 모델 ID에 날짜 접미사를 붙이지 않는다. 'claude-haiku-4-5-20251001'처럼
   #    적으면 안 되고, 아래 문자열이 그 자체로 완전한 ID다.
   l1_model: claude-haiku-4-5            # 항목 해설 (주 200~300건). 싸고 빠른 게 중요

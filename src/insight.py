@@ -412,6 +412,9 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
 
 def run_l2(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     """해당 주차의 '이번 주 흐름' 3줄을 만들어 digests.lead에 저장한다."""
+    if cfg.get("insight", {}).get("review_mode") == "manual":
+        print("  주간 리뷰: 직접 작성 모드 — content/reviews 파일을 사용합니다.")
+        return None
     icfg = cfg["insight"]
     model = icfg["l2_model"]
     labels = {ax: spec.get("label", ax) for ax, spec in cfg["axes"].items()}
@@ -629,6 +632,8 @@ def run_week_tasks(cfg: dict[str, Any], week: str | None = None) -> list[dict[st
       것은 거기에 있다.
       후보는 1~2개만 뽑는다. 한 주에 셋씩 나오면 그건 후보가 아니라 목록이다.
     """
+    if cfg.get("insight", {}).get("review_mode") == "manual":
+        return []
     icfg = cfg["insight"]
     model = icfg.get("l2_model")
     engine = get_engine()
@@ -854,6 +859,9 @@ def run_l3(cfg: dict[str, Any], args: argparse.Namespace) -> str | None:
     digests 테이블을 주차와 함께 쓴다 — 키가 '2026-08'이라 '2026-W35'와 섞일 일이
     없고, 이 테이블은 어디서도 전수 조회하지 않고 키 하나로만 읽는다.
     """
+    if cfg.get("insight", {}).get("review_mode") == "manual":
+        print("  월간 리뷰: 직접 작성 모드 — content/reviews 파일을 사용합니다.")
+        return None
     icfg = cfg["insight"]
     model = icfg.get("l3_model", icfg["l2_model"])
     profile = load_team_profile(icfg.get("team_profile_path", ""))

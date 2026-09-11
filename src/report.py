@@ -5,17 +5,15 @@
   남겨두는 문서"다. 읽는 사람도 다르고(팀 내부 + 상급자) 인쇄를 전제한다.
 
 ★ 구성
-  1. 이번 달 흐름          L3 월간 리뷰
+  1. 이번 달 흐름          직접 작성 리뷰 우선, 기존 L3는 과거 자료
   2. 법령·규제 변경         이 보고서의 고유한 값 — 다른 데서 정리해 주지 않는다
-  3. 전월 대비 [예시]       ⚠ 아직 실데이터를 못 쓴다(아래)
+  3. 직전 기간 대비 비중     날짜 범위와 동일 경과기간으로 계산한 실제 값
   4. 과제 후보              여러 자료를 겹쳐야 보이는 것 — 이 보고서의 값
   5. 수집·처리 현황         근거 확인용이라 맨 뒤
 
-★ 3이 아직 예시인 이유 — 지어낸 게 아니라 **못 쓰는** 것이다
-  수집량 자체가 달마다 딴판이다. 2026-07은 과거분 임포트만, 08은 일일 수집을
-  켠 뒤다(통과 640 → 1,828). 이 상태로 증감을 쓰면 "우리가 수집을 시작한 것"이
-  "트렌드"로 보고된다. 주간 급상승에서 이미 겪은 함정이다.
-  자리와 형태만 보여주고 문서 안에 예시임을 밝힌다.
+★ 수집량·주제 비중은 시장 성장률이 아니다.
+  월이 진행 중이면 직전 월의 동일 경과기간과 비교한다. 과거분 임포트나
+  수집 범위 변경이 기사 수와 비중에 영향을 줄 수 있음을 문서에 명시한다.
 
 ★ 4는 요약이 아니라 해석이다
   앞 절들이 "무슨 일이 있었나"라면 여기는 "여러 자료를 겹치면 무엇이 보이나"다.
@@ -43,20 +41,9 @@ from sqlalchemy import func, select
 from src.db import digests, get_engine, item_axes, items, load_config
 from src.digest import SERVICE_NAME
 from src.insight import _week_month
+from src.review_format import editorial_html, editorial_md, render_points
 
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
-
-# 예시 절에 쓰는 값. 실데이터로 오해하지 않게 한 곳에 모아두고 문서에도 표시한다.
-MOCK_DELTA = [
-    ("마이데이터", 4.1, 1.2, "+2.9%p"),
-    ("상권분석", 3.6, 2.9, "+0.7%p"),
-    ("영향평가", 2.2, 0.4, "+1.8%p"),
-    ("메타버스", 0.3, 1.9, "-1.6%p"),
-]
-MOCK_NOTE_3 = ("예시 수치입니다. 수집량이 달마다 크게 달라(2026-07은 과거분 임포트만, "
-               "08은 일일 수집 시작) 지금 증감을 계산하면 '수집을 시작한 것'이 "
-               "'트렌드'로 잡힙니다. 서너 달 안정적으로 수집된 뒤 실데이터로 바뀝니다.")
-
 
 def month_label(m: str) -> str:
     return f"{m[:4]}년 {int(m[5:])}월" if len(m) == 7 and m[4] == "-" else m
@@ -66,17 +53,21 @@ def _ymd(s: str) -> str:
     return f"{s[:4]}-{s[4:6]}-{s[6:]}" if len(s) == 8 and s.isdigit() else "—"
 
 
-def collect(month: str, cfg: dict[str, Any]) -> dict[str, Any]:
+def collect(month: str, cfg: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     """보고서에 들어갈 것을 한 번에 모은다."""
     reg_srcs = [n for n, sc in (cfg.get("sources") or {}).items()
                 if isinstance(sc, dict) and sc.get("regulatory")]
     labels = cfg.get("source_labels") or {}
     axis_label = {ax: s.get("label", ax) for ax, s in cfg["axes"].items()}
+    from src.reviews import period_window, review_data, editorial_text
+    window = period_window("monthly", month, now)
+    date_conds = (items.c.published_at >= window["start"].astimezone(timezone.utc),
+                  items.c.published_at < window["cutoff"].astimezone(timezone.utc))
+    comparison = review_data(get_engine(), "monthly", month, now)
 
     with get_engine().connect() as c:
         weeks = sorted(w for (w,) in c.execute(
-            select(items.c.published_week).distinct()) if w and _week_month(w) == month)
-        wk = weeks or ["_"]
+            select(items.c.published_week).distinct().where(*date_conds)) if w)
 
         row = c.execute(select(digests.c.lead, digests.c.body)
                         .where(digests.c.week == month)).first()
@@ -84,12 +75,16 @@ def collect(month: str, cfg: dict[str, Any]) -> dict[str, Any]:
         # 과제 후보는 L3가 만들어 digests.body에 넣어둔다. 보고서를 열 때마다
         # 모델을 부르면 문서가 열 때마다 달라진다 — 보고서는 고정돼야 한다.
         tasks = (row[1] or {}).get("tasks", []) if row and isinstance(row[1], dict) else []
+        editorial = comparison["editorial"]
+        if editorial:
+            lead = editorial_text(editorial)
+            tasks = editorial.get("tasks", [])
 
         regs = c.execute(
             select(items.c.title, items.c.url, items.c.published_at,
                    items.c.meta, items.c.insight)
             .where(items.c.source.in_(reg_srcs or ["_"]),
-                   items.c.published_week.in_(wk))
+                   *date_conds)
             .order_by(items.c.published_at.desc())).all()
 
         # 소스별 수집/통과. kept 합계를 SQL로 세면 방언마다 캐스팅이 달라지므로
@@ -97,28 +92,29 @@ def collect(month: str, cfg: dict[str, Any]) -> dict[str, Any]:
         health = []
         for s, n in c.execute(
                 select(items.c.source, func.count())
-                .where(items.c.published_week.in_(wk))
+                .where(*date_conds)
                 .group_by(items.c.source).order_by(func.count().desc())):
             k = c.execute(select(func.count()).select_from(items)
-                          .where(items.c.published_week.in_(wk),
+                          .where(*date_conds,
                                  items.c.source == s,
                                  items.c.kept.is_(True))).scalar_one()
             health.append({"source": s, "label": labels.get(s, s),
                            "total": n, "kept": k})
 
         total = c.execute(select(func.count()).select_from(items)
-                          .where(items.c.published_week.in_(wk))).scalar_one()
+                          .where(*date_conds)).scalar_one()
         kept = c.execute(select(func.count()).select_from(items)
-                         .where(items.c.published_week.in_(wk),
+                         .where(*date_conds,
                                 items.c.kept.is_(True))).scalar_one()
         by_axis = c.execute(
             select(item_axes.c.axis, func.count(func.distinct(item_axes.c.item_id)))
             .select_from(item_axes.join(items, items.c.id == item_axes.c.item_id))
-            .where(items.c.published_week.in_(wk), items.c.kept.is_(True))
+            .where(*date_conds, items.c.kept.is_(True))
             .group_by(item_axes.c.axis)).all()
 
     return {
         "month": month, "label": month_label(month), "weeks": weeks,
+        "comparison": comparison,
         "lead": lead, "tasks": tasks,
         "regs": [{"title": r.title or "", "url": r.url or "",
                   "date": str(r.published_at)[:10] if r.published_at else "",
@@ -137,10 +133,13 @@ def render_md(d: dict[str, Any]) -> str:
     add(f"# {SERVICE_NAME} 월간보고서 — {d['label']}")
     add("")
     add(f"대상 기간 {d['label']} (주차 {len(d['weeks'])}개) · 생성 {d['generated']}")
+    comp = d["comparison"]
+    add(f"집계 {comp['start']}~{comp['through']} · 해설 기준 {(comp['editorial'] or {}).get('as_of') or '기록 없음'} · "
+        + {"in_progress": "진행 중", "closed": "기간 종료", "final": "확정본", "upcoming": "시작 전"}[comp["status"]])
     add("")
     add("## 1. 이번 달 흐름")
     add("")
-    add(d["lead"] or "_이 달의 흐름 요약이 아직 생성되지 않았습니다._")
+    add(editorial_md(comp['editorial']) if comp['editorial'] else d["lead"] or "_이 달의 흐름 요약이 아직 생성되지 않았습니다._")
     add("")
 
     add(f"## 2. 법령·규제 변경 ({len(d['regs'])}건)")
@@ -167,14 +166,17 @@ def render_md(d: dict[str, Any]) -> str:
         add("_이 달에 수집된 법령·규제 항목이 없습니다._")
         add("")
 
-    add("## 3. 전월 대비 주요 키워드  〔예시〕")
+    add("## 3. 직전 기간 대비 주제 비중")
     add("")
-    add(f"_{MOCK_NOTE_3}_")
+    add("진행 중에는 직전 월의 동일 경과기간과 비교합니다. 수집 범위의 변화가 기사 수·비중에 영향을 줄 수 있습니다.")
     add("")
-    add("| 키워드 | 이번 달 비중 | 전월 비중 | 변화 |")
+    add("| 주제 | 이번 기간 비중 | 직전 기간 비중 | 변화 |")
     add("|---|---|---|---|")
-    for k, a, b, delta in MOCK_DELTA:
-        add(f"| {k} | {a}% | {b}% | {delta} |")
+    for a in comp["axes"]:
+        before = a["previous_share"]
+        delta = f"{a['share'] - before:+.1f}%p" if before is not None and comp["kept"] else "—"
+        add(f"| {dict(ai='AI', bigdata='빅데이터', smallbiz='소상공인').get(a['axis'], a['axis'])} | {a['share']}% | "
+            f"{str(before) + '%' if before is not None else '—'} | {delta} |")
     add("")
 
     add("## 4. 과제 후보")
@@ -209,7 +211,7 @@ def render_md(d: dict[str, Any]) -> str:
         add("")
     add("---")
     add("")
-    add(f"_{SERVICE_NAME} 자동 생성 문서 · 3·4절은 예시이며 실데이터가 아닙니다._")
+    add(f"_{SERVICE_NAME} 자동 생성 문서 · 해설은 작성 기준일의 내용이며 통계는 조회 시점 자료로 계산합니다._")
     return "\n".join(out)
 
 
@@ -223,6 +225,10 @@ body{padding:34px 40px 60px;background:#fff;color:var(--ink);
 h1{font-size:25px;margin:0 0 4px;letter-spacing:-.5px}
 h2{font-size:18px;margin:34px 0 10px;padding-bottom:7px;border-bottom:2px solid var(--ink)}
 h3{font-size:15px;margin:18px 0 4px}
+.review-flow{min-width:0;overflow-wrap:anywhere}.brief-summary{background:#f0f5ff;border-left:3px solid var(--blue);padding:10px 18px;border-radius:0 8px 8px 0}.brief-points{padding-left:21px;margin:8px 0;white-space:normal}.brief-points li{padding-left:3px;margin:9px 0}.brief-points strong{font-weight:750;color:var(--ink)}
+.brief-section{padding:8px 0 14px;border-bottom:1px solid var(--line)}.brief-section h3{font-size:17px;margin:14px 0 10px;color:var(--blue)}.brief-section li{color:#334155}
+.brief-evidence{background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:12px 16px;margin-top:20px;min-width:0}.brief-evidence h3{margin:0 0 8px;font-size:13px;color:var(--mut)}.brief-sources{padding-left:21px;margin:0;font-size:12.5px;line-height:1.65;max-width:100%}.brief-sources li{margin:7px 0;overflow-wrap:anywhere}.brief-sources a{overflow-wrap:anywhere;white-space:normal;text-decoration:underline;text-underline-offset:3px}
+@media screen and (max-width:600px){body{padding:20px 16px 40px}table{display:block;max-width:100%;overflow-x:auto}.brief-summary{padding:8px 12px}.brief-evidence{padding:12px}.task-r>span:last-child{min-width:0;overflow-wrap:anywhere}.bar{flex-wrap:wrap}}
 .sub{color:var(--mut);font-size:13.5px;margin:0 0 6px}
 .lead{white-space:pre-line;background:#f6f8fc;border-left:3px solid var(--blue);
   padding:14px 16px;border-radius:0 6px 6px 0}
@@ -250,6 +256,7 @@ a{color:var(--ink);text-decoration:none}
 @media print{
   body{padding:0;font-size:11.5pt;max-width:none}
   h2{page-break-after:avoid}
+  h3{break-after:avoid}.brief-points li,.brief-sources li{break-inside:avoid}.brief-evidence{background:none}.brief-section h3{color:#0f172a}
   table,.task{page-break-inside:avoid}
   .noprint{display:none}
   a{color:#000}
@@ -267,10 +274,14 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
     p.append(f"<h1>{e(SERVICE_NAME)} 월간보고서 — {e(d['label'])}</h1>")
     p.append(f"<div class='sub'>대상 기간 {e(d['label'])} (주차 {len(d['weeks'])}개) · "
              f"생성 {e(d['generated'])}</div>")
+    comp = d["comparison"]
+    status = {"in_progress": "진행 중", "closed": "기간 종료", "final": "확정본", "upcoming": "시작 전"}[comp["status"]]
+    p.append(f"<p class='sub'>집계 {e(comp['start'])}~{e(comp['through'])} · {status} · "
+             f"해설 기준 {e((comp['editorial'] or {}).get('as_of') or '기록 없음')}</p>")
 
     p.append("<h2>1. 이번 달 흐름</h2>")
-    p.append(f"<div class='lead'>"
-             f"{e(d['lead'] or '이 달의 흐름 요약이 아직 생성되지 않았습니다.')}</div>")
+    p.append("<div class='review-flow'>" + (editorial_html(comp['editorial']) if comp['editorial']
+             else render_points(d['lead'] or '이 달의 흐름 요약이 아직 생성되지 않았습니다.')) + '</div>')
 
     p.append(f"<h2>2. 법령·규제 변경 "
              f"<span style='font-weight:400;color:#64748b'>{len(d['regs'])}건</span></h2>")
@@ -292,13 +303,15 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
     else:
         p.append("<p class='sub'>이 달에 수집된 법령·규제 항목이 없습니다.</p>")
 
-    p.append("<h2>3. 전월 대비 주요 키워드<span class='mocktag'>예시</span></h2>")
-    p.append(f"<p class='note'>{e(MOCK_NOTE_3)}</p>")
-    p.append("<div class='mock'><table><tr><th>키워드</th><th>이번 달 비중</th>"
-             "<th>전월 비중</th><th>변화</th></tr>")
-    for k, a, b, delta in MOCK_DELTA:
-        p.append(f"<tr><td>{e(k)}</td><td class='n'>{a}%</td>"
-                 f"<td class='n'>{b}%</td><td class='n'>{e(delta)}</td></tr>")
+    p.append("<h2>3. 직전 기간 대비 주제 비중</h2>")
+    p.append("<p class='note'>진행 중에는 직전 월의 동일 경과기간과 비교합니다. 수집 범위의 변화가 기사 수·비중에 영향을 줄 수 있습니다.</p>")
+    p.append("<div><table><tr><th>주제</th><th>이번 기간 비중</th><th>직전 기간 비중</th><th>변화</th></tr>")
+    for a in comp["axes"]:
+        before = a["previous_share"]
+        delta = f"{a['share'] - before:+.1f}%p" if before is not None and comp["kept"] else "—"
+        label = dict(ai="AI", bigdata="빅데이터", smallbiz="소상공인").get(a["axis"], a["axis"])
+        p.append(f"<tr><td>{e(label)}</td><td class='n'>{a['share']}%</td>"
+                 f"<td class='n'>{str(before) + '%' if before is not None else '—'}</td><td class='n'>{e(delta)}</td></tr>")
     p.append("</table></div>")
 
     p.append("<h2>4. 과제 후보</h2>")
@@ -330,7 +343,7 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
             f"{e(a['label'])} {a['n']:,}건" for a in d["by_axis"]) + "</p>")
 
     p.append(f"<div class='foot'>{e(SERVICE_NAME)} · 자동 생성 문서 · "
-             f"{e(d['generated'])}<br>3·4절은 예시이며 실데이터가 아닙니다.</div>")
+             f"{e(d['generated'])}<br>해설은 작성 기준일의 내용이며, 통계는 조회 시점 자료로 계산합니다.</div>")
     return "".join(p)
 
 
