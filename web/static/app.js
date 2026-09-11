@@ -14,13 +14,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = n => (n ?? 0).toLocaleString('ko-KR');
-const api = async (p, q) => {
-  const u = new URL(p, location.origin);
-  Object.entries(q || {}).forEach(([k, v]) => v !== '' && v != null && u.searchParams.set(k, v));
-  const r = await fetch(u);
-  if (!r.ok) throw new Error(`${p} ${r.status}`);
-  return r.json();
-};
+const api = createApiClient(fetch, location.origin);
 
 let AXES = [];
 const label = k => (AXES.find(a => a.key === k) || {}).label || k;
@@ -29,6 +23,7 @@ const tags = ax => (ax || []).map(a =>
 
 /* ── 탭 ── */
 const loaded = new Set();
+let renderedHash = '';
 let EXPLORE_CONTEXT = NavigationState.emptyContext();
 const SEARCH_GUARD = NavigationState.createRequestGuard();
 const TIMELINE_GUARD = NavigationState.createRequestGuard();
@@ -87,6 +82,7 @@ function showTab(name, seg, routed) {
     b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on));
   });
   const want = NavigationState.routeHash(route);
+  renderedHash = want;
   if (location.hash.slice(1) !== want) location.hash = want;
   closeNav();
   window.scrollTo(0, 0);        // 화면을 갈아탔는데 스크롤이 중간에 남아 있으면 길을 잃는다
@@ -123,6 +119,7 @@ function syncPicker() {
    showTab이 스스로 바꾼 해시로는 아래가 아무 일도 하지 않는다 — 값이 같아
    hashchange 자체가 안 뜨고, 떠도 이미 그 화면이라 렌더가 멱등이다. */
 window.addEventListener('hashchange', () => {
+  if(location.hash.slice(1) === renderedHash) return;
   const r = routeOf();
   showTab(r.tab, r.mode, r);
 });
@@ -1818,7 +1815,9 @@ const LOADERS = {
     return;
   }
   initSearch();
-  loadCollectionHealth();
+  $('.collection-health').addEventListener('toggle', e => {
+    if(e.currentTarget.open) loadCollectionHealth();
+  });
   const r = routeOf();
   showTab(r.tab, r.mode, r);
 })();

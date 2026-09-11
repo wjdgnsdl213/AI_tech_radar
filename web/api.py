@@ -25,6 +25,7 @@ from src.db import (digests, get_engine, item_axes, items, kw_item, kw_meta,
                     kw_neighbor, kw_week, load_config)
 from src.digest import humanize_weeks, week_label
 from web.cache import ego_cache
+from web.response_cache import cached
 
 router = APIRouter(prefix="/api")
 CFG = load_config()
@@ -154,6 +155,7 @@ def digest(week: str = Query("")) -> dict[str, Any]:
 
 
 @router.get("/search")
+@cached(seconds=30)
 def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
            until: str = Query(""), kept_only: int = Query(1),
            page: int = Query(1), size: int = Query(50),
@@ -910,6 +912,7 @@ def _prev_month(month: str) -> str:
 
 
 @router.get("/home")
+@cached(seconds=60)
 def home(week: str = Query("")) -> dict[str, Any]:
     """메인 화면이 쓰는 것들을 **한 번에** 낸다.
 

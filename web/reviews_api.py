@@ -1,17 +1,20 @@
 """리뷰·이슈·과제 후보의 읽기 전용 경계."""
 from fastapi import APIRouter, HTTPException, Query
 from src.db import get_engine
+from web.response_cache import cached
 from src.reviews import available_periods, issue_data, review_data, task_candidates
 
 router = APIRouter(prefix="/api")
 
 
 @router.get("/reviews/periods")
+@cached(seconds=60)
 def periods(kind: str = Query("monthly", pattern="^(monthly|weekly)$")):
     return {"periods": available_periods(get_engine(), kind)}
 
 
 @router.get("/reviews")
+@cached(seconds=30)
 def review(kind: str = Query("monthly", pattern="^(monthly|weekly)$"), period: str = ""):
     try:
         return review_data(get_engine(), kind, period)
