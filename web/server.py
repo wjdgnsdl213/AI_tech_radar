@@ -57,11 +57,6 @@ app.include_router(api_router)
 from web.reviews_api import router as reviews_router
 app.include_router(reviews_router)
 
-# Optional React design preview; the existing dashboard remains unchanged.
-_PREVIEW = Path(__file__).resolve().parents[1] / "frontend" / "dist"
-if _PREVIEW.is_dir():
-    app.mount("/preview", StaticFiles(directory=str(_PREVIEW), html=True), name="preview")
-
 
 @app.on_event("startup")
 def _warm_cache() -> None:
@@ -187,10 +182,11 @@ def _asset_version() -> str:
       파일이 바뀌면 URL이 바뀌므로 브라우저가 반드시 새로 받는다.
     """
     stamp = 0.0
-    for f in _STATIC.iterdir():
-        if f.is_file() and f.suffix in {".js", ".css"}:
-            stamp = max(stamp, f.stat().st_mtime_ns)
-    return str(stamp)
+    for name in ("app.js", "style.css", "workspace.js", "workspace-store.js", "workspace.css"):
+        f = _STATIC / name
+        if f.exists():
+            stamp = max(stamp, f.stat().st_mtime)
+    return str(int(stamp))
 
 
 def _mask_url(url: str) -> str:
@@ -280,7 +276,6 @@ def diag() -> dict[str, Any]:
 
 
 @app.get("/", response_class=HTMLResponse)
-@app.get("/legacy-preview", response_class=HTMLResponse, include_in_schema=False)
 def spa():
     """SPA 진입점. 정적 파일이 없으면 예전 화면으로 넘긴다."""
     index = _STATIC / "index.html"
