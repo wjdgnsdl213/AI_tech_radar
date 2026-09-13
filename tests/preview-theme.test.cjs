@@ -1,0 +1,21 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const file = path.join(__dirname, '../web/static/preview-theme.js');
+const theme = fs.existsSync(file) ? require(file) : {};
+test('saved choice overrides system preference and toggle persists the new choice', () => {
+  assert.equal(typeof theme.resolve, 'function', 'theme preference support is missing');
+  assert.equal(theme.resolve('light', true), 'light');
+  assert.equal(theme.resolve(null, true), 'dark');
+  assert.equal(theme.resolve('invalid', false), 'light');
+  const values = new Map();
+  let dark = false;
+  const root = {classList:{toggle:(name,value)=>{dark=value}},style:{}};
+  theme.apply('dark', root, {setItem:(k,v)=>values.set(k,v)});
+  assert.equal(dark,true);
+  assert.equal(root.style.colorScheme,'dark');
+  assert.equal(values.get('sab-preview-theme'),'dark');
+  theme.apply('light',root,{setItem(){throw Error('quota')}});
+  assert.equal(dark,false);
+});

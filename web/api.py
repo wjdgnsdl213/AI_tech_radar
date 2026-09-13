@@ -688,10 +688,10 @@ def _org_items(kw: str, week: str, limit: int = 40) -> dict[str, Any]:
 
 
 @router.get("/regulatory")
-def regulatory(limit: int = Query(60), days: int = Query(0),
-               q: str = Query("")) -> dict[str, Any]:
+def regulatory(limit: int = Query(60, ge=1, le=500), days: int = Query(0, ge=0),
+               q: str = Query(""), offset: int = Query(0, ge=0)) -> dict[str, Any]:
     """규제 1차 출처에서 온 항목 (HTTP 경로). 실제 조회는 _regulatory에 있다."""
-    return _regulatory(limit, days, q)
+    return _regulatory(limit, days, q, offset)
 
 
 # "▸ 확인 필요: 이름 — 설명" — insight.py의 L1_REG_RULES가 team_profile과
@@ -712,7 +712,7 @@ def _split_checklist(insight: str | None) -> tuple[str | None, list[dict[str, st
     return clean, checklist
 
 
-def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
+def _regulatory(limit: int, days: int = 0, q: str = "", offset: int = 0) -> dict[str, Any]:
     """규제 1차 출처에서 온 항목. 관련도 필터를 태우지 않는다.
 
     ★ 라우트 함수를 다른 라우트에서 직접 부르지 않는다.
@@ -742,8 +742,8 @@ def _regulatory(limit: int, days: int = 0, q: str = "") -> dict[str, Any]:
         stmt = (select(items.c.id, items.c.title, items.c.summary, items.c.url,
                        items.c.source, items.c.published_at, items.c.meta,
                        items.c.insight)
-                .where(*cond).order_by(items.c.published_at.desc()))
-        rows = c.execute(stmt.limit(limit)).all()
+                .where(*cond).order_by(items.c.published_at.desc(), items.c.id.desc()))
+        rows = c.execute(stmt.limit(limit).offset(max(0, offset))).all()
         total = c.execute(select(func.count()).select_from(items)
                           .where(*cond)).scalar_one()
     # 목록의 개별 배지와 상단 집계 카드가 같은 파싱 결과를 공유한다

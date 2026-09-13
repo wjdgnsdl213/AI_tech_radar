@@ -877,7 +877,7 @@ function applyView() {
 /** fx,fy = 화면상의 고정점(0~1). 그 지점이 제자리에 남도록 확대한다 —
  *  커서 아래를 보고 있다가 휠을 굴렸는데 딴 데로 튀면 길을 잃는다. */
 function viewFor(k, fx = .5, fy = .5) {
-  const w = Math.min(BASE.w * 1.2, Math.max(BASE.w * .12, VIEW.w / k));
+  const w = Math.min(BASE.w * 5, Math.max(BASE.w * .12, VIEW.w / k));
   const h = VIEW.h * (w / VIEW.w);
   return { x: VIEW.x + (VIEW.w - w) * fx, y: VIEW.y + (VIEW.h - h) * fy, w, h };
 }
