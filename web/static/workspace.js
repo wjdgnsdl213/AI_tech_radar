@@ -103,14 +103,19 @@ window.Workspace = (() => {
         ${(r.sections||[]).map((s,i)=>`<section class="review-section"><h3>${E(s.title)}</h3>${ReviewFormat.render(s.body)}${evidenceBySection[i].length?`<div class="review-evidence"><h4>근거 기사</h4><ol class="review-sources">${sourceLinks(evidenceBySection[i])}</ol></div>`:''}</section>`).join('')}`:
         '<div class="work-empty">이 기간의 해설은 준비 중입니다.</div>'}
         ${remainingSources.length?`<details><summary>해설에서 인용하지 않은 출처 ${remainingSources.length}건</summary><ol class="review-sources">${sourceLinks(remainingSources)}</ol></details>`:''}</div>
-        <div class="card"><details><summary>${v.previous.same_elapsed?'직전 동일 경과기간과 비교':'직전 기간과 비교'} · 상세 수치 보기</summary>
-        <p class="mut">비교 대상 ${E(v.previous.start)}부터 ${E(fmt(v.previous.until_exclusive))} 직전까지</p>${UIHelp.render('기사 수는 수집 범위에도 영향을 받습니다. 한 기사는 여러 주제에 포함될 수 있으며, 보도 비중의 변화가 실제 시장 성장률을 뜻하지는 않습니다.')}
-        <div class="review-metrics"><div><b>${num(v.kept)}</b><span>현재 기간 기사</span></div><div><b>${num(v.previous.kept)}</b><span>비교 기간 기사</span></div><div><b>${v.previous.kept?((v.kept-v.previous.kept)>0?'+':'')+num(v.kept-v.previous.kept):'—'}</b><span>기사 수 차이</span></div></div>
-        <table class="review-compare"><thead><tr><th>주제</th><th>기사 수</th><th>현재 비중</th><th>이전 비중</th><th>변화</th></tr></thead><tbody>${v.axes.map(a=>`<tr><td>${E(label(a.axis))}</td><td>${num(a.n)}</td><td>${a.share}%</td><td>${a.previous_share==null?'—':a.previous_share+'%'}</td><td>${a.previous_share==null||!v.kept?'—':((a.share-a.previous_share)>0?'+':'')+(a.share-a.previous_share).toFixed(1)+'%p'}</td></tr>`).join('')}</tbody></table>
-
-        ${v.series.length?`<details><summary>일별 기사 수 보기</summary><div class="review-bars" aria-hidden="true">${v.series.map(s=>`<div title="${E(s.date)} ${s.count}건"><i style="height:${Math.max(2,s.count/max*100)}%"></i></div>`).join('')}</div><p class="mut">${v.series.map(s=>`${E(s.date.slice(5))} ${num(s.count)}건`).join(' · ')}</p></details>`:''}</details></div>
         ${taskPreview.length?`<div class="card"><h2>검토할 과제 후보 ${taskPreview.length}개</h2>${taskPreview.map(t=>`<div class="candidate"><h3>${E(t.title)}</h3><p>${E(t.ask)}</p><button class="preset" data-review-task="${E(t.title)}">작업실에 추가</button></div>`).join('')}</div>`:''}
-        <div class="card"><h2>인용 외 주요 기사</h2>${remainingArticles.slice(0,10).map(itemHTML).join('')||'<div class="work-empty">추가로 표시할 기사가 없습니다.</div>'}<p><button class="preset" data-explore-period data-since="${E(v.start)}" data-until="${E(v.through)}">관련 기사 더 보기</button></p></div>`;
+        <div class="card"><h2>인용 외 주요 기사</h2>${remainingArticles.slice(0,10).map(itemHTML).join('')||'<div class="work-empty">추가로 표시할 기사가 없습니다.</div>'}<p><button class="preset" data-explore-period data-since="${E(v.start)}" data-until="${E(v.through)}">관련 기사 더 보기</button></p></div>
+        <section class="review-statistics" aria-label="브리핑 상세 통계">
+        <details class="card review-stat"><summary>${v.previous.same_elapsed?'직전 동일 경과기간과 비교':'직전 기간과 비교'} · 상세 수치 보기</summary>
+        <div class="review-stat-body">
+        <p class="mut">비교 대상 ${E(v.previous.start)}부터 ${E(fmt(v.previous.until_exclusive))} 직전까지 ${UIHelp.render('기사 수는 수집 범위에도 영향을 받습니다. 한 기사는 여러 주제에 포함될 수 있으며, 보도 비중의 변화가 실제 시장 성장률을 뜻하지는 않습니다.')}</p>
+        <div class="review-metrics"><div><b>${num(v.kept)}</b><span>현재 기간 기사</span></div><div><b>${num(v.previous.kept)}</b><span>비교 기간 기사</span></div><div><b>${((v.kept-v.previous.kept)>0?'+':'')+num(v.kept-v.previous.kept)}</b><span>기사 수 차이</span></div></div>
+        <div class="review-table-scroll" tabindex="0" role="region" aria-label="주제별 기사 비중 비교"><table class="review-compare"><caption>주제별 기사 수와 비중 변화</caption><thead><tr><th scope="col">주제</th><th scope="col">기사 수</th><th scope="col">현재 비중</th><th scope="col">이전 비중</th><th scope="col">변화</th></tr></thead><tbody>${v.axes.map(a=>`<tr><th scope="row">${E(label(a.axis))}</th><td>${num(a.n)}</td><td>${a.share}%</td><td>${a.previous_share==null?'—':a.previous_share+'%'}</td><td>${a.previous_share==null||!v.kept?'—':((a.share-a.previous_share)>0?'+':'')+(a.share-a.previous_share).toFixed(1)+'%p'}</td></tr>`).join('')}</tbody></table></div>
+        </div></details>
+        <details class="card review-stat"><summary>일별 기사 수 보기</summary>
+        <div class="review-stat-body"><p class="review-meta">${E(v.start)} ~ ${E(v.through)} · 한국 시간 · 단위: 건</p>
+        ${v.series.length?`<ol class="review-daily">${v.series.map(s=>`<li><time datetime="${E(s.date)}">${E(s.date.slice(5).replace('-','/'))}</time><span class="review-daily-track" aria-hidden="true"><i style="width:${s.count/max*100}%"></i></span><b>${num(s.count)}</b></li>`).join('')}</ol>`:'<p class="mut">이 기간에 집계된 기사가 없습니다.</p>'}
+        </div></details></section>`;
       refreshSaveButtons();
     } catch(e) {
       if(request!==reviewRequest)return;

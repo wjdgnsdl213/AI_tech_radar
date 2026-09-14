@@ -4,6 +4,22 @@ const path = require('node:path');
 
 const state = require(path.join(__dirname, '../web/static/navigation-state.js'));
 
+test('graph center uses the article search even when the keyword index changes spelling', () => {
+  const context = {q:'ai',axis:'ai',since:'2026-09-01',until:'2026-09-01'};
+  assert.deepEqual(state.keywordArticleRequest(context, 'AI', 'AI'), {
+    path:'/api/search', scope:'search',
+    params:{q:'ai',axis:'ai',since:'2026-09-01',until:'2026-09-01',kept_only:1,order:'relevance',page:1,size:25}
+  });
+  assert.equal(state.keywordArticleRequest(context, 'ai', null).path, '/api/search');
+});
+
+test('a related node retains its indexed keyword and the selected dates and axis', () => {
+  assert.deepEqual(state.keywordArticleRequest({q:'AI',axis:'ai',since:'2026-09-01',until:'2026-09-02'}, '데이터', 'AI'), {
+    path:'/api/keyword/%EB%8D%B0%EC%9D%B4%ED%84%B0',scope:'keyword',
+    params:{limit:40,axis:'ai',since:'2026-09-01',until:'2026-09-02'}
+  });
+});
+
 test('timeline defaults to newest and preserves oldest across view links', () => {
   assert.equal(state.normalizeContext({}).order, 'newest');
   assert.equal(state.normalizeContext({order:'invalid'}).order, 'newest');

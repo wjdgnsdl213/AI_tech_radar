@@ -375,6 +375,15 @@ def suggest(q: str = Query(""), limit: int = Query(12)) -> dict[str, Any]:
     return {"items": out}
 
 
+# 입력·색인 표기 양쪽에 같은 공백 규칙을 적용한다(일반/복사된 특수 공백 포함).
+_GRAPH_SPACES = ' \t\r\n\v\f\u00a0\u3000'
+_GRAPH_SPACE_MAP = str.maketrans('', '', _GRAPH_SPACES)
+
+
+def _graph_query_key(value: str) -> str:
+    return (value or '').translate(_GRAPH_SPACE_MAP).lower()
+
+
 @router.get("/ego")
 def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
         min_cooc: int = Query(0), max_nodes: int = Query(46)) -> dict[str, Any]:
@@ -384,9 +393,10 @@ def ego(kw: str = Query(...), hops: int = Query(1), per_hop: int = Query(12),
     더블클릭하며 헤집는 게 이 화면의 용도인데, 그때마다 4초를 기다리면 못 쓴다.
     같은 질의가 반복되는 비율이 높아 캐시가 잘 듣는다.
     """
-    key = (kw, hops, per_hop, min_cooc, max_nodes)
+    normalized = _graph_query_key(kw)
+    key = ('graph-normalized', normalized, hops, per_hop, min_cooc, max_nodes)
     return ego_cache.get_or_call(
-        key, lambda: _ego(kw, hops, per_hop, min_cooc, max_nodes))
+        key, lambda: _ego(normalized, hops, per_hop, min_cooc, max_nodes))
 
 
 def _ego(kw: str, hops: int, per_hop: int,
@@ -406,18 +416,21 @@ def _ego(kw: str, hops: int, per_hop: int,
     hops = max(1, min(hops, 3))
     per_hop = max(3, min(per_hop, 30))
     max_nodes = max(6, min(max_nodes, 120))
-    q = (kw or "").strip()
+    q = _graph_query_key(kw)
     if not q:
         return {"center": kw, "empty": True, "nodes": [], "edges": [],
                 "reason": "검색어가 없습니다."}
 
     with get_engine().connect() as c:
-        # 대소문자가 다른 표기가 섞여 있다('CLAUDE' 2건 vs 'Claude' 873건).
-        # 문서가 많은 쪽을 중심으로 잡는다 — 적은 쪽을 고르면 망이 거의 안 나온다.
+        # '모두의 AI'와 '모두의AI'도 같은 후보 집합에서 대표 표기를 고른다.
+        # 통계는 합산하지 않는다. 같은 기사의 중복 집계를 피하기 위해 기존 망을 쓴다.
+        normalized_keyword = func.lower(kw_meta.c.keyword)
+        for space in _GRAPH_SPACES:
+            normalized_keyword = func.replace(normalized_keyword, space, '')
         center = c.execute(
             select(kw_meta.c.keyword)
-            .where(func.lower(kw_meta.c.keyword) == q.lower())
-            .order_by(kw_meta.c.df.desc()).limit(1)).scalar_one_or_none()
+            .where(normalized_keyword == q)
+            .order_by(kw_meta.c.df.desc(), kw_meta.c.keyword.asc()).limit(1)).scalar_one_or_none()
         if not center:
             return {"center": q, "empty": True, "nodes": [], "edges": [],
                     "reason": f"'{q}' — 자료가 적어 망을 그릴 수 없습니다 "

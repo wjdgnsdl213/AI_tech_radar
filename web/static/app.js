@@ -31,6 +31,23 @@ const EGO_GUARD = NavigationState.createRequestGuard();
 const KEYWORD_GUARD = NavigationState.createRequestGuard();
 const SEARCH_OTHER_GUARD = NavigationState.createRequestGuard();
 
+// 기존 노드를 이동해 기사 이벤트와 저장 상태를 그대로 유지한다.
+['explore','search','timeline','graph'].forEach(name => $('#explore-main').append($('#panel-' + name)));
+[['search','articles'],['timeline','timeline'],['graph','graph']].forEach(([panel,mode]) => {
+  const actions = $('#panel-' + panel + ' .result-actions');
+  actions.dataset.exploreActions = mode;
+  actions.hidden = true;
+  $('#explore-view-actions').append(actions);
+});
+const topicsNarrow = matchMedia('(max-width:1179px)');
+const syncTopicsDisclosure = () => { $('#topics-disclosure').open = !topicsNarrow.matches; };
+topicsNarrow.addEventListener('change', syncTopicsDisclosure);
+syncTopicsDisclosure();
+new ResizeObserver(() => {
+  $('#explore-topics').classList.toggle('topics-tall', $('#explore-topics').offsetHeight + 48 > innerHeight);
+}).observe($('#explore-topics'));
+const topicsLoader = ExploreTopics.createLoader(api, renderExploreTopics);
+
 /* 옛 주소도 여기서 새 4개 목적지로 정규화한다. */
 function routeOf() {
   return NavigationState.parseRoute(location.hash, location.search);
@@ -72,6 +89,10 @@ function showTab(name, seg, routed) {
   });
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + physical));
   $('#explore-context').hidden = name !== 'explore';
+  $('#explore-layout').hidden = name !== 'explore' || !['start','articles','timeline','graph'].includes(mode);
+  $('#explore-results-heading').hidden = name !== 'explore';
+  $$('[data-explore-actions]').forEach(el => { el.hidden = el.dataset.exploreActions !== mode; });
+  $('#explore-title').textContent = EXPLORE_CONTEXT.q ? `'${EXPLORE_CONTEXT.q}' 검색` : '탐색';
   $('#top-form').hidden = name === 'explore';
   $('#explore-error').textContent = exploreError;
   if (name === 'explore' && mode === 'graph' && (exploreError || !EXPLORE_CONTEXT.q)) {
@@ -97,6 +118,7 @@ function showTab(name, seg, routed) {
     else if (mode.startsWith('discovery:')) showSub(mode.split(':')[1], true);
     else loadExploreStart();
   }
+  if (!$('#explore-layout').hidden) topicsLoader.load();
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
   if (name === 'workspace') Workspace.loadWorkspace(seg);
 }
@@ -398,6 +420,7 @@ function applyExploreContext(context) {
 }
 function replaceExploreHash(mode) {
   EXPLORE_CONTEXT = NavigationState.normalizeContext(params());
+  $('#explore-title').textContent = EXPLORE_CONTEXT.q ? `'${EXPLORE_CONTEXT.q}' 검색` : '탐색';
   const hash = NavigationState.routeHash({tab:'explore',mode,context:EXPLORE_CONTEXT});
   history.replaceState(null, '', '#' + hash);
 }
@@ -447,10 +470,11 @@ async function runSearch(page = 1) {
              title="원문으로 이동">원문 ↗</a>
           ${Workspace.articleButton(p)}
           ${p.insight ? `<span class="snip"><svg class="ico"><use href="#i-bulb"/></svg> ${esc(p.insight)}</span>`
-            : (p.summary ? `<span class="snip">${esc(p.summary)}</span>` : '')}</td>
-        <td>${tags(p.axes)}</td>
+            : (p.summary ? `<span class="snip">${esc(p.summary)}</span>` : '')}
+          <span class="search-inline-axes" aria-label="주제">${tags(p.axes)}</span></td>
+        <td class="search-axes"><span class="search-axis-tags">${tags(p.axes)}</span></td>
         <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
-      : '<div class="empty">선택한 조건에 맞는 선별 기사가 없습니다.</div>';
+      : `<div class="empty">선택한 조건에 맞는 선별 기사가 없습니다.${p.since || p.until || p.axis ? '<p><button class="preset" data-clear-search-filters>기간·주제 필터 해제</button></p>' : ''}</div>`;
     renderPager(page, r.total, r.size);
     $('#f-csv').href = '/search.csv?' + new URLSearchParams(params()).toString();
     Workspace.refreshSaveButtons();
@@ -541,18 +565,33 @@ document.body.addEventListener('click', e => {
   const q = e.target.closest('[data-start-q]');
   if (q) { $('#f-q').value = q.dataset.startQ; showTab('explore','articles'); }
   if (e.target.closest('[data-follow-current]')) Workspace.followTopic($('#f-q').value.trim());
+  const topic = e.target.closest('[data-rising-query]');
+  if (topic) showTab('explore','articles',ExploreTopics.topicRoute(EXPLORE_CONTEXT,topic.dataset.risingQuery));
+  if (e.target.closest('[data-topics-retry]')) topicsLoader.load(true);
+  if (e.target.closest('[data-clear-search-filters]')) showTab('explore','articles',{
+    tab:'explore',mode:'articles',context:{...EXPLORE_CONTEXT,axis:'',since:'',until:''}
+  });
 });
+
+function renderExploreTopics(state) {
+  $('#topics-period').textContent = state.week ? `최신 집계 주 · ${state.label || state.week}` : '최신 집계 주';
+  const groups = [['technology','AI·빅데이터'],['smallbiz','소상공인']];
+  $('#explore-rising').innerHTML = groups.map(([key,title]) => {
+    const g = state[key];
+    const content = g.status === 'loading' ? '<p class="topics-message">불러오는 중…</p>'
+      : g.status === 'error' ? '<p class="topics-message">불러오지 못했습니다. <button class="preset" data-topics-retry>다시 불러오기</button></p>'
+      : g.status === 'empty' ? '<p class="topics-message">급상승 주제가 없습니다.</p>'
+      : `<ol class="topics-list">${g.rows.map((r,i) => `<li><button type="button" data-rising-query="${esc(r.keyword)}"><span class="topics-rank">${i+1}</span><span class="topics-word">${esc(r.keyword)}${r.is_new ? '<small>신규</small>' : ''}</span><span class="topics-count">${num(r.count)}건</span></button></li>`).join('')}</ol>`;
+    return `<section class="topics-group"><h2>${title}</h2>${content}</section>`;
+  }).join('');
+  const preview = [...state.technology.rows.slice(0,2),...state.smallbiz.rows.slice(0,1)];
+  $('#topics-peek').textContent = preview.length ? preview.map(r=>r.keyword).join(' · ')
+    : groups.some(([k])=>state[k].status==='loading') ? '주제를 불러오는 중…' : '펼쳐서 확인';
+}
 
 async function loadExploreStart() {
   Workspace.renderFollowing();
-  $('#explore-rising').innerHTML = '<div class="empty">급상승 주제를 불러오는 중…</div>';
   $('#server-watch').innerHTML = '<div class="empty">설정 알림 키워드를 불러오는 중…</div>';
-  try {
-    const t = await api('/api/trend', {top:10,axis:'ai,bigdata'});
-    $('#explore-rising').innerHTML = `<p class="mut">${esc(t.week_label || '최신 주간')} · AI·빅데이터</p>` + ((t.rows || []).map((r,i) => `<button class="rise-start" data-start-q="${esc(r.keyword)}"><span>${i+1}</span><b>${esc(r.keyword)}</b><em>${num(r.count)}건</em></button>`).join('') || '<div class="empty">급상승 주제가 없습니다.</div>');
-  } catch (e) {
-    $('#explore-rising').innerHTML = '<div class="empty">급상승 주제를 불러오지 못했습니다.</div>';
-  }
   try {
     const w = await api('/api/watch');
     $('#server-watch').innerHTML = (w.keywords || []).length
@@ -595,6 +634,9 @@ async function loadEgo(kw, hops) {
   const requestContext = {kw,hops,axis:EXPLORE_CONTEXT.axis,since:EXPLORE_CONTEXT.since,until:EXPLORE_CONTEXT.until};
   const ticket = EGO_GUARD.begin(requestContext);
   KEYWORD_GUARD.invalidate();
+  EGO = null;
+  egoSel = kw;
+  showKeyword(kw);
   $('#graph-svg').innerHTML = '<div class="empty">그리는 중…</div>';
   let g;
   try { g = await api('/api/ego', { kw, hops, per_hop: hops > 1 ? 8 : 14 }); }
@@ -608,13 +650,14 @@ async function loadEgo(kw, hops) {
   if (!EGO_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph') return;
   if (g.empty) {
     const emptyHTML = (await indexState()).ready
-      ? `<div class="empty">'${esc(kw)}' — ${esc(g.reason || '결과가 없습니다.')}</div>`
+      ? `<div class="empty">${esc(g.reason || '연관망을 구성할 자료가 부족합니다.')}</div>`
       : await emptyOrBuilding('');
     if (!EGO_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph') return;
     // 이전 검색의 지도 상태가 남으면 휠·드래그가 없는 그림을 계속 만진다
-    EGO = null; egoSel = null; BASE = VIEW = null;
-    $('#graph-tools').hidden = true; $('#kw-card').hidden = true;
+    EGO = null; BASE = VIEW = null;
+    $('#graph-tools').hidden = true;
     $('#graph-svg').innerHTML = emptyHTML;
+    // 연관망 미생성은 기사 없음과 다르다. 먼저 요청한 검색 결과는 유지한다.
     return;
   }
   EGO = g;
@@ -1073,12 +1116,10 @@ async function showKeyword(kw) {
 
   const requestContext = {kw,axis:EXPLORE_CONTEXT.axis,since:EXPLORE_CONTEXT.since,until:EXPLORE_CONTEXT.until};
   const ticket = KEYWORD_GUARD.begin(requestContext);
+  const articleRequest = NavigationState.keywordArticleRequest(EXPLORE_CONTEXT, kw, EGO?.center);
   let r;
   try {
-    r = await api('/api/keyword/' + encodeURIComponent(kw), {
-      limit: 40, axis: requestContext.axis,
-      since: requestContext.since, until: requestContext.until
-    });
+    r = await api(articleRequest.path, articleRequest.params);
   } catch (e) {
     if (!KEYWORD_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph' || egoSel !== kw) return;
     $('#kw-body').innerHTML = `<div class="empty">수집 기사를 불러오지 못했습니다.<br>${esc(e.message)}</div>`;
@@ -1087,12 +1128,13 @@ async function showKeyword(kw) {
   if (!KEYWORD_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'graph' || egoSel !== kw) return;
   const selectedRange = requestContext.since || requestContext.until
     ? ` · 선택 기간 ${requestContext.since || '처음'}~${requestContext.until || '현재'}` : ' · 전체 기간';
-  $('#kw-count').textContent = r.total
-    ? `수집 기사 ${num(r.total)}건${selectedRange}` : `수집 기사 0건${selectedRange}`;
+  const scope = articleRequest.scope === 'search' ? '검색 기사' : '키워드가 추출된 수집 기사';
+  $('#kw-count').textContent = `${scope} ${num(r.total)}건${selectedRange}`;
   $('#kw-body').innerHTML = r.items.length
     ? `<div class="items" style="padding:0;border:0;margin:0">
-        ${r.items.map(itemHTML).join('')}</div>`
-    : '<div class="empty">기사가 없습니다.</div>';
+        ${r.items.map(itemHTML).join('')}</div>${r.total > r.items.length ? `<p class="mut">상위 ${num(r.items.length)}건 표시</p>` : ''}`
+    : `<div class="empty">선택한 기간·주제에 ${scope}가 없습니다.</div>`;
+  Workspace.refreshSaveButtons();
 }
 $('#kw-related').addEventListener('click', e => {
   const b = e.target.closest('[data-node]');
@@ -1615,7 +1657,6 @@ async function loadSearchOther(q) {
   const requestContext = {q,axis:EXPLORE_CONTEXT.axis,since:EXPLORE_CONTEXT.since,until:EXPLORE_CONTEXT.until};
   const ticket = SEARCH_OTHER_GUARD.begin(requestContext);
   if (!q) { box.innerHTML = ''; return; }
-  $('#search-title').textContent = `'${q}' 검색`;
   let reg = { items: [], total: 0 };
   try { reg = await api('/api/regulatory', { limit: 3, q }); } catch (e) { /* 무시 */ }
   if (!SEARCH_OTHER_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'articles') return;
@@ -1767,13 +1808,13 @@ const SUB_LOADERS = { cross: loadCross, orgs: loadOrgs, trend: loadTrend };
 const subLoaded = new Set();
 
 function showSub(name, fromTab) {
-  $$('.subtab').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
+  $$('.subtab[data-sub]').forEach(b => b.classList.toggle('active', b.dataset.sub === name));
   $$('.subpanel').forEach(p => p.classList.toggle('active', p.id === 'sub-' + name));
   // 탭 전환에서 불려 온 거면 주소는 이미 맞다. 여기서 또 쓰면 기록이 두 번 쌓인다.
   if (!fromTab) { showTab('explore', 'discovery:' + name); return; }
   if (!subLoaded.has(name)) { subLoaded.add(name); (SUB_LOADERS[name] || (() => {}))(); }
 }
-$$('.subtab').forEach(b => (b.onclick = () => showSub(b.dataset.sub)));
+$$('.subtab[data-sub]').forEach(b => (b.onclick = () => showSub(b.dataset.sub)));
 
 /* 급상승·기관·연관어가 비었을 때, 그게 "데이터가 없다"인지 "아직 만드는 중"인지
    화면에 적는다. 배포 직후에는 인덱스를 다시 만드느라 이 셋이 비는데, 아무 설명이

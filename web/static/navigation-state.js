@@ -23,6 +23,16 @@
     const v = normalizeContext(value);
     return v.since && v.until && v.since > v.until ? '시작일은 종료일보다 늦을 수 없습니다.' : '';
   }
+  function keywordArticleRequest(context, keyword, center) {
+    const {q,axis,since,until} = normalizeContext(context);
+    // 중심어는 기사 탭과 같은 원문 검색, 이웃 노드는 추출 키워드로 조회한다.
+    if (keyword === center || keyword === q) return {
+      path:'/api/search', scope:'search',
+      params:{q,axis,since,until,kept_only:1,order:'relevance',page:1,size:25}
+    };
+    return {path:'/api/keyword/' + encodeURIComponent(keyword),scope:'keyword',
+      params:{limit:40,axis,since,until}};
+  }
   const requestKey = value => JSON.stringify(Object.entries(value || {}).sort(([a],[b]) => a.localeCompare(b)));
   function createRequestGuard() {
     let generation = 0;
@@ -94,5 +104,5 @@
     return `explore/${mode}${p.size ? '?' + p.toString() : ''}`;
   }
 
-  return {emptyContext,normalizeContext,contextError,createRequestGuard,initErrorHTML,parseRoute,routeHash};
+  return {emptyContext,normalizeContext,contextError,keywordArticleRequest,createRequestGuard,initErrorHTML,parseRoute,routeHash};
 });

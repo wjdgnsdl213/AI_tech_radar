@@ -81,19 +81,36 @@
     </form>
     <p id="explore-error" class="form-error" role="alert"></p>
     <div class="preset-row" id="presets"></div>
+  </section>
+
+  <section id="explore-results-heading" hidden aria-label="검색 결과 보기">
+    <h1 id="explore-title">탐색</h1>
+    <div class="explore-navigation">
     <div class="explore-views" role="tablist" aria-label="탐색 보기">
       <button class="subtab" data-explore-view="articles" role="tab">기사</button>
       <button class="subtab" data-explore-view="timeline" role="tab">시간 흐름</button>
       <button class="subtab" data-explore-view="graph" role="tab">연관어</button>
     </div>
+    <div id="explore-view-actions"></div>
+    </div>
+  </section>
+
+  <section id="explore-layout" class="explore-layout" hidden aria-label="탐색 결과와 추천 주제">
+    <div id="explore-main"></div>
+    <aside id="explore-topics" aria-label="급상승 주제">
+      <details class="card topics-card" id="topics-disclosure" open>
+        <summary><span class="topics-heading"><svg class="ico"><use href="#i-trend"/></svg> 급상승 주제</span><span class="topics-peek" id="topics-peek">주제를 불러오는 중…</span></summary>
+        <div class="topics-content">
+          <p class="topics-period" id="topics-period" aria-live="polite">최신 집계 주 확인 중…</p>
+          <button type="button" class="help-icon" aria-label="급상승 집계 기준" data-help="검색 기간과 별개로 최신 집계 주의 급상승 주제를 보여줍니다. 기사 수가 아닌 보도 비중의 상승을 비교하며 인기 검색어 순위가 아닙니다. 주제를 누르면 현재 날짜·주제 필터를 유지해 새로 검색합니다.">ⓘ</button>
+          <div id="explore-rising" aria-live="polite"></div>
+        </div>
+      </details>
+    </aside>
   </section>
 
   <section class="panel" id="panel-explore">
-    <div class="page-head"><div><h1>탐색</h1></div></div>
-    <div class="home-grid">
-      <div class="card"><div class="panel-head"><h2><svg class="ico"><use href="#i-trend"/></svg> 급상승 주제</h2></div><div id="explore-rising"><div class="empty">불러오는 중…</div></div></div>
       <div class="card"><div class="panel-head"><h2><svg class="ico"><use href="#i-bell"/></svg> 내 관심 주제</h2><button type="button" class="help-icon" aria-label="도움말" data-help="관심 주제는 이 기기·브라우저에 저장됩니다.">ⓘ</button></div><div id="issue-following" class="work-chips"></div></div>
-    </div>
     <div class="card"><div class="panel-head"><h2>설정 알림 키워드</h2><button type="button" class="help-icon" aria-label="도움말" data-help="서버 config.yaml에 설정된 알림 키워드입니다. 개인 관심 주제와 별도로 관리됩니다.">ⓘ</button></div><div id="server-watch"><div class="empty">불러오는 중…</div></div></div>
     <details class="card discovery-options"><summary>보조 탐색</summary><button type="button" class="help-icon" aria-label="도움말" data-help="기관·교차 지표는 검색 조건과 별개로 최근 8주를 집계합니다.">ⓘ</button><div class="work-toolbar"><button class="preset" data-discovery="trend">급상승</button><button class="preset" data-discovery="orgs">기관</button><button class="preset" data-discovery="cross">교차</button></div></details>
   </section>
@@ -211,7 +228,7 @@
 
   <!-- ② 검색 -->
   <section class="panel" id="panel-search">
-    <div class="page-head"><div><h1 id="search-title">기사</h1></div><a class="btn-ghost" id="f-csv" href="#"><svg class="ico"><use href="#i-down"/></svg> 엑셀로 내려받기</a></div>
+    <div class="page-head result-actions"><a class="btn-ghost" id="f-csv" href="#"><svg class="ico"><use href="#i-down"/></svg> 엑셀로 내려받기</a></div>
 
     <!-- 검색어가 걸린 다른 곳으로 가는 길. 기사만 뒤지고 끝나면 법령에도 있는지,
          연관어로 뭐가 붙는지 알 수 없다. -->
@@ -225,14 +242,14 @@
   </section>
 
   <section class="panel" id="panel-timeline">
-    <div class="page-head"><div><h1>시간 흐름</h1></div><select id="timeline-order" aria-label="시간 흐름 정렬"><option value="newest">내림차순 · 최신부터</option><option value="oldest">오름차순 · 과거부터</option></select></div>
+    <div class="page-head result-actions"><select id="timeline-order" aria-label="시간 흐름 정렬"><option value="newest">내림차순 · 최신부터</option><option value="oldest">오름차순 · 과거부터</option></select></div>
     <div class="card" id="timeline-body" aria-live="polite"><div class="empty">주제를 입력하면 보도 순서를 볼 수 있습니다.</div></div>
     <div class="pager" id="timeline-pager"></div>
   </section>
 
   <!-- ③ 연관어 네트워크 (검색형) -->
   <section class="panel" id="panel-graph">
-    <div class="page-head"><div><h1>연관어 <button type="button" class="help-icon" aria-label="도움말" data-help="연관어 관계·문서 수는 전체 수집 자료 기준입니다. 주제·기간 필터는 근거 기사에 적용됩니다. 기사·시간 흐름 보기는 선별 기사입니다.">ⓘ</button></h1></div></div>
+    <div class="page-head result-actions"><button type="button" class="help-icon" aria-label="연관어 집계 기준" data-help="연관망은 전체 수집 자료 기준입니다. 중심어의 기사 목록은 기사 탭과 같은 검색 결과이며, 이웃 노드는 추출 키워드가 있는 수집 기사를 보여줍니다. 주제·기간 필터는 기사 목록에 적용됩니다.">ⓘ</button></div>
 
     <form class="searchbar" id="ego-form" hidden aria-hidden="true">
       <input id="ego-q" list="ego-list" placeholder="키워드 검색" autocomplete="off">
@@ -359,7 +376,7 @@
     <div class="page-head"><div><h1>브리핑</h1></div><span id="briefing-report-links" hidden><a class="preset" id="briefing-report-html" href="#" target="_blank" rel="noopener"><svg class="ico"><use href="#i-doc"/></svg> 월간보고서</a> <a class="preset" id="briefing-report-md" href="#"><svg class="ico"><use href="#i-down"/></svg> Markdown</a></span></div>
     <div class="work-toolbar">
       <div class="chip-row" id="review-kinds"><button class="chip" data-review-kind="weekly">주간</button><button class="chip" data-review-kind="monthly">월간</button></div>
-      <label>기간 <select id="review-period" aria-label="브리핑 기간"></select></label>
+      <label class="review-period-control"><span>기간</span><select id="review-period" aria-label="브리핑 기간"></select></label>
       <button class="preset" data-review-current>현재 기간</button>
     </div>
     <div id="review-content" aria-live="polite"></div>
@@ -432,6 +449,7 @@
 <script src="/static/review-format.js?v={{V}}"></script>
 <script src="/static/workspace-store.js?v={{V}}"></script>
 <script src="/static/navigation-state.js?v={{V}}"></script>
+<script src="/static/explore-topics.js?v={{V}}"></script>
 <script src="/static/workspace.js?v={{V}}"></script>
 <script src="/static/app.js?v={{V}}"></script>
 </body>

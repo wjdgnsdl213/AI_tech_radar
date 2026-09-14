@@ -195,7 +195,7 @@ def main() -> None:
         return
 
     print(f"\n{'=' * 62}\n📈 급상승 키워드 상위 {args.top}\n{'=' * 62}")
-    print(f"  {'키워드':<20}{'이번주':>7}{'비중%':>8}{'직전%':>8}{'급상승':>8}")
+    print(f"  {'키워드':<20}{'이번 주':>7}{'비중%':>8}{'직전%':>8}{'급상승':>8}")
     for r in rows[:args.top]:
         tag = "  ★신규" if r["is_new"] else ""
         print(f"  {r['keyword']:<20}{r['count']:>7}{r['share']:>8.2f}"
