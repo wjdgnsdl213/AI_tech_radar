@@ -34,6 +34,18 @@ def test_search_and_export_use_full_kst_day(db):
             assert rows == [2, 3]
 
 
+def test_rising_compound_matches_index_with_shared_filters(db):
+    from web.api import search_conds
+    from web.server import _search_conds
+    with db.begin() as conn:
+        conn.execute(kw_item.insert(), [dict(item_id=i, keyword='전문가AI') for i in (1, 2, 4)])
+        conn.execute(items.update().where(items.c.id == 2).values(title='전문가 AI 공개'))
+    with db.connect() as conn:
+        for condition in (search_conds, _search_conds):
+            result = conn.execute(select(items.c.id).where(condition('전문가AI', '', '2026-09-01', '2026-09-01', 1))).scalars().all()
+            assert result == [2]
+
+
 def test_timeline_and_relevance_share_results_but_not_order(db):
     from web.api import search
     args = dict(q='AI', axis='', since='2026-09-01', until='2026-09-01', kept_only=1, page=1, size=50)

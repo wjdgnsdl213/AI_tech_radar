@@ -49,7 +49,12 @@ def search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
     """검색 조건. 화면·CSV·API가 공유해야 결과가 갈라지지 않는다."""
     conds = []
     if q:
-        conds.append(or_(items.c.title.contains(q, autoescape=True), items.c.summary.contains(q, autoescape=True)))
+        # 급상승 명사 묶음은 원문과 띄어쓰기·조사가 다를 수 있다.
+        # 실제 추출 근거도 포함하고 날짜·축·통과 조건은 동일하게 적용한다.
+        conds.append(or_(items.c.title.contains(q, autoescape=True),
+                         items.c.summary.contains(q, autoescape=True),
+                         items.c.id.in_(select(kw_item.c.item_id)
+                                        .where(kw_item.c.keyword == q))))
     if kept_only:
         conds.append(items.c.kept.is_(True))
     if since and (d := _parse_date(since)):
