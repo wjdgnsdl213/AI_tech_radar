@@ -19,7 +19,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, union
+from sqlalchemy.engine import Engine
+from sqlalchemy.sql import CompoundSelect
 
 from src.db import (digests, get_engine, item_axes, items, kw_item, kw_meta,
                     kw_neighbor, kw_week, load_config)
@@ -48,13 +50,6 @@ def _parse_date(s: str) -> datetime | None:
 def search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
     """검색 조건. 화면·CSV·API가 공유해야 결과가 갈라지지 않는다."""
     conds = []
-    if q:
-        # 급상승 명사 묶음은 원문과 띄어쓰기·조사가 다를 수 있다.
-        # 실제 추출 근거도 포함하고 날짜·축·통과 조건은 동일하게 적용한다.
-        conds.append(or_(items.c.title.contains(q, autoescape=True),
-                         items.c.summary.contains(q, autoescape=True),
-                         items.c.id.in_(select(kw_item.c.item_id)
-                                        .where(kw_item.c.keyword == q))))
     if kept_only:
         conds.append(items.c.kept.is_(True))
     if since and (d := _parse_date(since)):
@@ -64,7 +59,35 @@ def search_conds(q: str, axis: str, since: str, until: str, kept_only: int):
     if axis in CFG["axes"]:
         conds.append(items.c.id.in_(
             select(item_axes.c.item_id).where(item_axes.c.axis == axis)))
+    if q:
+        # OR와 키워드 하위 조회를 묶으면 PostgreSQL이 전체 자료를 훑는다.
+        # 각 경로를 나누면 기존 부분 GIN 인덱스를 활용하고 UNION으로 중복을 제거한다.
+        conds.append(items.c.id.in_(_search_matches(q, conds)))
     return and_(*conds) if conds else None
+
+
+def _search_matches(q: str, filters: list) -> CompoundSelect:
+    return union(
+        select(items.c.id).where(*filters, items.c.title.contains(q, autoescape=True)),
+        select(items.c.id).where(*filters, items.c.summary.contains(q, autoescape=True)),
+        select(items.c.id).join(kw_item, kw_item.c.item_id == items.c.id)
+        .where(*filters, kw_item.c.keyword == q),
+    )
+
+
+@cached(seconds=60)
+def _search_total(engine: Engine, q: str, axis: str, since: str, until: str, kept_only: int) -> int:
+    # 페이지·정렬과 무관한 건수를 별도로 재사용한다. 엔진도 키에 포함한다.
+    filters = search_conds('', axis, since, until, kept_only)
+    if q:
+        matches = _search_matches(q, [filters] if filters is not None else []).subquery()
+        stmt = select(func.count()).select_from(matches)
+    else:
+        stmt = select(func.count()).select_from(items)
+        if filters is not None:
+            stmt = stmt.where(filters)
+    with engine.connect() as conn:
+        return conn.execute(stmt).scalar_one()
 
 
 def _axes_of(conn, ids: list[int]) -> dict[int, list[str]]:
@@ -160,7 +183,7 @@ def digest(week: str = Query("")) -> dict[str, Any]:
 
 
 @router.get("/search")
-@cached(seconds=30)
+@cached(seconds=60)
 def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
            until: str = Query(""), kept_only: int = Query(1),
            page: int = Query(1), size: int = Query(50),
@@ -170,9 +193,8 @@ def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
     stmt = select(items.c.id, items.c.title, items.c.summary, items.c.url,
                   items.c.source, items.c.published_at, items.c.cross_score,
                   items.c.relevance, items.c.insight)
-    cnt = select(func.count()).select_from(items)
     if where is not None:
-        stmt, cnt = stmt.where(where), cnt.where(where)
+        stmt = stmt.where(where)
     off = max(0, (page - 1) * size)
     ordering = {
         'oldest': (items.c.published_at.asc().nullslast(), items.c.id.asc()),
@@ -181,10 +203,11 @@ def search(q: str = Query(""), axis: str = Query(""), since: str = Query(""),
                       items.c.published_at.desc().nullslast(), items.c.id.desc()),
     }
     stmt = stmt.order_by(*ordering[order]).limit(size).offset(off)
-    with get_engine().connect() as c:
+    engine = get_engine()
+    with engine.connect() as c:
         rows = c.execute(stmt).all()
-        total = c.execute(cnt).scalar_one()
         ax = _axes_of(c, [r.id for r in rows])
+    total = _search_total(engine, q, axis, since, until, kept_only)
     return {
         "total": total, "page": page, "size": size,
         "items": [{
@@ -706,6 +729,7 @@ def _org_items(kw: str, week: str, limit: int = 40) -> dict[str, Any]:
 
 
 @router.get("/regulatory")
+@cached(seconds=120)
 def regulatory(limit: int = Query(60), days: int = Query(0),
                q: str = Query("")) -> dict[str, Any]:
     """규제 1차 출처에서 온 항목 (HTTP 경로). 실제 조회는 _regulatory에 있다."""

@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import threading
 import html as html_mod
 import io
@@ -36,6 +37,8 @@ from fastapi import FastAPI, Query
 from fastapi.responses import (FileResponse, HTMLResponse, PlainTextResponse,
                                Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
+from starlette.requests import Request
+from starlette.types import Scope
 from sqlalchemy import func, select, text
 
 from pathlib import Path
@@ -46,6 +49,17 @@ from src.digest import build, render_html
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 app = FastAPI(title="SAB Trend")
+
+
+class VersionedStaticFiles(StaticFiles):
+    """버전이 붙은 공개 정적 파일은 재사용하고 나머지는 재검증한다."""
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.status_code in {200, 304}:
+            versioned = bool(Request(scope).query_params.get("v"))
+            response.headers["Cache-Control"] = "public, max-age=3600" if versioned else "no-cache"
+        return response
 
 # ── SPA ──
 # 화면은 web/static의 SPA가 그린다(sobiz web/ 패턴). 서버는 JSON만 낸다.
@@ -102,7 +116,7 @@ if _LOGO.exists():
 
 _STATIC = Path(__file__).parent / "static"
 if _STATIC.exists():
-    app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
+    app.mount("/static", VersionedStaticFiles(directory=str(_STATIC)), name="static")
 CFG = load_config()
 LABELS = {ax: spec.get("label", ax) for ax, spec in CFG["axes"].items()}
 PAGE = int(CFG.get("web", {}).get("page_size", 50))
@@ -176,19 +190,19 @@ def rows_table(rows: list[Any], axes: dict[int, list[str]]) -> str:
 
 
 def _asset_version() -> str:
-    """정적 파일 수정 시각으로 만든 버전 문자열.
+    """모든 JS·CSS 내용으로 만든 버전 문자열.
 
     ★ 이게 없으면 배포해도 사용자 화면이 안 바뀐다.
       실제로 겪었다 — HTML은 새로 받아왔는데 app.js는 캐시된 옛 버전이라
       새 화면 구조에 옛 스크립트가 붙어서, 제목이 비고 주차 선택이 빈 채로 떴다.
       파일이 바뀌면 URL이 바뀌므로 브라우저가 반드시 새로 받는다.
     """
-    stamp = 0.0
-    for name in ("app.js", "style.css", "workspace.js", "workspace-store.js", "workspace.css", "team-profile.js"):
-        f = _STATIC / name
-        if f.exists():
-            stamp = max(stamp, f.stat().st_mtime)
-    return str(int(stamp))
+    digest = hashlib.sha256()
+    for asset in sorted(_STATIC.iterdir()):
+        if asset.suffix in {".js", ".css"} and asset.is_file():
+            digest.update(asset.name.encode("utf-8") + b"\0")
+            digest.update(asset.read_bytes())
+    return digest.hexdigest()[:16]
 
 
 def _mask_url(url: str) -> str:

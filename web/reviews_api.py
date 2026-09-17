@@ -8,13 +8,13 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/reviews/periods")
-@cached(seconds=60)
+@cached(seconds=300)
 def periods(kind: str = Query("monthly", pattern="^(monthly|weekly)$")):
     return {"periods": available_periods(get_engine(), kind)}
 
 
 @router.get("/reviews")
-@cached(seconds=30)
+@cached(seconds=120)
 def review(kind: str = Query("monthly", pattern="^(monthly|weekly)$"), period: str = ""):
     try:
         return review_data(get_engine(), kind, period)
@@ -32,5 +32,6 @@ def issue(q: str = Query(..., min_length=1, max_length=100), days: int = Query(9
 
 
 @router.get("/task-candidates")
+@cached(seconds=120)
 def candidates():
     return {"tasks": task_candidates(get_engine())}

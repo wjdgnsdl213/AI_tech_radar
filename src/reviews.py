@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.engine import Engine
+from sqlalchemy import Date, and_, case, cast, func, or_, select
+from sqlalchemy.engine import Connection, Engine
 from src.db import digests, item_axes, items
 
 KST = timezone(timedelta(hours=9))
@@ -125,6 +125,41 @@ def _article_rows(conn, conditions: tuple, limit: int = 30, chronological: bool 
     return out
 
 
+def _observations(conn: Connection, conditions: tuple, previous: tuple) -> tuple[int, int, datetime | None, dict[str, int]]:
+    """현재·직전 기간을 함께 집계해 왕복 요청과 날짜 전송량을 줄인다."""
+    current = case((and_(*conditions), 1), else_=0)
+    stamp = items.c.published_at
+    if conn.dialect.name == "postgresql":
+        day = cast(func.timezone("Asia/Seoul", stamp), Date)
+    elif conn.dialect.name == "sqlite":
+        day = func.date(stamp, "+9 hours")
+    else:
+        day = None
+    if day is not None:
+        stmt = select(current, day, func.count(), func.max(stamp)).group_by(current, day)
+    else:
+        stmt = select(current, stamp)
+    rows = conn.execute(stmt.where(or_(and_(*conditions), and_(*previous))))
+    total, prev_total, latest, buckets = 0, 0, None, {}
+    for row in rows:
+        if day is not None:
+            is_current, local_day, count, last = row
+            key = str(local_day)
+        else:
+            is_current, last = row
+            count = 1
+            utc = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+            key = utc.astimezone(KST).date().isoformat()
+        if is_current:
+            total += count
+            buckets[key] = buckets.get(key, 0) + count
+            if latest is None or last > latest:
+                latest = last
+        else:
+            prev_total += count
+    return total, prev_total, latest, buckets
+
+
 def review_data(engine: Engine, kind: str, period: str = "", now: datetime | None = None) -> dict[str, Any]:
     period = period or current_period(kind, now)
     w = period_window(kind, period, now)
@@ -132,29 +167,25 @@ def review_data(engine: Engine, kind: str, period: str = "", now: datetime | Non
     prev_conds = _conditions(w["previous_start"], w["previous_end"])
     editorial = read_editorial(period)
     with engine.connect() as conn:
-        def count(where):
-            return conn.execute(select(func.count()).select_from(items).where(*where)).scalar_one()
-        total, prev_total = count(conds), count(prev_conds)
-        latest = conn.execute(select(func.max(items.c.published_at)).where(*conds)).scalar_one_or_none()
+        total, prev_total, latest, buckets = _observations(conn, conds, prev_conds)
         if latest and latest.tzinfo is None:
             latest = latest.replace(tzinfo=timezone.utc)
-        legacy = conn.execute(select(digests).where(digests.c.week == period)).mappings().first()
+        legacy = None
+        if not editorial:
+            legacy = conn.execute(select(digests).where(digests.c.week == period)).mappings().first()
         if not editorial and legacy and legacy["lead"]:
             editorial = {"period": period, "title": w["label"] + " 리뷰", "summary": legacy["lead"],
                          "as_of": "", "generated_at": str(legacy["generated_at"]), "legacy": True,
                          "sections": [], "sources": [], "tasks": (legacy["body"] or {}).get("tasks", [])}
-        def axes(where):
-            return dict(conn.execute(select(item_axes.c.axis, func.count()).select_from(
-                item_axes.join(items, items.c.id == item_axes.c.item_id)).where(*where).group_by(item_axes.c.axis)).all())
-        current_axes, prev_axes = axes(conds), axes(prev_conds)
+        # 같은 축의 현재·직전 건수를 한 번에 읽는다. 중복 축은 기존대로 각각 센다.
+        axis_rows = conn.execute(select(item_axes.c.axis,
+            func.sum(case((and_(*conds), 1), else_=0)),
+            func.sum(case((and_(*prev_conds), 1), else_=0))).select_from(
+                item_axes.join(items, items.c.id == item_axes.c.item_id))
+            .where(or_(and_(*conds), and_(*prev_conds))).group_by(item_axes.c.axis)).all()
+        current_axes = {axis: current for axis, current, _ in axis_rows}
+        prev_axes = {axis: previous for axis, _, previous in axis_rows}
         articles = _article_rows(conn, conds)
-        # SQL 방언에 의존하지 않도록 작은 날짜 목록을 Python에서 묶는다.
-        dates = conn.execute(select(items.c.published_at).where(*conds)).scalars().all()
-    buckets: dict[str, int] = {}
-    for d in dates:
-        d = (d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d).astimezone(KST)
-        key = d.strftime("%Y-%m-%d")
-        buckets[key] = buckets.get(key, 0) + 1
     status = "final" if w["status"] == "closed" and editorial and editorial.get("final") else w["status"]
     end_day = (w["end"] - timedelta(days=1)).date()
     return {"kind": kind, "period": period, "label": w["label"], "status": status,

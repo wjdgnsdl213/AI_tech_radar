@@ -181,3 +181,26 @@ def test_current_authored_reviews_use_bullets():
         for text in [data['summary'], *[s['body'] for s in data['sections']]]:
             assert all(line.startswith('- **') for line in text.splitlines())
             assert '중간 리뷰' not in text
+
+
+def test_review_aggregates_kst_days_and_axes_without_fetching_every_timestamp(engine, monkeypatch):
+    from sqlalchemy import event
+    from src.db import item_axes
+    m = reviews()
+    monkeypatch.setattr(m, 'read_editorial', lambda period: {'summary':'authored', 'sections':[]})
+    with engine.begin() as c:
+        c.execute(item_axes.insert(), [dict(item_id=2, axis='ai'), dict(item_id=3, axis='ai'),
+                                     dict(item_id=3, axis='bigdata'), dict(item_id=5, axis='smallbiz')])
+    statements = []
+    @event.listens_for(engine, 'before_cursor_execute')
+    def record(conn, cursor, statement, parameters, context, many):
+        statements.append(statement)
+    data = m.review_data(engine, 'monthly', '2026-09', NOW)
+    assert data['series'] == [{'date':'2026-09-01', 'count':1}, {'date':'2026-09-02', 'count':1}]
+    assert data['kept'] == 2 and data['previous']['kept'] == 1
+    assert data['data_as_of'] == '2026-09-02T12:00+09:00'
+    axes = {a['axis']:a for a in data['axes']}
+    assert axes['ai']['n'] == 2 and axes['ai']['share'] == 100
+    assert axes['bigdata']['n'] == 1 and axes['bigdata']['share'] == 50
+    assert axes['smallbiz']['previous'] == 1
+    assert len(statements) <= 4

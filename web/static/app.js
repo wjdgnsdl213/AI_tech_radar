@@ -1634,16 +1634,29 @@ function checklistHTML(groups) {
     </div>`;
 }
 
-async function loadReg() {
+const REG_LOADER = createRegulatoryLoader(api, {
+  list(r) {
+    $('#reg-sub').textContent = `${num(r.total)}건`;
+    $('#reg-checklist').innerHTML = checklistHTML(r.checklist || []);
+    $('#reg-body').innerHTML = regHTML(r.items || [], false);
+  },
+  total(all, r) {
+    $('#reg-sub').textContent = `${num(r.total)}건 · 누적 ${num(all.total)}건`;
+  },
+  error() {
+    $('#reg-sub').textContent = '';
+    $('#reg-body').innerHTML = '<div class="empty">목록을 불러오지 못했습니다. <button type="button" data-reg-retry>다시 시도</button></div>';
+  }
+});
+function loadReg() {
   $('#reg-body').innerHTML = '<div class="empty">불러오는 중…</div>';
   $('#reg-checklist').innerHTML = '';
-  const r = await api('/api/regulatory', { limit: 200, days: REG_RANGE });
-  const all = await api('/api/regulatory', { limit: 1 });
-  $('#reg-sub').textContent =
-    `${num(r.total)}건` + (REG_RANGE ? ` · 누적 ${num(all.total)}건` : '');
-  $('#reg-checklist').innerHTML = checklistHTML(r.checklist || []);
-  $('#reg-body').innerHTML = regHTML(r.items || [], false);
+  $('#reg-sub').textContent = '';
+  return REG_LOADER.load(REG_RANGE);
 }
+$('#reg-body').addEventListener('click', e => {
+  if (e.target.closest('[data-reg-retry]')) loadReg();
+});
 $('#reg-range').addEventListener('click', e => {
   const b = e.target.closest('[data-range]');
   if (!b) return;
@@ -1673,6 +1686,7 @@ document.body.addEventListener('click', async e => {
   const b = e.target.closest('[data-regq]');
   if (!b) return;
   e.preventDefault();
+  REG_LOADER.cancel();
   showTab('reg');
   if (!loaded.has('reg')) loaded.add('reg');
   $('#reg-body').innerHTML = '<div class="empty">불러오는 중…</div>';

@@ -149,3 +149,36 @@ def test_csv_displays_the_same_kst_dates_as_search(db, monkeypatch):
     rows = list(csv.reader(io.StringIO(asyncio.run(collect_body()).lstrip('\ufeff'))))
     assert len(rows) == 3
     assert [r[0] for r in rows[1:]] == ['2026-09-01', '2026-09-01']
+
+
+def test_search_count_is_reused_across_pages_and_orders_but_not_filters(db):
+    from sqlalchemy import event
+    from web.api import search
+    counts = []
+    @event.listens_for(db, 'before_cursor_execute')
+    def record(conn, cursor, statement, parameters, context, many):
+        if statement.startswith('SELECT count('):
+            counts.append(statement)
+    args = dict(q='상권', axis='', since='', until='', kept_only=1, size=1)
+    assert search(**args, page=1, order='oldest')['total'] == 4
+    assert search(**args, page=2, order='oldest')['total'] == 4
+    assert search(**args, page=1, order='newest')['total'] == 4
+    assert len(counts) == 1
+    assert search(**{**args, 'since':'2026-09-01'}, page=1, order='oldest')['total'] == 3
+    assert len(counts) == 2
+
+
+def test_search_union_deduplicates_all_match_sources_and_keeps_unselected_articles(db):
+    from web.api import search
+    with db.begin() as conn:
+        conn.execute(items.update().where(items.c.id == 1).values(title='match-term', summary='match-term'))
+        conn.execute(items.update().where(items.c.id == 2).values(title='other', summary='match-term'))
+        conn.execute(items.update().where(items.c.id == 3).values(title='other', summary='', kept=False))
+        conn.execute(kw_item.insert(), [dict(item_id=i, keyword='match-term') for i in (1, 3)])
+    args = dict(q='match-term', axis='', since='', until='', page=1, size=25, order='oldest')
+    selected = search(**args, kept_only=1)
+    all_rows = search(**args, kept_only=0)
+    assert [r['id'] for r in selected['items']] == [1, 2]
+    assert selected['total'] == 2
+    assert [r['id'] for r in all_rows['items']] == [1, 2, 3]
+    assert all_rows['total'] == 3
