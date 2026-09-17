@@ -56,6 +56,8 @@ from web.api import router as api_router  # noqa: E402
 app.include_router(api_router)
 from web.reviews_api import router as reviews_router
 app.include_router(reviews_router)
+from web.team_profile_api import router as team_profile_router
+app.include_router(team_profile_router)
 
 
 @app.on_event("startup")
@@ -182,7 +184,7 @@ def _asset_version() -> str:
       파일이 바뀌면 URL이 바뀌므로 브라우저가 반드시 새로 받는다.
     """
     stamp = 0.0
-    for name in ("app.js", "style.css", "workspace.js", "workspace-store.js", "workspace.css"):
+    for name in ("app.js", "style.css", "workspace.js", "workspace-store.js", "workspace.css", "team-profile.js"):
         f = _STATIC / name
         if f.exists():
             stamp = max(stamp, f.stat().st_mtime)

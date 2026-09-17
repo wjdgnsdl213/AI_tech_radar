@@ -49,9 +49,16 @@
     <button class="nav-item active" data-tab="briefing" role="tab" title="주간·월간 브리핑"><i><svg class="ico"><use href="#i-digest"/></svg></i><span>브리핑</span></button>
     <button class="nav-item" data-tab="explore" role="tab" title="기사·시간 흐름·연관어 탐색"><i><svg class="ico"><use href="#i-search"/></svg></i><span>탐색</span></button>
     <button class="nav-item" data-tab="reg"    role="tab" title="법령·규제"><i><svg class="ico"><use href="#i-law"/></svg></i><span>법령·규제</span></button>
-    <button class="nav-item" data-tab="workspace" role="tab" title="보관함·과제 검토"><i><svg class="ico"><use href="#i-star"/></svg></i><span>작업실</span></button>
+    <button class="nav-item" data-tab="tasks" role="tab" title="과제 추천·검토"><i><svg class="ico"><use href="#i-doc"/></svg></i><span>과제</span></button>
+    <button class="nav-item" data-tab="workspace" role="tab" title="팀 업무 입력·수정"><i><svg class="ico"><use href="#i-star"/></svg></i><span>작업실</span></button>
   </nav>
   <div class="nav-foot">
+    <section id="briefing-period-nav" class="briefing-period-nav" aria-label="기간 선택" hidden>
+      <div class="work-toolbar">
+        <label class="review-period-control"><span>기간</span><select id="review-period" aria-label="기간"></select></label>
+        <button class="preset" data-review-current>현재 기간</button>
+      </div>
+    </section>
     <details class="collection-health"><summary><svg class="ico"><use href="#i-server"/></svg> 수집 상태</summary><div id="home-health"><span class="mut">불러오는 중…</span></div></details>
   </div>
 </aside>
@@ -70,17 +77,32 @@
     <button type="submit">검색</button>
   </form>
 
-  <section id="explore-context" class="card explore-context" hidden aria-label="탐색 조건">
-    <form class="searchbar" id="search-form">
-      <input name="q" id="f-q" placeholder="하나의 주제를 입력하세요" autocomplete="off" maxlength="100">
-      <select name="axis" id="f-axis" aria-label="주제 필터"><option value="">전체 주제</option></select>
-      <input type="date" name="since" id="f-since" aria-label="시작일">
-      <input type="date" name="until" id="f-until" aria-label="종료일">
-      <button type="submit">탐색</button>
-      <button type="button" class="btn-ghost" data-follow-current>관심 주제로 등록</button>
+  <section id="explore-context" class="explore-context" hidden aria-label="주제 검색">
+    <div id="explore-intro" class="explore-intro"><h1>어떤 주제를 찾아볼까요?</h1></div>
+    <form id="search-form" role="search">
+      <div class="explore-searchbox">
+        <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+        <input type="search" name="q" id="f-q" aria-label="검색어" placeholder="궁금한 주제나 키워드를 입력하세요" autocomplete="off" maxlength="100">
+        <button type="submit">검색</button>
+      </div>
+      <div id="explore-search-options" class="explore-search-options">
+        <details id="explore-filters" class="explore-filters">
+          <summary id="explore-filter-label">기간·주제 필터</summary>
+          <div class="explore-filter-popover">
+          <div class="explore-filter-fields">
+            <label>주제<select name="axis" id="f-axis" aria-label="주제 필터"><option value="">전체 주제</option></select></label>
+            <label>시작일<input type="date" name="since" id="f-since" aria-label="시작일"></label>
+            <label>종료일<input type="date" name="until" id="f-until" aria-label="종료일"></label>
+            <button type="submit" class="preset">필터 적용</button>
+          </div>
+          <div class="preset-row" id="presets"></div>
+          </div>
+        </details>
+        <button type="button" class="btn-ghost" data-explore-start>새 검색</button>
+      </div>
     </form>
     <p id="explore-error" class="form-error" role="alert"></p>
-    <div class="preset-row" id="presets"></div>
+    <div id="explore-start-topics"></div>
   </section>
 
   <section id="explore-results-heading" hidden aria-label="검색 결과 보기">
@@ -109,11 +131,7 @@
     </aside>
   </section>
 
-  <section class="panel" id="panel-explore">
-      <div class="card"><div class="panel-head"><h2><svg class="ico"><use href="#i-bell"/></svg> 내 관심 주제</h2><button type="button" class="help-icon" aria-label="도움말" data-help="관심 주제는 이 기기·브라우저에 저장됩니다.">ⓘ</button></div><div id="issue-following" class="work-chips"></div></div>
-    <div class="card"><div class="panel-head"><h2>설정 알림 키워드</h2><button type="button" class="help-icon" aria-label="도움말" data-help="서버 config.yaml에 설정된 알림 키워드입니다. 개인 관심 주제와 별도로 관리됩니다.">ⓘ</button></div><div id="server-watch"><div class="empty">불러오는 중…</div></div></div>
-    <details class="card discovery-options"><summary>보조 탐색</summary><button type="button" class="help-icon" aria-label="도움말" data-help="기관·교차 지표는 검색 조건과 별개로 최근 8주를 집계합니다.">ⓘ</button><div class="work-toolbar"><button class="preset" data-discovery="trend">급상승</button><button class="preset" data-discovery="orgs">기관</button><button class="preset" data-discovery="cross">교차</button></div></details>
-  </section>
+  <section class="panel" id="panel-explore"></section>
 
 
   <!-- ⓪ 홈 — 한 화면에서 "이번 주에 무슨 일이 있었나"가 끝나야 한다 -->
@@ -234,7 +252,7 @@
          연관어로 뭐가 붙는지 알 수 없다. -->
     <div id="search-other"></div>
 
-    <div class="card">
+    <div class="card search-results-card">
       <div class="panel-head"><h2><svg class="ico"><use href="#i-digest"/></svg> 기사</h2><span class="mut" id="search-count"></span></div>
       <div id="search-body"><div class="empty">검색을 눌러 시작하세요.</div></div>
       <div class="pager" id="search-pager"></div>
@@ -374,40 +392,40 @@
 
   <section class="panel active" id="panel-briefing">
     <div class="page-head"><div><h1>브리핑</h1></div><span id="briefing-report-links" hidden><a class="preset" id="briefing-report-html" href="#" target="_blank" rel="noopener"><svg class="ico"><use href="#i-doc"/></svg> 월간보고서</a> <a class="preset" id="briefing-report-md" href="#"><svg class="ico"><use href="#i-down"/></svg> Markdown</a></span></div>
-    <div class="work-toolbar">
-      <div class="chip-row" id="review-kinds"><button class="chip" data-review-kind="weekly">주간</button><button class="chip" data-review-kind="monthly">월간</button></div>
-      <label class="review-period-control"><span>기간</span><select id="review-period" aria-label="브리핑 기간"></select></label>
-      <button class="preset" data-review-current>현재 기간</button>
+    <div class="work-toolbar briefing-kind-toolbar">
+      <div class="chip-row" id="review-kinds" role="group" aria-label="브리핑 단위"><button class="chip" data-review-kind="weekly" aria-pressed="false">주간</button><button class="chip" data-review-kind="monthly" aria-pressed="false">월간</button></div>
     </div>
     <div id="review-content" aria-live="polite"></div>
   </section>
 
-  <section class="panel" id="panel-issues">
-    <div class="page-head"><div><h1>이슈 추적</h1></div></div>
-    <form id="issue-form" class="work-toolbar card">
-      <label class="work-grow">추적 키워드<input id="issue-query" placeholder="예: 상권분석, 공공데이터, 모두의 AI" required maxlength="100"></label>
-      <label>기간<select id="issue-days"><option value="30">최근 30일</option><option value="90" selected>최근 90일</option><option value="365">최근 1년</option></select></label>
-      <button type="submit">흐름 보기</button><button type="button" class="btn-ghost" data-issue-follow>추적 목록에 추가</button>
-    </form>
-    <div class="card"><h2>내 추적 목록</h2><div id="legacy-issue-following" class="work-chips"></div></div>
-    <div id="issue-results" aria-live="polite"><div class="empty">키워드를 입력하면 관련 기사와 출처를 시간순으로 볼 수 있습니다.</div></div>
-  </section>
-
   <section class="panel" id="panel-workspace">
     <div class="page-head"><div><h1>작업실</h1></div></div>
-    <div class="work-toolbar"><div class="chip-row"><button class="chip" data-work-tab="scraps">보관함·메모</button><button class="chip" data-work-tab="tasks">과제 검토</button></div>
-      <button class="preset" data-work-backup>전체 백업</button><button type="button" class="help-icon" aria-label="도움말" data-help="개인 자료는 이 기기·브라우저에 저장됩니다. 다른 기기로 옮기거나 브라우저 데이터를 지우기 전에 전체 백업을 내려받으세요. 복원은 기존 기록을 유지하며 새 항목을 합칩니다.">ⓘ</button><label class="preset work-file">백업 복원<input type="file" id="work-restore" accept="application/json,.json"></label>
+    <div id="work-team" hidden>
+      <section class="card team-profile" id="team-profile-panel" aria-labelledby="team-profile-title">
+        <h2 id="team-profile-title">팀 업무 입력·수정</h2>
+        <p id="team-profile-meta" class="mut">팀 업무를 불러오는 중…</p>
+        <p class="mut">팀원이 함께 사용하는 업무 정보입니다. 주요 업무, 운영 중인 서비스, 현재 과제와 제약 조건을 자유롭게 적어 주세요.</p>
+        <form id="team-profile-form">
+          <label for="team-profile-content">우리 팀 업무</label>
+          <textarea id="team-profile-content" rows="18" maxlength="50000" required disabled aria-describedby="team-profile-help" placeholder="주요 업무: 상권 데이터 분석, 정책 효과 검증&#10;운영 서비스: 소상공인365, AI도우미&#10;진행 과제: 상담 응답 품질 검증&#10;제약 조건: 담당 인력, 사용 가능한 데이터, 검토 일정"></textarea>
+          <p id="team-profile-help" class="mut">저장한 내용은 이후 AI 해설 생성에 사용합니다. 현재 게시된 리뷰·추천은 수동 작성본이므로 저장 즉시 다시 생성되지 않습니다.</p>
+          <div class="work-toolbar"><button id="team-profile-save" type="submit" disabled>팀 업무 저장</button><button id="team-profile-cancel" type="button" class="btn-ghost">수정 취소</button><button id="team-profile-reload" type="button" class="btn-ghost">최신 업무 확인</button></div>
+        </form>
+        <p id="team-profile-status" role="status" aria-live="polite"></p>
+        <details id="team-profile-latest" hidden><summary>다른 사용자가 저장한 최신 업무</summary><pre id="team-profile-latest-content"></pre></details>
+      </section>
     </div>
-    <div id="work-scraps">
-      <div class="work-toolbar card"><label class="work-grow">저장 자료 검색<input id="scrap-query" placeholder="제목·메모·주제로 검색"></label><label>주제<select id="scrap-topic"><option value="">모든 주제</option></select></label><button data-new-note>메모 작성</button></div>
-      <div class="work-toolbar"><label><input type="checkbox" id="scrap-select-all"> 현재 목록 전체 선택</label><span id="scrap-selected" class="mut"></span></div>
-      <div id="scrap-list"></div>
-      <div class="card work-export"><h2>선택한 자료로 보고자료 만들기 <button type="button" class="help-icon" aria-label="도움말" data-help="선택한 기사·리뷰·메모와 근거 링크를 포함합니다. HTML 파일을 열어 인쇄하면 PDF로 저장할 수 있습니다.">ⓘ</button></h2><label>자료 제목<input id="bundle-title" value="AI·빅데이터 검토 자료" maxlength="150"></label><div class="work-toolbar"><button class="btn-ghost" data-bundle-preview>미리보기</button><button data-bundle="html">인쇄용 HTML 내려받기</button><button class="btn-ghost" data-bundle="markdown">Markdown 내려받기</button></div></div>
-    </div>
-    <div id="work-tasks" hidden>
-      <details class="card"><summary>리뷰에서 발견한 과제 후보</summary><button type="button" class="help-icon" aria-label="도움말" data-help="후보를 보드에 추가해 검토합니다. 자동 실행이나 담당자 전달은 하지 않습니다.">ⓘ</button><div id="task-candidates"></div></details>
-      <div class="work-toolbar"><h2>내 검토 보드</h2><button class="preset" data-new-task>과제 직접 추가</button></div><div id="task-board" class="task-board"></div>
-    </div>
+
+  </section>
+
+  <section class="panel" id="panel-tasks">
+    <div class="page-head"><h1>과제</h1><button class="preset" data-new-task>과제 직접 추가</button></div>
+    <div class="work-toolbar"><div class="chip-row" role="group" aria-label="과제 보기"><button class="chip" data-task-tab="recommendations" aria-pressed="false">과제 추천</button><button class="chip" data-task-tab="board" aria-pressed="false">과제 검토</button></div></div>
+    <section id="task-recommendations" aria-label="과제 추천">
+      <div class="task-list-toolbar"><h2 class="task-recommendation-heading">과제 추천 <span id="task-candidate-count" class="task-heading-count">0</span></h2><label>기간 <select id="task-period"><option value="">전체 기간</option></select></label></div>
+      <div id="task-candidates" class="task-candidate-grid" aria-live="polite"></div>
+    </section>
+    <section id="task-review-board" hidden aria-label="과제 검토"><div class="panel-head"><h2>내 검토 보드</h2><span class="mut">이 브라우저에 저장된 검토 기록</span></div><div id="task-board" class="task-board"></div></section>
   </section>
 
 </div><!-- /.inner -->
@@ -444,6 +462,13 @@
 
 <div id="work-status" role="status" hidden></div>
 <dialog id="work-dialog" class="work-dialog" aria-labelledby="work-dialog-title"><div id="work-dialog-body"></div></dialog>
+<dialog id="task-plan-dialog" class="task-plan-dialog" aria-labelledby="task-plan-title">
+  <div class="task-plan-shell">
+    <header class="task-plan-header"><div><p class="mut">과제 진행 계획</p><h2 id="task-plan-title" tabindex="-1" autofocus></h2></div><button type="button" class="btn-ghost" data-plan-close aria-label="진행 계획 닫기">✕</button></header>
+    <div id="task-plan-body" class="task-plan-body"></div>
+    <footer class="task-plan-footer"><button type="button" data-plan-close>닫기</button></footer>
+  </div>
+</dialog>
 <script src="/static/ui-help.js?v={{V}}"></script>
 <script src="/static/api-client.js?v={{V}}"></script>
 <script src="/static/review-format.js?v={{V}}"></script>
@@ -451,6 +476,7 @@
 <script src="/static/navigation-state.js?v={{V}}"></script>
 <script src="/static/explore-topics.js?v={{V}}"></script>
 <script src="/static/workspace.js?v={{V}}"></script>
+<script src="/static/team-profile.js?v={{V}}"></script>
 <script src="/static/app.js?v={{V}}"></script>
 </body>
 </html>

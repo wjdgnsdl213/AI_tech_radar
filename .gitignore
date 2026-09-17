@@ -46,3 +46,8 @@ data/.pipeline.lock
 .agents/
 .claude/
 skills-lock.json
+
+# 로컬 프런트엔드 미리보기 산출물과 의존성
+frontend/.vite/
+frontend/dist/
+frontend/node_modules/

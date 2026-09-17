@@ -167,13 +167,8 @@ def _text_of(msg) -> str:
 
 
 def load_team_profile(path: str) -> str:
-    p = Path(path)
-    if not p.exists():
-        return ""
-    # '> TODO:' 같은 작성용 메모는 프롬프트에 넣지 않는다 — 모델이 지시로 오해한다
-    lines = [l for l in p.read_text(encoding="utf-8").splitlines()
-             if not l.strip().startswith("> TODO")]
-    return "\n".join(lines).strip()
+    from src.team_profile import profile_for_prompt
+    return profile_for_prompt(path)
 
 
 def build_client():
@@ -265,8 +260,12 @@ def run_l1(cfg: dict[str, Any], args: argparse.Namespace) -> int:
                 .order_by(items.c.cross_score.desc(), items.c.relevance.desc()))
     if not args.regenerate:
         # 이미 같은 모델로 해설이 붙은 항목은 건너뛴다. 모델·프롬프트를 바꿔
-        # 다시 돌릴 때를 위해 insight_model을 함께 본다.
-        stmt = stmt.where((items.c.insight.is_(None)) | (items.c.insight_model != model))
+        # 다시 돌릴 때를 위해 insight_model을 함께 본다. 사람이 직접 작성한
+        # 요약은 자동 모델 실행이 덮어쓰지 않도록 별도 표식으로 항상 보존한다.
+        stmt = stmt.where(
+            ((items.c.insight.is_(None)) | (items.c.insight_model != model))
+            & (func.coalesce(items.c.insight_model, "") != "codex-manual")
+        )
     with engine.connect() as conn:
         rows = conn.execute(stmt).all()
         # 대상 항목 것만 읽는다 — 조건 없이 읽으면 4만 7천 행 전수 스캔이다
@@ -556,17 +555,26 @@ TASK_RULES = """\
     · 우리 팀 업무(소상공인 데이터 분석·AI 활용·공공데이터)와 닿는다
     · 지금 검토할 이유가 있다 (시행일이 다가온다, 사례가 늘고 있다 등)
 
-각 후보를 아래 네 줄로 쓴다. 라벨을 그대로 쓴다:
+각 후보를 아래 항목으로 구체적으로 쓴다. 라벨을 그대로 쓰고 각 항목은 한 줄로 쓴다:
 제목: (한 줄, 20자 안팎)
 관찰: 자료에서 실제로 확인된 것. **어떤 자료인지 밝힌다** (법령명·기관명·기사 주제).
-함의: 그래서 우리 팀에 무엇을 뜻하는지. 여기가 유일하게 해석이 허용되는 줄이다.
+함의: 그래서 우리 팀에 무엇을 뜻하는지. 관찰한 사실과 구분해서 해석을 쓴다.
 확인: 팀이 다음에 확인하거나 정해야 할 것 하나. **질문 형태**로 쓴다.
+업무연결: 팀 프로파일의 실제 업무·서비스명과 연결한다. 연결이 불명확하면 확인 필요라고 쓴다.
+목표: 작은 시범 검토의 목표와 포함·제외 범위.
+기간: 사전 검토에 필요한 예상 기간. 확정 일정이 아닌 제안임을 명시한다.
+진행: 1단계 자료·담당자 확인 → 2단계 시범 분석·검증 → 3단계 결과 비교·팀 검토. 각 단계의 할 일과 확인 대상을 구체적으로 쓴다.
+산출물: 팀이 보고·기획에 사용할 실제 문서·점검표·분석 결과.
+검토기준: 기존 방식과 비교할 지표, 측정 방법, 계속 진행할지 판단할 기준. 근거 없는 목표 수치를 확정하지 않는다.
+유의사항: 필요한 데이터·권한·협업 조건과 아직 확인되지 않은 점.
 
 반드시 지킬 것:
 - '관찰'에는 주어진 자료에 있는 것만 쓴다. 없는 기관·수치·법령을 만들지 않는다.
 - '함의'는 관찰에서 곧바로 이어져야 한다. 자료에 근거가 없는 전망·단정은 쓰지 않는다.
   "…할 것으로 보인다"보다 "…가 필요해진다"처럼 자료에 붙은 서술을 쓴다.
 - '확인'은 우리가 답을 모르는 것이어야 한다. 이미 자료에 답이 있으면 후보가 아니다.
+- 업무연결부터 유의사항까지는 사실 보도가 아닌 팀 검토용 제안이다. 없는 데이터·인력·예산을 확보됐다고 쓰지 않는다.
+- 팀 프로파일의 일반 요약 길이 지침보다 위의 상세 과제 출력 형식을 우선한다.
 - 겹치는 후보를 만들지 않는다. 3~4개가 서로 다른 것을 가리켜야 한다.
 - 근거가 약하면 개수를 줄인다. 억지로 4개를 채우지 않는다. 하나도 없으면
   정확히 `후보 없음` 네 글자만 출력한다.
@@ -574,7 +582,7 @@ TASK_RULES = """\
 
 
 def _parse_tasks(text: str) -> list[dict[str, str]]:
-    """'제목:/관찰:/함의:/확인:' 네 줄 묶음을 딕셔너리 목록으로."""
+    """이전 네 줄 형식과 실행 계획을 포함한 확장 형식을 모두 읽는다."""
     if not text or text.strip() == "후보 없음":
         return []
     out, cur = [], {}
@@ -586,7 +594,11 @@ def _parse_tasks(text: str) -> list[dict[str, str]]:
                 cur = {}
             continue
         for key, label in (("title", "제목"), ("fact", "관찰"),
-                           ("mean", "함의"), ("ask", "확인")):
+                           ("mean", "함의"), ("ask", "확인"),
+                           ("team_fit", "업무연결"), ("objective", "목표"),
+                           ("duration", "기간"), ("approach", "진행"),
+                           ("deliverables", "산출물"), ("success_criteria", "검토기준"),
+                           ("cautions", "유의사항")):
             if line.startswith(label + ":"):
                 cur[key] = line[len(label) + 1:].strip()
                 break
@@ -607,7 +619,7 @@ def run_tasks(cfg: dict[str, Any], month: str, material: str) -> list[dict[str, 
     import anthropic
     try:
         msg = client.messages.create(
-            model=model, max_tokens=int(icfg.get("l3_max_tokens", 4000)),
+            model=model, max_tokens=int(icfg.get("task_max_tokens", 7000)),
             thinking={"type": "adaptive"},
             system=_system_blocks(TASK_RULES,
                                   load_team_profile(icfg.get("team_profile_path", ""))),
@@ -686,7 +698,7 @@ def run_week_tasks(cfg: dict[str, Any], week: str | None = None) -> list[dict[st
     import anthropic
     try:
         msg = client.messages.create(
-            model=model, max_tokens=2500, thinking={"type": "adaptive"},
+            model=model, max_tokens=int(icfg.get("weekly_task_max_tokens", 4500)), thinking={"type": "adaptive"},
             system=_system_blocks(
                 TASK_RULES.replace("3~4개", "1~2개")
                           .replace("한 달치 자료(주간 요약·상위 기사 제목·법령 변경)",

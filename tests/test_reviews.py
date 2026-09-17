@@ -115,6 +115,29 @@ def test_manual_mode_never_reaches_database_or_api(monkeypatch):
     assert insight.run_week_tasks(cfg, args.week) == []
 
 
+def test_l1_preserves_directly_authored_insights(engine, monkeypatch):
+    """정기 Claude 실행은 사람이 직접 작성한 요약을 대상에서 제외한다."""
+    from src import insight
+    from argparse import Namespace
+    from sqlalchemy import select
+
+    with engine.begin() as c:
+        c.execute(items.update().where(items.c.id == 2).values(
+            insight="· 직접 작성한 요약", insight_model="codex-manual"))
+    monkeypatch.setattr(insight, "get_engine", lambda: engine)
+    cfg = {"insight": {"l1_model": "claude-haiku", "l1_max_items": 10,
+                       "l1_max_tokens": 100, "fail_open": True},
+           "sources": {}, "axes": {}}
+    args = Namespace(limit=None, reg=False, regenerate=False, dry_run=False)
+    # 다른 항목도 자동 해설 대상으로 잡히지 않도록 모두 수동 표식 처리한다.
+    with engine.begin() as c:
+        c.execute(items.update().where(items.c.id != 2).values(
+            insight="· 기존 요약", insight_model="codex-manual"))
+    assert insight.run_l1(cfg, args) == 0
+    with engine.connect() as c:
+        assert c.execute(select(items.c.insight).where(items.c.id == 2)).scalar_one() == "· 직접 작성한 요약"
+
+
 def test_month_report_uses_calendar_window_and_real_comparison(engine, monkeypatch):
     from src import report
     monkeypatch.setattr(report, "get_engine", lambda: engine)

@@ -4,6 +4,39 @@ const path = require('node:path');
 
 const state = require(path.join(__dirname, '../web/static/navigation-state.js'));
 
+test('task routes preserve recommendation period and redirect the former workspace board', () => {
+  const route=state.parseRoute('#tasks/recommendations?period=2026-W38','');
+  assert.equal(route.tab,'tasks');
+  assert.equal(route.period,'2026-W38');
+  assert.equal(state.routeHash(route),'tasks/recommendations?period=2026-W38');
+  assert.equal(state.routeHash(state.parseRoute('#workspace/tasks','')),'tasks/board');
+});
+
+test('explore memory restores committed query, filters, view and page across menu navigation and reload', () => {
+  const data=new Map(),storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)};
+  const memory=state.createExploreMemory(storage);
+  assert.equal(memory.read(),null);
+  const context={q:'공공데이터',axis:'ai',since:'2026-09-01',until:'2026-09-17',order:'oldest'};
+  memory.remember({tab:'explore',mode:'timeline',context},3);
+  memory.remember({tab:'workspace',mode:'team'});
+  const restored=state.createExploreMemory(storage).read();
+  assert.equal(restored.mode,'timeline');
+  assert.equal(restored.page,3);
+  assert.deepEqual(restored.context,context);
+  restored.context.q='changed';
+  assert.equal(memory.read().context.q,'공공데이터');
+  memory.remember({tab:'explore',mode:'articles',context:{q:'새 검색'}});
+  assert.equal(memory.read().page,1);
+});
+
+test('explore memory tolerates unavailable storage and corrupted saved routes', () => {
+  const memory=state.createExploreMemory({getItem:()=>'{broken',setItem:()=>{throw Error('unavailable');}});
+  assert.equal(memory.read(),null);
+  memory.remember({tab:'explore',mode:'articles',context:{q:'AI'}},2);
+  assert.equal(memory.read().page,2);
+  assert.equal(state.createExploreMemory({getItem:()=>JSON.stringify({hash:'workspace/team'})}).read(),null);
+});
+
 test('graph center uses the article search even when the keyword index changes spelling', () => {
   const context = {q:'ai',axis:'ai',since:'2026-09-01',until:'2026-09-01'};
   assert.deepEqual(state.keywordArticleRequest(context, 'AI', 'AI'), {

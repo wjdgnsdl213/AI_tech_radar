@@ -29,6 +29,9 @@
     if (t.status && !Object.hasOwn(STATES, t.status)) throw new Error('과제 상태를 확인해 주세요.');
     return {key:string(t.key,400),title:string(t.title,1000),period:string(t.period,40),
       fact:string(t.fact),mean:string(t.mean),ask:string(t.ask),sources:sources(t.sources),
+      objective:string(t.objective),team_fit:string(t.team_fit),approach:string(t.approach),
+      deliverables:string(t.deliverables),success_criteria:string(t.success_criteria),
+      cautions:string(t.cautions),duration:string(t.duration),
       status:t.status || 'observing',owner:string(t.owner,100),note:string(t.note),
       history:Array.isArray(t.history) ? t.history.slice(-100).map(h => ({at:string(h.at,40),
         status:Object.hasOwn(STATES,h.status) ? h.status : 'observing',owner:string(h.owner,100),note:string(h.note)})) : []};

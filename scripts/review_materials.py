@@ -16,6 +16,8 @@ def main() -> None:
     parser.add_argument("--end", default=str(today + timedelta(days=1)))
     parser.add_argument("--limit", type=int, default=18)
     args = parser.parse_args()
+    from src.team_profile import read_profile
+    print(json.dumps({"team_profile": read_profile()}, ensure_ascii=False))
     with get_engine().connect() as conn:
         for start, end in ((args.start, args.end),):
             where = (items.c.kept.is_(True),

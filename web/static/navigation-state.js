@@ -73,7 +73,11 @@
       return {tab:'briefing',mode,period:validPeriod(mode,period),context:emptyContext()};
     }
     if (tab === 'reg') return {tab:'reg',mode:'',period:'',context:emptyContext()};
-    if (tab === 'workspace') return {tab:'workspace',mode:segment || 'scraps',period:'',context:emptyContext()};
+    if (tab === 'tasks' || (tab === 'workspace' && segment === 'tasks')) return {
+      tab:'tasks',mode:segment === 'board' || tab === 'workspace' ? 'board' : 'recommendations',
+      period:/^\d{4}-(?:W\d{2}|\d{2})$/.test(params.get('period') || '') ? params.get('period') : '',context:emptyContext()
+    };
+    if (tab === 'workspace') return {tab:'workspace',mode:'team',period:'',context:emptyContext()};
     if (tab === 'issues') return {tab:'explore',mode:'timeline',period:'',context:normalizeContext({q:decode(segment)})};
     if (tab === 'analysis') {
       const discovery = ['cross','orgs','trend'].includes(segment) ? segment : 'trend';
@@ -96,7 +100,9 @@
       return `briefing/${mode}${period ? ':' + period : ''}`;
     }
     if (route.tab === 'reg') return 'reg';
-    if (route.tab === 'workspace') return 'workspace/' + (route.mode === 'tasks' ? 'tasks' : 'scraps');
+    if (route.tab === 'tasks') return 'tasks/' + (route.mode === 'board' ? 'board' : 'recommendations') +
+      (/^\d{4}-(?:W\d{2}|\d{2})$/.test(route.period || '') && route.mode !== 'board' ? '?period=' + route.period : '');
+    if (route.tab === 'workspace') return 'workspace/' + (route.mode === 'tasks' ? 'tasks' : 'team');
     const mode = ['articles','timeline','graph','start','discovery:trend','discovery:orgs','discovery:cross'].includes(route.mode) ? route.mode : 'start';
     const p = new URLSearchParams();
     const c = normalizeContext(route.context);
@@ -104,5 +110,22 @@
     return `explore/${mode}${p.size ? '?' + p.toString() : ''}`;
   }
 
-  return {emptyContext,normalizeContext,contextError,keywordArticleRequest,createRequestGuard,initErrorHTML,parseRoute,routeHash};
+  function createExploreMemory(storage) {
+    const key='sab-explore-session';
+    let saved=null;
+    try {saved=JSON.parse(storage?.getItem(key) || 'null');} catch {}
+    return {
+      remember(route,page=1) {
+        if(route?.tab!=='explore')return;
+        saved={hash:routeHash(route),page:Number.isSafeInteger(page)&&page>0?page:1};
+        try {storage?.setItem(key,JSON.stringify(saved));} catch {}
+      },
+      read() {
+        if(typeof saved?.hash!=='string' || !saved.hash.startsWith('explore/'))return null;
+        const route=parseRoute(saved.hash,'');
+        return {...route,page:Number.isSafeInteger(saved.page)&&saved.page>0?saved.page:1};
+      }
+    };
+  }
+  return {emptyContext,normalizeContext,contextError,keywordArticleRequest,createRequestGuard,initErrorHTML,parseRoute,routeHash,createExploreMemory};
 });

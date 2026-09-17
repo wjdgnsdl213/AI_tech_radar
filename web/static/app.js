@@ -25,6 +25,7 @@ const tags = ax => (ax || []).map(a =>
 const loaded = new Set();
 let renderedHash = '';
 let EXPLORE_CONTEXT = NavigationState.emptyContext();
+const exploreMemory = NavigationState.createExploreMemory({getItem:k=>sessionStorage.getItem(k),setItem:(k,v)=>sessionStorage.setItem(k,v)});
 const SEARCH_GUARD = NavigationState.createRequestGuard();
 const TIMELINE_GUARD = NavigationState.createRequestGuard();
 const EGO_GUARD = NavigationState.createRequestGuard();
@@ -40,7 +41,7 @@ const SEARCH_OTHER_GUARD = NavigationState.createRequestGuard();
   $('#explore-view-actions').append(actions);
 });
 const topicsNarrow = matchMedia('(max-width:1179px)');
-const syncTopicsDisclosure = () => { $('#topics-disclosure').open = !topicsNarrow.matches; };
+const syncTopicsDisclosure = () => { $('#topics-disclosure').open = document.body.classList.contains('explore-start') || !topicsNarrow.matches; };
 topicsNarrow.addEventListener('change', syncTopicsDisclosure);
 syncTopicsDisclosure();
 new ResizeObserver(() => {
@@ -66,13 +67,18 @@ function showTab(name, seg, routed) {
     name = 'explore';
   }
   const [briefMode, briefPeriod = ''] = name === 'briefing' ? String(seg || 'weekly').split(':') : [];
-  const route = routed || (name === 'briefing'
+  const route = routed || (name === 'explore' && !seg ? exploreMemory.read() : null) || (name === 'briefing'
     ? {tab:'briefing',mode:briefMode === 'monthly' ? 'monthly' : 'weekly',period:briefPeriod}
     : name === 'explore' ? {tab:'explore',mode:seg || 'start',context:params()}
     : {tab:name,mode:seg || ''});
-  if (route.tab === 'explore') applyExploreContext(route.context || params());
+  if (route.tab === 'explore') {
+    // 시작 화면은 새 검색이다. 숨겨진 이전 기간·주제 필터를 다음 검색에 섞지 않는다.
+    if (route.mode === 'start') route.context = NavigationState.emptyContext();
+    applyExploreContext(route.context || params());
+  }
   name = route.tab;
   const mode = route.mode || '';
+  if(name==='explore')exploreMemory.remember(route,route.page || 1);
   if (name !== 'explore' || mode !== 'articles') { SEARCH_GUARD.invalidate(); SEARCH_OTHER_GUARD.invalidate(); }
   if (name !== 'explore' || mode !== 'timeline') TIMELINE_GUARD.invalidate();
   if (name !== 'explore' || mode !== 'graph') { EGO_GUARD.invalidate(); KEYWORD_GUARD.invalidate(); }
@@ -88,9 +94,20 @@ function showTab(name, seg, routed) {
     b.setAttribute('aria-selected', String(b.dataset.tab === name));
   });
   $$('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + physical));
+  $('#briefing-period-nav').hidden = name !== 'briefing';
   $('#explore-context').hidden = name !== 'explore';
-  $('#explore-layout').hidden = name !== 'explore' || !['start','articles','timeline','graph'].includes(mode);
-  $('#explore-results-heading').hidden = name !== 'explore';
+  const exploreStart = name === 'explore' && mode === 'start';
+  document.body.classList.toggle('explore-start', exploreStart);
+  document.body.classList.toggle('explore-results', name==='explore' && !exploreStart);
+  $('#explore-intro').hidden = !exploreStart;
+  $('#explore-search-options').hidden = exploreStart;
+  $('#f-q').required = exploreStart;
+  $('#explore-layout').hidden = name !== 'explore' || !['articles','timeline','graph'].includes(mode);
+  $('#explore-results-heading').hidden = name !== 'explore' || exploreStart;
+  (exploreStart ? $('#explore-start-topics') : $('#explore-layout')).append($('#explore-topics'));
+  syncTopicsDisclosure();
+  if (exploreStart) $('#explore-filters').open = false;
+  $('#explore-filter-label').textContent = '기간·주제 필터' + (EXPLORE_CONTEXT.axis || EXPLORE_CONTEXT.since || EXPLORE_CONTEXT.until ? ' · 적용 중' : '');
   $$('[data-explore-actions]').forEach(el => { el.hidden = el.dataset.exploreActions !== mode; });
   $('#explore-title').textContent = EXPLORE_CONTEXT.q ? `'${EXPLORE_CONTEXT.q}' 검색` : '탐색';
   $('#top-form').hidden = name === 'explore';
@@ -109,18 +126,18 @@ function showTab(name, seg, routed) {
   window.scrollTo(0, 0);        // 화면을 갈아탔는데 스크롤이 중간에 남아 있으면 길을 잃는다
   if (name === 'briefing') Workspace.loadReviews(`${route.mode}:${route.period || ''}`);
   if (name === 'explore' && !exploreError) {
-    if (mode === 'articles') runSearch(1);
-    else if (mode === 'timeline') runTimeline(1);
+    if (mode === 'articles') runSearch(route.page || 1);
+    else if (mode === 'timeline') runTimeline(route.page || 1);
     else if (mode === 'graph') {
       loadGraph();
       if (EXPLORE_CONTEXT.q) loadEgo(EXPLORE_CONTEXT.q);
     }
     else if (mode.startsWith('discovery:')) showSub(mode.split(':')[1], true);
-    else loadExploreStart();
   }
-  if (!$('#explore-layout').hidden) topicsLoader.load();
+  if (exploreStart || !$('#explore-layout').hidden) topicsLoader.load();
   if (!loaded.has(name)) { loaded.add(name); (LOADERS[name] || (() => {}))(); }
-  if (name === 'workspace') Workspace.loadWorkspace(seg);
+  if (name === 'workspace') Workspace.loadWorkspace(mode);
+  if (name === 'tasks') Workspace.loadTasks(mode,route.period || '');
 }
 
 /* 선택창을 지금 보고 있는 주차에 맞춘다. */
@@ -211,7 +228,7 @@ function itemHTML(p) {
       <a href="#" data-item="${p.id}">${esc(p.title)}</a>
       <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
          title="원문으로 이동">원문 ↗</a>
-      ${Workspace.articleButton(p)}
+      
     </div>
     <div class="item-m">${tags(p.axes)} ${esc(p.source)} · ${esc(p.published)}
       ${p.insight ? '<span class="has-ai"><svg class="ico"><use href="#i-bulb"/></svg> 해설</span>' : ''}</div>
@@ -418,10 +435,12 @@ function applyExploreContext(context) {
   $('#timeline-order').value = EXPLORE_CONTEXT.order;
   $('#ego-q').value = EXPLORE_CONTEXT.q;
 }
-function replaceExploreHash(mode) {
+function replaceExploreHash(mode, page=1) {
   EXPLORE_CONTEXT = NavigationState.normalizeContext(params());
   $('#explore-title').textContent = EXPLORE_CONTEXT.q ? `'${EXPLORE_CONTEXT.q}' 검색` : '탐색';
+  $('#explore-filter-label').textContent = '기간·주제 필터' + (EXPLORE_CONTEXT.axis || EXPLORE_CONTEXT.since || EXPLORE_CONTEXT.until ? ' · 적용 중' : '');
   const hash = NavigationState.routeHash({tab:'explore',mode,context:EXPLORE_CONTEXT});
+  exploreMemory.remember({tab:'explore',mode,context:EXPLORE_CONTEXT},page);
   history.replaceState(null, '', '#' + hash);
 }
 
@@ -451,7 +470,7 @@ async function runSearch(page = 1) {
   const p = { ...params(), order:'relevance', page, size: PAGE_SIZE };
   const ticket = SEARCH_GUARD.begin(p);
   EXPLORE_CONTEXT = NavigationState.normalizeContext(p);
-  replaceExploreHash('articles');
+  replaceExploreHash('articles',page);
   $('#search-body').innerHTML = '<div class="empty">검색 중…</div>';
   // 같은 검색어가 법령·연관어에도 걸리는지 함께 찾는다 (첫 페이지에서만)
   if (page === 1) loadSearchOther((p.q || '').trim());
@@ -462,22 +481,19 @@ async function runSearch(page = 1) {
     $('#search-count').textContent = r.total
       ? `${num(r.total)}건 중 ${from + 1}~${from + r.items.length}` : '';
     $('#search-body').innerHTML = r.items.length
-      ? `<div class="tblwrap"><table><tr><th>날짜</th><th>제목</th><th>주제</th><th>출처</th></tr>` +
+      ? `<div class="tblwrap"><table class="article-results-table"><thead><tr><th scope="col">날짜</th><th scope="col">기사</th><th scope="col">주제</th><th scope="col">출처</th></tr></thead><tbody>` +
         r.items.map(p => `<tr>
         <td class="n">${esc(p.published)}</td>
         <td class="t"><a href="#" data-item="${p.id}">${esc(p.title)}</a>
-          <a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link"
-             title="원문으로 이동">원문 ↗</a>
-          ${Workspace.articleButton(p)}
           ${p.insight ? `<span class="snip"><svg class="ico"><use href="#i-bulb"/></svg> ${esc(p.insight)}</span>`
             : (p.summary ? `<span class="snip">${esc(p.summary)}</span>` : '')}
-          <span class="search-inline-axes" aria-label="주제">${tags(p.axes)}</span></td>
+          <span class="search-inline-axes" aria-label="주제">${tags(p.axes)}</span><div class="search-row-actions"><a href="${esc(p.url)}" target="_blank" rel="noopener" class="src-link" title="원문으로 이동">원문 보기 ↗</a></div></td>
         <td class="search-axes"><span class="search-axis-tags">${tags(p.axes)}</span></td>
-        <td class="n">${esc(p.source)}</td></tr>`).join('') + '</table></div>'
+        <td class="n">${esc(p.source)}</td></tr>`).join('') + '</tbody></table></div>'
       : `<div class="empty">선택한 조건에 맞는 선별 기사가 없습니다.${p.since || p.until || p.axis ? '<p><button class="preset" data-clear-search-filters>기간·주제 필터 해제</button></p>' : ''}</div>`;
     renderPager(page, r.total, r.size);
     $('#f-csv').href = '/search.csv?' + new URLSearchParams(params()).toString();
-    Workspace.refreshSaveButtons();
+    
   } catch (e) {
     if (!SEARCH_GUARD.isCurrent(ticket, p)) return;
     $('#search-count').textContent = '';
@@ -497,7 +513,7 @@ async function runTimeline(page = 1) {
   const p = {...params(), page, size:PAGE_SIZE};
   const ticket = TIMELINE_GUARD.begin(p);
   EXPLORE_CONTEXT = NavigationState.normalizeContext(p);
-  replaceExploreHash('timeline');
+  replaceExploreHash('timeline',page);
   if (!p.q) {
     $('#timeline-body').innerHTML = '<div class="empty">시간 흐름을 볼 주제를 입력해 주세요.</div>';
     $('#timeline-pager').innerHTML = '';
@@ -514,7 +530,7 @@ async function runTimeline(page = 1) {
       return heading + `<div class="issue-item">${itemHTML(article)}${article.summary ? `<p>${esc(article.summary)}</p>` : ''}</div>`;
     }).join('') || '<div class="work-empty">선택한 기간에 일치하는 기사가 없습니다.</div>');
     timelinePager(page, r.total, r.size);
-    Workspace.refreshSaveButtons();
+    
   } catch (e) {
     if (!TIMELINE_GUARD.isCurrent(ticket, p)) return;
     $('#timeline-body').innerHTML = `<div class="work-empty">시간 흐름을 불러오지 못했습니다.<br>${esc(e.message)}<br><button class="preset" data-timeline-page="1">다시 시도</button></div>`;
@@ -543,14 +559,13 @@ function initSearch() {
       $('#f-since').value = new Date(Date.now() - d * 864e5).toISOString().slice(0, 10);
     }
     const mode = routeOf().tab === 'explore' ? routeOf().mode : 'articles';
-    if (mode === 'timeline') runTimeline(1);
-    else if (mode === 'articles') runSearch(1);
-    else if (mode === 'graph') showTab('explore','graph');
+    if (['timeline','articles','graph'].includes(mode)) showTab('explore',mode);
   };
 }
 
 $('#search-form').onsubmit = e => {
   e.preventDefault();
+  if(!NavigationState.contextError(params()))$('#explore-filters').open=false;
   const current = routeOf();
   const mode = current.tab === 'explore' && ['articles','timeline','graph'].includes(current.mode) ? current.mode : 'articles';
   showTab('explore', mode);
@@ -560,11 +575,12 @@ $('.explore-views').onclick = e => {
   if (b) showTab('explore', b.dataset.exploreView);
 };
 document.body.addEventListener('click', e => {
+  if(e.target.closest('[data-explore-start]')){showTab('explore','start');return;}
+  if(!e.target.closest('#explore-filters'))$('#explore-filters').open=false;
   const d = e.target.closest('[data-discovery]');
   if (d) showTab('explore', 'discovery:' + d.dataset.discovery);
   const q = e.target.closest('[data-start-q]');
   if (q) { $('#f-q').value = q.dataset.startQ; showTab('explore','articles'); }
-  if (e.target.closest('[data-follow-current]')) Workspace.followTopic($('#f-q').value.trim());
   const topic = e.target.closest('[data-rising-query]');
   if (topic) showTab('explore','articles',ExploreTopics.topicRoute(EXPLORE_CONTEXT,topic.dataset.risingQuery));
   if (e.target.closest('[data-topics-retry]')) topicsLoader.load(true);
@@ -587,19 +603,6 @@ function renderExploreTopics(state) {
   const preview = [...state.technology.rows.slice(0,2),...state.smallbiz.rows.slice(0,1)];
   $('#topics-peek').textContent = preview.length ? preview.map(r=>r.keyword).join(' · ')
     : groups.some(([k])=>state[k].status==='loading') ? '주제를 불러오는 중…' : '펼쳐서 확인';
-}
-
-async function loadExploreStart() {
-  Workspace.renderFollowing();
-  $('#server-watch').innerHTML = '<div class="empty">설정 알림 키워드를 불러오는 중…</div>';
-  try {
-    const w = await api('/api/watch');
-    $('#server-watch').innerHTML = (w.keywords || []).length
-      ? `<p class="mut">최근 ${num(w.days)}일 · 설정 ${num(w.keywords.length)}개 · 일치 ${num(w.total)}건</p><div class="work-chips">${w.keywords.map(q => `<span><button data-start-q="${esc(q)}">${esc(q)}</button></span>`).join('')}</div>`
-      : '<div class="empty">서버에 설정된 알림 키워드가 없습니다.</div>';
-  } catch (e) {
-    $('#server-watch').innerHTML = '<div class="empty">설정 알림 키워드를 불러오지 못했습니다.</div>';
-  }
 }
 
 /* ── ③ 연관어 네트워크 (검색형) ──
@@ -1134,7 +1137,7 @@ async function showKeyword(kw) {
     ? `<div class="items" style="padding:0;border:0;margin:0">
         ${r.items.map(itemHTML).join('')}</div>${r.total > r.items.length ? `<p class="mut">상위 ${num(r.items.length)}건 표시</p>` : ''}`
     : `<div class="empty">선택한 기간·주제에 ${scope}가 없습니다.</div>`;
-  Workspace.refreshSaveButtons();
+  
 }
 $('#kw-related').addEventListener('click', e => {
   const b = e.target.closest('[data-node]');
@@ -1461,7 +1464,7 @@ document.body.addEventListener('click', async e => {
   if (it) {
     e.preventDefault();
     const d = await api('/api/item/' + it.dataset.item);
-    Workspace.registerArticle(d);
+    
     const m = d.meta || {};
     const isLaw = !!m.target;      // 법령 어댑터가 붙이는 표식
     const badges = isLaw ? `
@@ -1475,7 +1478,7 @@ document.body.addEventListener('click', async e => {
       <div class="mut">${badges} ${esc(isLaw ? '법제처' : d.source)} · ${esc(d.published)}</div>
       <a class="btn-src" href="${esc(d.url)}" target="_blank" rel="noopener">
         ${isLaw ? '법제처 원문 보기' : '원문 기사 보기'} <span>↗</span></a>
-      ${Workspace.articleButton(d)}
+      
       ${d.insight ? `<div class="item-i">
         <div class="item-i-h"><svg class="ico"><use href="#i-bulb"/></svg> AI 요약</div>
         <div class="item-i-b">${esc(d.insight)}</div></div>` : ''}
@@ -1661,10 +1664,7 @@ async function loadSearchOther(q) {
   try { reg = await api('/api/regulatory', { limit: 3, q }); } catch (e) { /* 무시 */ }
   if (!SEARCH_OTHER_GUARD.isCurrent(ticket, requestContext) || routeOf().tab !== 'explore' || routeOf().mode !== 'articles') return;
 
-  const regCard = reg.total ? `<div class="card">
-      <div class="panel-head"><h2><svg class="ico"><use href="#i-law"/></svg> 법령·규제 ${num(reg.total)}건</h2>
-        <button class="linkish" data-regq="${esc(q)}">전체 보기</button></div>
-      ${regHTML(reg.items, true)}</div>` : '';
+  const regCard = reg.total ? `<div class="search-related"><span>함께 찾은 법령·규제 <b>${num(reg.total)}건</b></span><button class="linkish" data-regq="${esc(q)}">결과 보기 →</button></div>` : '';
 
   box.innerHTML = regCard;
 }

@@ -386,6 +386,8 @@ insight:
   #   한국어는 토큰당 글자 수가 적어 200토큰에서는 문장 중간에 잘렸다.
   l1_max_tokens: 420
   team_profile_path: seeds/team_profile.md   # "우리 팀이 누구인지" — 해설 프롬프트에 주입
+  task_max_tokens: 7000      # 월간 상세 과제 3~4개 + 사고 토큰
+  weekly_task_max_tokens: 4500  # 주간 상세 과제 1~2개 + 사고 토큰
   # LLM 장애 시에도 다이제스트는 나가야 한다
   fail_open: true
 

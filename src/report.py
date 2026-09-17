@@ -43,6 +43,12 @@ from src.digest import SERVICE_NAME
 from src.insight import _week_month
 from src.review_format import editorial_html, editorial_md, render_points
 
+TASK_DETAIL_FIELDS = (
+    ("team_fit", "팀 업무 연결"), ("objective", "목표·범위"), ("duration", "예상 기간"),
+    ("approach", "진행 방법"), ("deliverables", "산출물"),
+    ("success_criteria", "검토 기준"), ("cautions", "유의 사항"),
+)
+
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 def month_label(m: str) -> str:
@@ -183,7 +189,7 @@ def render_md(d: dict[str, Any]) -> str:
     add("")
     if d["tasks"]:
         add("_여러 자료가 같은 방향을 가리키는 것만 골랐습니다. "
-            "**관찰**은 자료에서 확인된 사실, **함의**는 해석입니다._")
+            "**관찰**은 자료에서 확인된 사실, **함의**는 해석입니다. 진행 방법·기간·검토 기준은 팀 검토용 제안입니다._")
         add("")
         for i, t in enumerate(d["tasks"], 1):
             add(f"### {i}. {t.get('title', '')}")
@@ -191,6 +197,9 @@ def render_md(d: dict[str, Any]) -> str:
             add(f"- **관찰** {t.get('fact', '')}")
             add(f"- **함의** {t.get('mean', '')}")
             add(f"- **확인할 것** {t.get('ask', '')}")
+            for key, label in TASK_DETAIL_FIELDS:
+                if t.get(key):
+                    add(f"\n**{label}**\n\n{t[key]}\n")
             add("")
     else:
         add("_이 달 자료에서는 후보를 뽑지 못했습니다._")
@@ -317,7 +326,7 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
     p.append("<h2>4. 과제 후보</h2>")
     if d["tasks"]:
         p.append("<p class='note'>여러 자료가 같은 방향을 가리키는 것만 골랐습니다. "
-                 "<b>관찰</b>은 자료에서 확인된 사실, <b>함의</b>는 해석입니다.</p>")
+                 "<b>관찰</b>은 자료에서 확인된 사실, <b>함의</b>는 해석입니다. 진행 방법·기간·검토 기준은 팀 검토용 제안입니다.</p>")
         for i, tk in enumerate(d["tasks"], 1):
             p.append(f"<div class='task'><div class='task-h'>{i}. "
                      f"{e(tk.get('title', ''))}</div>"
@@ -326,7 +335,12 @@ def render_html(d: dict[str, Any], toolbar: bool = False) -> str:
                      f"<div class='task-r'><span class='task-k mean'>함의</span>"
                      f"<span>{e(tk.get('mean', ''))}</span></div>"
                      f"<div class='task-r'><span class='task-k ask'>확인할 것</span>"
-                     f"<span>{e(tk.get('ask', ''))}</span></div></div>")
+                     f"<span>{e(tk.get('ask', ''))}</span></div>")
+            for key, label in TASK_DETAIL_FIELDS:
+                if tk.get(key):
+                    p.append(f"<div class='task-r'><span class='task-k'>{label}</span>"
+                             f"<span style='white-space:pre-wrap'>{e(tk[key])}</span></div>")
+            p.append("</div>")
     else:
         p.append("<p class='sub'>이 달 자료에서는 후보를 뽑지 못했습니다.</p>")
 
