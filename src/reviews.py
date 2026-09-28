@@ -173,6 +173,15 @@ def review_data(engine: Engine, kind: str, period: str = "", now: datetime | Non
         legacy = None
         if not editorial:
             legacy = conn.execute(select(digests).where(digests.c.week == period)).mappings().first()
+        if not editorial and legacy:
+            # 수집 PC의 발행이 웹 배포보다 앞서도 본문·출처를 요약 칸에 섞지 않는다.
+            snapshot = (legacy["body"] or {}).get("editorial_snapshot")
+            if isinstance(snapshot, dict) and snapshot.get("period") == period:
+                try:
+                    editorial = validate_editorial(snapshot)
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    # 오래되었거나 불완전한 스냅샷은 기존 lead로 폴백한다.
+                    pass
         if not editorial and legacy and legacy["lead"]:
             editorial = {"period": period, "title": w["label"] + " 리뷰", "summary": legacy["lead"],
                          "as_of": "", "generated_at": str(legacy["generated_at"]), "legacy": True,

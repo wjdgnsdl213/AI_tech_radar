@@ -90,6 +90,35 @@ def test_ended_period_is_not_final_without_editorial_signoff(engine, monkeypatch
     assert m.review_data(engine, "monthly", "2026-08", NOW)["status"] == "closed"
 
 
+def test_review_without_deployed_file_uses_structured_snapshot(engine, monkeypatch):
+    m = reviews()
+    monkeypatch.setattr(m, "read_editorial", lambda period: None)
+    snapshot = {"period": "2026-W37", "summary": "- **핵심**: 간단한 요약",
+                "as_of": "2026-09-11", "sections": [
+                    {"title": "상세 해설", "body": "- **관찰**: 상세 내용", "source_ids": [2]}],
+                "sources": [{"id": 2, "title": "근거", "url": "https://example.com/2"}],
+                "tasks": []}
+    with engine.begin() as c:
+        c.execute(digests.insert().values(week="2026-W37", lead=m.editorial_text(snapshot),
+                  body={"editorial_snapshot": snapshot}, generated_at=NOW))
+    result = m.review_data(engine, "weekly", "2026-W37", NOW)
+    assert result["editorial"] == snapshot
+    assert "https://" not in result["editorial"]["summary"]
+
+
+@pytest.mark.parametrize("snapshot", [None, {}, {"period": "2026-W36", "summary": "wrong period"},
+                                     {"period": "2026-W37", "summary": "missing as_of"}])
+def test_review_without_usable_snapshot_preserves_legacy_lead(engine, monkeypatch, snapshot):
+    m = reviews()
+    monkeypatch.setattr(m, "read_editorial", lambda period: None)
+    with engine.begin() as c:
+        c.execute(digests.insert().values(week="2026-W37", lead="기존 요약",
+                  body={"editorial_snapshot": snapshot}, generated_at=NOW))
+    result = m.review_data(engine, "weekly", "2026-W37", NOW)
+    assert result["editorial"]["summary"] == "기존 요약"
+    assert result["editorial"]["legacy"] is True
+
+
 def test_issue_timeline_is_chronological_and_does_not_include_future(engine):
     d = reviews().issue_data(engine, "AI", 60, NOW)
     assert [a["id"] for a in d["articles"]] == [5, 1, 2]
