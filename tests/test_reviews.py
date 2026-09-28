@@ -166,13 +166,16 @@ def test_digest_resave_preserves_task_notes(engine, monkeypatch):
 def test_authored_report_preserves_structure(engine, monkeypatch):
     from src import report
     monkeypatch.setattr(report, 'get_engine', lambda: engine)
+    editorial = reviews().read_editorial('2026-09')
+    first_label = editorial['summary'].split('**', 2)[1]
+    first_section = editorial['sections'][0]['title']
     data = report.collect('2026-09', {'axes': {'ai': {'label': 'AI'}}}, now=NOW)
     rendered = report.render_html(data)
-    assert '<strong>정책·서비스</strong>' in rendered
-    assert '<h3>지속되는 흐름 1.' in rendered
+    assert f'<strong>{first_label}</strong>' in rendered
+    assert f'<h3>{first_section}</h3>' in rendered
     assert '<ol class="brief-sources">' in rendered
-    assert '**정책·서비스**' not in rendered
-    assert '### 지속되는 흐름 1.' in report.render_md(data)
+    assert f'**{first_label}**' not in rendered
+    assert f'### {first_section}' in report.render_md(data)
 
 
 def test_current_authored_reviews_use_bullets():
