@@ -104,11 +104,12 @@ window.Workspace = (() => {
         Q('#briefing-report-md').href='/report.md?month='+encodeURIComponent(v.period);
       }
       const max=Math.max(1,...v.series.map(s=>s.count));
+      const showSummary=selectedKind==='monthly'||!(r?.sections||[]).length;
       Q('#review-content').innerHTML=`
         <section class="card briefing-intro"><div class="review-head"><div><h2>${E(v.label)} ${selectedKind==='monthly'?'월간':'주간'} 리뷰 <span class="review-status">${STATUS[v.status]}</span></h2>
         <p class="review-meta">${E(v.start)} ~ ${E(v.through)} · 한국 시간</p></div>
         </div>
-        ${r?`<div class="review-prose briefing-summary">${ReviewFormat.render(r.summary).replace(/<\/strong>\s*[:：]\s*/g,'</strong>')}</div>`:'<div class="work-empty">이 기간의 해설은 준비 중입니다.</div>'}
+        ${r?(showSummary?`<div class="review-prose briefing-summary">${ReviewFormat.render(r.summary).replace(/<\/strong>\s*[:：]\s*/g,'</strong>')}</div>`:''):'<div class="work-empty">이 기간의 해설은 준비 중입니다.</div>'}
         <details class="briefing-dates"><summary>데이터·해설 기준</summary><p>최신 기사 ${E(fmt(v.data_as_of))}<br>${r?`해설 기준 ${E(r.as_of||'기록 없음')} · 작성 ${E(fmt(r.generated_at))}`:'해설 준비 중'}</p>${r?.legacy?UIHelp.render('기존 리뷰의 해설과 현재 재계산한 집계는 기준 시점이 다를 수 있습니다.'):''}</details></section>
         <div class="briefing-dashboard">
           <div class="briefing-kpis">
