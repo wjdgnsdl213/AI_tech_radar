@@ -288,15 +288,17 @@ button.help-icon:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 .inner:has(> #panel-briefing.active),.inner:has(> #panel-tasks.active){max-width:1440px}
 #panel-briefing .page-head,#panel-tasks .page-head{padding-bottom:18px;border-bottom:1px solid var(--line);margin-bottom:20px}
 #review-content .card,#panel-tasks .card{border:1px solid #e7ebf2;border-radius:16px;box-shadow:0 4px 16px #17264204}
-.briefing-intro{padding:24px 26px}
-.briefing-intro .review-head h2{font-size:20px;letter-spacing:-.4px}
-.briefing-intro .review-meta{margin:4px 0 20px;font-size:12px}
+.briefing-intro{padding:16px 24px}
+.briefing-intro .review-head{display:flex;align-items:center;gap:12px 24px}
+.briefing-intro .review-head h2{margin:0;font-size:20px;letter-spacing:-.4px}
+.briefing-intro .review-meta{margin:4px 0 0;font-size:12px}
+.briefing-intro .briefing-summary{margin-top:20px}
 .briefing-summary{background:none!important;padding:0!important;border:0!important;font-size:14px}
 .briefing-summary>.brief-points{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;list-style:none;padding:0;margin:0;background:transparent}
 .briefing-summary>.brief-points>li{margin:0;padding:16px 18px;background:#f6f8fc;border-radius:10px;font-size:14px;line-height:1.8}
 .briefing-summary>.brief-points strong{display:block;color:var(--blue-dark);margin-bottom:4px}
-.briefing-dates{margin-top:16px;font-size:12px;color:var(--mut)}
-.briefing-dates summary{cursor:pointer}
+.briefing-dates{margin:0;max-width:100%;font-size:12px;color:var(--mut)}
+.briefing-dates summary{cursor:pointer;white-space:nowrap}
 .briefing-dates p{margin:8px 0 0}
 .briefing-dashboard{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
 .briefing-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
@@ -407,7 +409,8 @@ button.help-icon:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 }
 @media(max-width:700px){
   .briefing-sections,.task-candidate-grid{grid-template-columns:minmax(0,1fr);gap:14px}
-  .briefing-intro,#review-content .briefing-section{padding:20px}
+  #review-content .briefing-section{padding:20px}
+  .briefing-intro{padding:16px 20px}
   .briefing-kpis{gap:8px}
   #review-content .briefing-kpi{padding:14px 10px}
   .briefing-kpi>strong{font-size:24px}
