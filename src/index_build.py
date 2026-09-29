@@ -186,7 +186,10 @@ def build_items(df: dict[str, int]) -> list[dict[str, Any]]:
     최근 것부터 상한만큼만 담는다 — '소상공인'은 1만 5천 건인데 화면은 40건만
     보여준다. 상한이 없으면 이 표가 원본만큼 커져서 옮기는 의미가 없다.
 
-    ★ 기관 키워드만 예외다 — 상한도 MIN_DF도 걸지 않는다.
+    검색 연결은 급상승 하한까지 저장한다. 이웃용 MIN_DF(10)를 그대로 쓰면
+    주 5~9건인 신규 합성어가 급상승에 나타나도 검색 결과가 비게 된다.
+
+    ★ 기관 키워드만 예외다 — 상한도 최소 빈도도 걸지 않는다.
       기관 화면은 8주를 **주차별로 쪼개서** 보여주고, 각 칸을 누르면 그 주 기사가
       나와야 한다. 최근 60건만 담으면 오래된 주가 통째로 비어 "표에는 33건인데
       목록은 0건"이 된다(실측: 중소벤처기업부는 8주에 122건).
@@ -194,7 +197,9 @@ def build_items(df: dict[str, int]) -> list[dict[str, Any]]:
       비용은 없다시피 하다: 기관 키워드는 2,025개 17,357행으로 이 표의 2%다.
     """
     org = {k for k in df if is_org_keyword(k)}
-    keep = {k for k, n in df.items() if n >= MIN_DF} | org
+    weekly_min = int(load_config().get("trend", {}).get("min_weekly_freq", 5))
+    item_min = min(MIN_DF, max(1, weekly_min))
+    keep = {k for k, n in df.items() if n >= item_min} | org
     per: dict[str, list[int]] = defaultdict(list)
     with kw_engine().connect() as c:
         # item_id가 클수록 최근이다(단조 증가). 내림차순으로 읽어 앞에서 자른다.
