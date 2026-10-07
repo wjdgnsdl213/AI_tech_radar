@@ -426,6 +426,7 @@ digest:
   week_start: monday
 
 web:
+  latest_review_week: "2026-W39"  # 9/21~9/27까지 공개. 수집 보충 후 변경하거나 제거.
   host: 0.0.0.0
   port: 8000
   page_size: 50

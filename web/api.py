@@ -135,10 +135,12 @@ def stats() -> dict[str, Any]:
 
 @router.get("/weeks")
 def weeks(limit: int = Query(80)) -> dict[str, Any]:
+    latest = CFG.get("web", {}).get("latest_review_week")
     with get_engine().connect() as c:
         rows = c.execute(
             select(items.c.published_week, func.count().label("n"))
             .where(items.c.kept.is_(True), items.c.published_week.isnot(None))
+            .where(items.c.published_week <= latest if latest else True)
             .group_by(items.c.published_week)
             .order_by(items.c.published_week.desc()).limit(limit)).all()
         saved = {w for (w,) in c.execute(select(digests.c.week))}
@@ -155,6 +157,9 @@ def digest(week: str = Query("")) -> dict[str, Any]:
             week = latest_week(c) or ""
     if not week:
         return {"week": None, "empty": True}
+    latest = CFG.get("web", {}).get("latest_review_week")
+    if latest and week > latest:
+        week = latest
     d = build(week, CFG)
     # 이모지를 쓰지 않는다. 이번 주 탭은 본문 제목도 아이콘도 없는 규칙으로
     # 통일했는데(사용자 요청), 여기만 🔥·⚠️가 남아 한 화면에 두 규칙이 섞였다.
@@ -845,10 +850,12 @@ def months() -> dict[str, Any]:
     """
     from src.insight import _week_month
 
+    latest = CFG.get("web", {}).get("latest_review_week")
     with get_engine().connect() as c:
         rows = c.execute(
             select(items.c.published_week, func.count())
             .where(items.c.kept.is_(True), items.c.published_week.isnot(None))
+            .where(items.c.published_week <= latest if latest else True)
             .group_by(items.c.published_week)).all()
         reviewed = {w for (w,) in c.execute(select(digests.c.week))
                     if w and len(w) == 7 and w[4] == "-"}

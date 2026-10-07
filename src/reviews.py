@@ -10,10 +10,16 @@ from urllib.parse import urlparse
 
 from sqlalchemy import Date, and_, case, cast, func, or_, select
 from sqlalchemy.engine import Connection, Engine
-from src.db import digests, item_axes, items
+from src.db import digests, item_axes, items, load_config
 
 KST = timezone(timedelta(hours=9))
 EDITORIAL_DIR = Path(__file__).resolve().parents[1] / "content" / "reviews"
+LATEST_REVIEW_WEEK = load_config().get("web", {}).get("latest_review_week", "")
+
+
+def visible_review_period(period: str) -> bool:
+    """수집 보충을 기다리는 주차는 리뷰와 추천 과제에서 제외한다."""
+    return not LATEST_REVIEW_WEEK or "W" not in period or period <= LATEST_REVIEW_WEEK
 
 
 def current_period(kind: str, now: datetime | None = None) -> str:
@@ -163,6 +169,9 @@ def _observations(conn: Connection, conditions: tuple, previous: tuple) -> tuple
 def review_data(engine: Engine, kind: str, period: str = "", now: datetime | None = None) -> dict[str, Any]:
     period = period or current_period(kind, now)
     w = period_window(kind, period, now)
+    if not visible_review_period(period):
+        period = LATEST_REVIEW_WEEK
+        w = period_window(kind, period, now)
     conds = _conditions(w["start"], w["cutoff"])
     prev_conds = _conditions(w["previous_start"], w["previous_end"])
     editorial = read_editorial(period)
@@ -216,7 +225,10 @@ def review_data(engine: Engine, kind: str, period: str = "", now: datetime | Non
 def available_periods(engine: Engine, kind: str, now: datetime | None = None) -> list[dict[str, str]]:
     if kind not in {"weekly", "monthly"}:
         raise ValueError("기간 종류가 올바르지 않습니다.")
-    periods = {current_period(kind, now)}
+    latest = current_period(kind, now)
+    if not visible_review_period(latest):
+        latest = LATEST_REVIEW_WEEK
+    periods = {latest}
     for path in EDITORIAL_DIR.glob("*.json"):
         if ("W" in path.stem) == (kind == "weekly"):
             periods.add(path.stem)
@@ -225,14 +237,15 @@ def available_periods(engine: Engine, kind: str, now: datetime | None = None) ->
             if p and ("W" in p) == (kind == "weekly"):
                 periods.add(p)
         earliest = conn.execute(select(func.min(items.c.published_at)).where(items.c.kept.is_(True))).scalar_one_or_none()
-    cursor = period_window(kind, current_period(kind, now), now)["start"]
+    cursor = period_window(kind, latest, now)["start"]
     # 최근 24개월/104주를 기본 탐색 범위로 제공. 그 이전 직접 작성 리뷰는 위에서 추가.
     for _ in range(24 if kind == "monthly" else 104):
         if earliest and cursor.astimezone(timezone.utc).replace(tzinfo=None) < earliest.replace(tzinfo=None):
             break
         periods.add(current_period(kind, cursor))
         cursor = period_window(kind, current_period(kind, cursor), now)["previous_start"]
-    return [{"period": p, "label": period_window(kind, p, now)["label"]} for p in sorted(periods, reverse=True)]
+    return [{"period": p, "label": period_window(kind, p, now)["label"]}
+            for p in sorted(periods, reverse=True) if visible_review_period(p)]
 
 
 def issue_data(engine: Engine, query: str, days: int = 90, now: datetime | None = None,
@@ -259,10 +272,14 @@ def task_candidates(engine: Engine) -> list[dict[str, Any]]:
     with engine.connect() as conn:
         rows = conn.execute(select(digests.c.week, digests.c.body).order_by(digests.c.week.desc()).limit(60)).all()
     for period, body in rows:
+        if not visible_review_period(period):
+            continue
         for task in (body or {}).get("tasks", []):
             key = period + ":" + task.get("title", "")
             candidates[key] = {**task, "key": key, "period": period, "sources": []}
     for path in sorted(EDITORIAL_DIR.glob("*.json")):
+        if not visible_review_period(path.stem):
+            continue
         review = read_editorial(path.stem)
         for task in (review or {}).get("tasks", []):
             key = review["period"] + ":" + task["title"]
